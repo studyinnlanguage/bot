@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeBot SaaS - Admin Panel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0b0e11; color: #eaecef; min-height: 100vh; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
+        .header h1 { font-size: 24px; }
+        .header a { color: #f0b90b; text-decoration: none; font-size: 13px; }
+        .login-card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 12px; padding: 32px; max-width: 400px; margin: 80px auto; }
+        .login-card h2 { text-align: center; margin-bottom: 8px; }
+        .login-card p { text-align: center; color: #848e9c; font-size: 13px; margin-bottom: 20px; }
+        .input { width: 100%; padding: 12px; background: #0b0e11; border: 1px solid #2a2e36; color: #eaecef; border-radius: 8px; font-size: 14px; margin-bottom: 12px; }
+        .btn { width: 100%; padding: 12px; background: #f0b90b; color: #0b0e11; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 14px; }
+        .tabs { display: flex; gap: 4px; background: #1e2126; padding: 4px; border-radius: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab { flex: 1; padding: 10px; text-align: center; cursor: pointer; border-radius: 8px; font-size: 13px; font-weight: 600; color: #848e9c; border: none; background: none; min-width: 100px; }
+        .tab.active { background: #f0b90b; color: #0b0e11; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 12px; margin-bottom: 20px; overflow: hidden; }
+        .card-header { padding: 16px 20px; border-bottom: 1px solid #2a2e36; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        .card-body { padding: 20px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+        .form-group { margin-bottom: 12px; }
+        .label { display: block; font-size: 11px; color: #848e9c; margin-bottom: 4px; text-transform: uppercase; }
+        .input-sm { width: 100%; padding: 8px 10px; background: #0b0e11; border: 1px solid #2a2e36; color: #eaecef; border-radius: 6px; font-size: 13px; }
+        .btn-create { background: #0ecb81; color: #0b0e11; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 13px; }
+        .license-row { padding: 12px 20px; border-bottom: 1px solid #2a2e36; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+        .license-row:last-child { border-bottom: none; }
+        .license-key { font-family: monospace; font-weight: 600; color: #f0b90b; }
+        .user-row { padding: 12px 20px; border-bottom: 1px solid #2a2e36; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+        .user-row:last-child { border-bottom: none; }
+        .badge { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-align: center; display: inline-block; }
+        .badge-active { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .badge-inactive { background: rgba(246,70,93,0.15); color: #f6465d; }
+        .badge-used { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .badge-unused { background: rgba(94,102,115,0.15); color: #848e9c; }
+        .badge-revoked { background: rgba(246,70,93,0.15); color: #f6465d; }
+        .badge-running { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .badge-banned { background: rgba(246,70,93,0.15); color: #f6465d; }
+        .badge-pending { background: rgba(240,185,11,0.15); color: #f0b90b; }
+        .badge-submitted { background: rgba(84,174,255,0.15); color: #54aeff; }
+        .badge-verified { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .btn-sm { padding: 5px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer; margin-left: 4px; }
+        .btn-revoke { background: #f6465d; color: white; }
+        .btn-delete { background: #2a2e36; color: #f6465d; border: 1px solid #f6465d; }
+        .btn-ban { background: #f6465d; color: white; }
+        .btn-unban { background: #0ecb81; color: #0b0e11; }
+        .copy-btn { background: #2a2e36; color: #f0b90b; border: 1px solid #f0b90b; }
+        .btn-verify { background: #0ecb81; color: white; }
+        .btn-reject { background: #f6465d; color: white; }
+        .btn-view { background: #2a2e36; color: #54aeff; border: 1px solid #54aeff; }
+        .empty { text-align: center; padding: 40px; color: #848e9c; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 8px; padding: 16px; }
+        .stat-label { font-size: 10px; color: #848e9c; text-transform: uppercase; margin-bottom: 4px; }
+        .stat-value { font-size: 22px; font-weight: 700; }
+        .stat-value.green { color: #0ecb81; }
+        .stat-value.yellow { color: #f0b90b; }
+        .stat-value.red { color: #f6465d; }
+        .stat-value.blue { color: #54aeff; }
+        .order-row { padding: 14px 20px; border-bottom: 1px solid #2a2e36; font-size: 12px; }
+        .order-row:last-child { border-bottom: none; }
+        .order-row:hover { background: rgba(255,255,255,0.02); }
+        .order-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .order-id { font-family: monospace; font-weight: 700; color: #f0b90b; font-size: 13px; }
+        .order-user { color: #848e9c; font-size: 11px; margin-bottom: 8px; }
+        .order-details { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #848e9c; margin-bottom: 10px; }
+        .order-details span { color: #eaecef; }
+        .order-tx { font-family: monospace; font-size: 11px; color: #848e9c; background: #0b0e11; padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 10px; }
+        .order-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .ss-thumb { max-width: 80px; max-height: 80px; border-radius: 6px; border: 1px solid #2a2e36; cursor: pointer; margin-top: 4px; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 100000; justify-content: center; align-items: center; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: #1e2126; border: 1px solid #2a2e36; border-radius: 12px; padding: 24px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal h3 { margin-bottom: 16px; }
+        .modal img { max-width: 100%; border-radius: 8px; }
+        .modal-close { float: right; background: none; border: none; color: #848e9c; font-size: 20px; cursor: pointer; }
+        .wallet-section { background: #1e2126; border: 1px solid #2a2e36; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; }
+        .wallet-section .label { font-size: 10px; color: #848e9c; text-transform: uppercase; margin-bottom: 4px; }
+        .wallet-addr { font-family: monospace; font-size: 13px; color: #f0b90b; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Admin Panel</h1>
+            <a href="/"><- Back to Dashboard</a>
+        </div>
+
+        {% if admin_login_required %}
+        <div class="login-card">
+            <h2>Admin Login</h2>
+            <p>Enter the admin password</p>
+            <div id="err" style="color: #f6465d; text-align: center; margin-bottom: 12px; font-size: 13px; display: none;"></div>
+            <input type="password" id="adminPass" class="input" placeholder="Admin password">
+            <button class="btn" onclick="adminLogin()">Login as Admin</button>
+        </div>
+        <script>
+            async function adminLogin() {
+                const pass = document.getElementById('adminPass').value;
+                try {
+                    const r = await fetch('/api/admin/login', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({password: pass})
+                    });
+                    const data = await r.json();
+                    if (data.success) window.location.reload();
+                    else {
+                        const err = document.getElementById('err');
+                        err.textContent = data.error || 'Login failed';
+                        err.style.display = 'block';
+                    }
+                } catch(e) { alert('Network error'); }
+            }
+        </script>
+        {% else %}
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">Total Users</div>
+                <div id="totalUsers" class="stat-value">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Licenses</div>
+                <div id="activeLics" class="stat-value green">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Bots Running</div>
+                <div id="botsRunning" class="stat-value yellow">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pending Orders</div>
+                <div id="pendingOrders" class="stat-value blue">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Unused Licenses</div>
+                <div id="unusedLics" class="stat-value red">-</div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('orders', event)">Payment Orders</button>
+            <button class="tab" onclick="switchTab('licenses', event)">License Keys</button>
+            <button class="tab" onclick="switchTab('users', event)">Users</button>
+        </div>
+
+        <!-- ORDERS TAB -->
+        <div id="tab-orders" class="tab-content active">
+            <div class="wallet-section">
+                <div class="label">Payment Wallet Address (users send USDT here)</div>
+                <div class="wallet-addr" id="walletAddr">Loading...</div>
+                <div style="margin-top:8px;display:flex;gap:8px;">
+                    <input type="text" id="newWallet" class="input-sm" placeholder="New wallet address" style="flex:1">
+                    <input type="text" id="newNetwork" class="input-sm" placeholder="e.g. TRC20 (USDT)" style="width:160px">
+                    <button class="btn-sm btn-create" onclick="updateWallet()">Update</button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">Payment Orders <span id="ordersCount" style="color:#848e9c;font-weight:400;font-size:12px;"></span></div>
+                <div id="ordersList" style="padding: 8px 0;">
+                    <div class="empty">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LICENSES TAB -->
+        <div id="tab-licenses" class="tab-content">
+            <div class="card">
+                <div class="card-header">Create New License</div>
+                <div class="card-body">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="label">Days</label>
+                            <select id="licDays" class="input-sm">
+                                <option value="7">7 days</option>
+                                <option value="30" selected>30 days</option>
+                                <option value="90">90 days</option>
+                                <option value="180">180 days</option>
+                                <option value="365">365 days</option>
+                                <option value="9999">Lifetime</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Plan</label>
+                            <select id="licPlan" class="input-sm">
+                                <option value="trial">Trial</option>
+                                <option value="basic" selected>Basic</option>
+                                <option value="pro">Pro</option>
+                                <option value="lifetime">Lifetime</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Note (optional)</label>
+                            <input type="text" id="licNote" class="input-sm" placeholder="Customer name etc">
+                        </div>
+                    </div>
+                    <button class="btn-create" onclick="createLicense()">+ Generate License Key</button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">All License Keys</div>
+                <div id="licensesList" style="padding: 8px 0;">
+                    <div class="empty">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- USERS TAB -->
+        <div id="tab-users" class="tab-content">
+            <div class="card">
+                <div class="card-header">User Management</div>
+                <div id="usersList" style="padding: 8px 0;">
+                    <div class="empty">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screenshot Modal -->
+        <div class="modal-overlay" id="ssModal" onclick="if(event.target===this)this.classList.remove('show')">
+            <div class="modal">
+                <button class="modal-close" onclick="document.getElementById('ssModal').classList.remove('show')">&times;</button>
+                <h3>Payment Screenshot</h3>
+                <img id="ssModalImg" src="" alt="Screenshot">
+            </div>
+        </div>
+
+        <script>
+            function switchTab(tab, event) {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                event.target.classList.add('active');
+                document.getElementById('tab-' + tab).classList.add('active');
+            }
+
+            async function loadAll() {
+                await Promise.all([loadOrders(), loadLicenses(), loadUsers(), loadWallet()]);
+            }
+
+            // ===== ORDERS =====
+            async function loadOrders() {
+                try {
+                    const r = await fetch('/api/admin/orders');
+                    const data = await r.json();
+                    if (data.success) { renderOrders(data.orders); updateStats(null, data.orders); }
+                } catch(e) {}
+            }
+
+            function renderOrders(orders) {
+                const list = document.getElementById('ordersList');
+                document.getElementById('ordersCount').textContent = '(' + orders.length + ')';
+                if (orders.length === 0) {
+                    list.innerHTML = '<div class="empty">No orders yet.</div>';
+                    return;
+                }
+                list.innerHTML = orders.map(o => {
+                    const statusMap = {
+                        pending: '<span class="badge badge-pending">PENDING</span>',
+                        submitted: '<span class="badge badge-submitted">SUBMITTED</span>',
+                        verified: '<span class="badge badge-verified">VERIFIED</span>',
+                        rejected: '<span class="badge badge-rejected">REJECTED</span>',
+                    };
+                    const statusBadge = statusMap[o.status] || o.status;
+                    const ssHtml = o.screenshot
+                        ? '<img class="ss-thumb" src="/uploads/' + o.screenshot + '" onclick="showSS(\'' + o.screenshot + '\')" title="Click to view">'
+                        : '';
+                    const txHtml = o.tx_hash
+                        ? '<div class="order-tx">TX: ' + o.tx_hash + '</div>'
+                        : '';
+                    let actions = '';
+                    if (o.status === 'submitted' || o.status === 'pending') {
+                        actions = '<button class="btn-sm btn-verify" onclick=\'verifyOrder("' + o.id + '")\'>Verify & Send License</button>';
+                        actions += '<button class="btn-sm btn-reject" onclick=\'rejectOrder("' + o.id + '")\'>Reject</button>';
+                    }
+                    if (o.license_key) {
+                        actions += '<button class="btn-sm copy-btn" onclick=\'copyText("' + o.license_key + '")\'>Copy Key</button>';
+                    }
+                    let licenseInfo = '';
+                    if (o.status === 'verified' && o.license_key) {
+                        licenseInfo = '<div style="margin-top:6px;font-family:monospace;font-size:11px;color:#0ecb81;">License: ' + o.license_key + '</div>';
+                    }
+                    let rejectInfo = '';
+                    if (o.status === 'rejected') {
+                        rejectInfo = '<div style="margin-top:6px;color:#f6465d;font-size:11px;">Reason: ' + (o.rejection_reason || 'N/A') + '</div>';
+                    }
+                    const dateStr = o.created_at ? new Date(o.created_at).toLocaleString() : '-';
+                    return '<div class="order-row">'
+                        + '<div class="order-top">'
+                        + '  <div><span class="order-id">' + o.id + '</span> <span class="badge" style="background:rgba(240,185,11,0.1);color:#f0b90b;margin-left:8px;">$' + o.amount + ' ' + (o.currency||'') + '</span></div>'
+                        + '  <div>' + statusBadge + '</div>'
+                        + '</div>'
+                        + '<div class="order-user">User: ' + (o.user_email||'-') + (o.user_name ? ' (' + o.user_name + ')' : '') + '</div>'
+                        + '<div class="order-details">'
+                        + '  Package: <span>' + o.package_name + '</span> | '
+                        + '  Created: <span>' + dateStr + '</span>'
+                        + '</div>'
+                        + txHtml
+                        + (ssHtml ? '<div>' + ssHtml + '</div>' : '')
+                        + '<div class="order-actions">' + actions + '</div>'
+                        + licenseInfo
+                        + rejectInfo
+                        + '</div>';
+                }).join('');
+            }
+
+            function showSS(filename) {
+                document.getElementById('ssModalImg').src = '/uploads/' + filename;
+                document.getElementById('ssModal').classList.add('show');
+            }
+
+            async function verifyOrder(orderId) {
+                if (!confirm('Verify this order? A license key will be generated and sent to the user.')) return;
+                try {
+                    const r = await fetch('/api/admin/orders/verify', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({order_id: orderId})
+                    });
+                    const data = await r.json();
+                    if (data.success) {
+                        alert('Verified! License: ' + data.license_key + '\nEmail sent: ' + (data.email_sent ? 'Yes' : 'No (check SMTP config)'));
+                        loadOrders(); loadLicenses();
+                    } else { alert('Failed: ' + (data.error || 'Unknown error')); }
+                } catch(e) { alert('Network error'); }
+            }
+
+            async function rejectOrder(orderId) {
+                const reason = prompt('Rejection reason (optional):', 'Payment could not be verified. Please contact support.');
+                if (reason === null) return;
+                try {
+                    const r = await fetch('/api/admin/orders/reject', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({order_id: orderId, reason: reason})
+                    });
+                    const data = await r.json();
+                    if (data.success) { loadOrders(); }
+                    else { alert('Failed: ' + (data.error || 'Unknown error')); }
+                } catch(e) { alert('Network error'); }
+            }
+
+            // ===== LICENSES =====
+            async function loadLicenses() {
+                try {
+                    const r = await fetch('/api/admin/licenses');
+                    const data = await r.json();
+                    if (data.success) { renderLicenses(data.licenses); }
+                } catch(e) {}
+            }
+
+            function renderLicenses(licenses) {
+                const list = document.getElementById('licensesList');
+                if (licenses.length === 0) {
+                    list.innerHTML = '<div class="empty">No licenses yet. Generate one below.</div>';
+                    return;
+                }
+                list.innerHTML = licenses.map(l => {
+                    const statusBadge = l.revoked ? '<span class="badge badge-revoked">revoked</span>' :
+                                       l.used_by ? '<span class="badge badge-used">used</span>' :
+                                       '<span class="badge badge-unused">unused</span>';
+                    const actions = '<button class="btn-sm copy-btn" onclick="copyKey(\'' + l.key + '\')">Copy</button>'
+                        + (!l.revoked ? '<button class="btn-sm btn-revoke" onclick="revokeLicense(\'' + l.key + '\')">Revoke</button>' : '')
+                        + '<button class="btn-sm btn-delete" onclick="deleteLicense(\'' + l.key + '\')">Delete</button>';
+                    return '<div class="license-row">'
+                        + '<div class="license-key">' + l.key + '</div>'
+                        + '<div>' + l.plan + '</div>'
+                        + '<div>' + (l.days === 9999 ? 'Lifetime' : l.days + 'd') + '</div>'
+                        + '<div>' + (l.expires_at ? new Date(l.expires_at).toLocaleDateString() : '-') + '</div>'
+                        + '<div>' + statusBadge + '</div>'
+                        + '<div>' + actions + '</div>'
+                        + '</div>';
+                }).join('');
+            }
+
+            async function createLicense() {
+                const days = parseInt(document.getElementById('licDays').value);
+                const plan = document.getElementById('licPlan').value;
+                const note = document.getElementById('licNote').value;
+                try {
+                    const r = await fetch('/api/admin/licenses/create', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({days, plan, note})
+                    });
+                    const data = await r.json();
+                    if (data.success) {
+                        alert('License generated: ' + data.license.key);
+                        navigator.clipboard.writeText(data.license.key);
+                        document.getElementById('licNote').value = '';
+                        loadLicenses();
+                    } else { alert('Failed: ' + (data.error || 'Unknown error')); }
+                } catch(e) { alert('Network error'); }
+            }
+
+            function copyKey(key) { navigator.clipboard.writeText(key); alert('Copied: ' + key); }
+
+            async function revokeLicense(key) {
+                if (!confirm('Revoke this license? The user\'s bot will be stopped.')) return;
+                try {
+                    const r = await fetch('/api/admin/licenses/revoke', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({key})
+                    });
+                    const data = await r.json();
+                    if (data.success) { alert('Revoked'); loadLicenses(); loadOrders(); }
+                    else alert('Failed: ' + (data.error || 'Unknown error'));
+                } catch(e) { alert('Network error'); }
+            }
+
+            async function deleteLicense(key) {
+                if (!confirm('Permanently delete this license?')) return;
+                try {
+                    const r = await fetch('/api/admin/licenses/delete', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({key})
+                    });
+                    const data = await r.json();
+                    if (data.success) { alert('Deleted'); loadLicenses(); }
+                    else alert('Failed: ' + (data.error || 'Unknown error'));
+                } catch(e) { alert('Network error'); }
+            }
+
+            // ===== USERS =====
+            async function loadUsers() {
+                try {
+                    const r = await fetch('/api/admin/users');
+                    const data = await r.json();
+                    if (data.success) renderUsers(data.users);
+                } catch(e) {}
+            }
+
+            function renderUsers(users) {
+                const list = document.getElementById('usersList');
+                if (users.length === 0) {
+                    list.innerHTML = '<div class="empty">No users yet.</div>';
+                    return;
+                }
+                list.innerHTML = users.map(u => {
+                    const subBadge = u.subscription.active ?
+                        '<span class="badge badge-active">' + u.subscription.plan + ' - ' + u.subscription.days_left + 'd</span>' :
+                        '<span class="badge badge-inactive">inactive</span>';
+                    const botBadge = u.bot_running ?
+                        '<span class="badge badge-running">running</span>' :
+                        '<span class="badge" style="background:rgba(94,102,115,0.15);color:#848e9c;">stopped</span>';
+                    const banBadge = u.banned ? '<span class="badge badge-banned">banned</span>' : '';
+                    const actions = '<button class="btn-sm ' + (u.banned ? 'btn-unban' : 'btn-ban') + '" onclick="banUser(\'' + u.id + '\', ' + !u.banned + ')">' + (u.banned ? 'Unban' : 'Ban') + '</button>'
+                        + '<button class="btn-sm btn-delete" onclick="deleteUser(\'' + u.id + '\')">Delete</button>';
+                    return '<div class="user-row">'
+                        + '<div><div style="font-weight:600;">' + u.email + '</div><div style="color:#848e9c;font-size:11px;">' + u.name + ' | License: ' + (u.license_key || 'none') + '</div></div>'
+                        + '<div>' + subBadge + '</div>'
+                        + '<div>' + botBadge + '</div>'
+                        + '<div>' + banBadge + '</div>'
+                        + '<div>' + actions + '</div>'
+                        + '</div>';
+                }).join('');
+            }
+
+            async function banUser(userId, banned) {
+                if (banned && !confirm('Ban this user? Their bot will be stopped.')) return;
+                try {
+                    const r = await fetch('/api/admin/ban', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({user_id: userId, banned})
+                    });
+                    const data = await r.json();
+                    if (data.success) { loadUsers(); }
+                    else alert('Failed: ' + (data.error || 'Unknown error'));
+                } catch(e) { alert('Network error'); }
+            }
+
+            async function deleteUser(userId) {
+                if (!confirm('PERMANENTLY delete this user? This cannot be undone!')) return;
+                try {
+                    const r = await fetch('/api/admin/delete', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({user_id: userId})
+                    });
+                    const data = await r.json();
+                    if (data.success) { loadUsers(); }
+                    else alert('Failed: ' + (data.error || 'Unknown error'));
+                } catch(e) { alert('Network error'); }
+            }
+
+            // ===== WALLET =====
+            async function loadWallet() {
+                try {
+                    const r = await fetch('/api/admin/wallet');
+                    const data = await r.json();
+                    if (data.success) {
+                        document.getElementById('walletAddr').textContent = data.wallet + ' (' + data.network + ')';
+                    }
+                } catch(e) {}
+            }
+
+            async function updateWallet() {
+                const w = document.getElementById('newWallet').value.trim();
+                const n = document.getElementById('newNetwork').value.trim();
+                if (!w) return alert('Enter wallet address');
+                try {
+                    const r = await fetch('/api/admin/wallet', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({wallet: w, network: n || undefined})
+                    });
+                    const data = await r.json();
+                    if (data.success) {
+                        document.getElementById('walletAddr').textContent = data.wallet + ' (' + data.network + ')';
+                        document.getElementById('newWallet').value = '';
+                        document.getElementById('newNetwork').value = '';
+                    }
+                } catch(e) { alert('Network error'); }
+            }
+
+            function updateStats(licenses, orders) {
+                if (licenses) {
+                    const active = licenses.filter(l => l.active && !l.revoked).length;
+                    const unused = licenses.filter(l => !l.used_by && !l.revoked).length;
+                    document.getElementById('activeLics').textContent = active;
+                    document.getElementById('unusedLics').textContent = unused;
+                }
+                if (orders) {
+                    const pending = orders.filter(o => o.status === 'submitted' || o.status === 'pending').length;
+                    document.getElementById('pendingOrders').textContent = pending;
+                }
+            }
+
+            function copyText(text) { navigator.clipboard.writeText(text); alert('Copied: ' + text); }
+
+            loadAll();
+        </script>
+        {% endif %}
+    </div>
+</body>
+</html>
