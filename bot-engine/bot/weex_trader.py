@@ -328,18 +328,42 @@ class WEEXFuturesTrader:
         return 0.0
 
     def get_contract_info(self, symbol: str) -> dict:
-        """Fetch contract specs (lot size, tick size) for a symbol. Cached.
+        """Fetch contract specs (lot size, tick size) for a symbol. Cached."""
+        symbol = self._market_symbol(symbol.upper())
 
-        WEEX has no public /capi/v3/market/contracts endpoint (returns 404).
-        We fetch from /capi/v3/market/ticker/24hr (which returns all symbols)
-        and just use sensible defaults for step/min/tick size.
-        """
-        symbol = symbol.upper()
+        # If cache is empty or symbol not in cache, load all symbols from exchangeInfo
+        if not self._contract_cache:
+            try:
+                url = "https://api-contract.weex.com/capi/v3/market/exchangeInfo"
+                resp = self.session.get(url, timeout=10)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict) and "symbols" in data:
+                        for sym_info in data["symbols"]:
+                            sym = sym_info["symbol"].upper()
+                            price_prec = int(sym_info.get("pricePrecision", 2))
+                            qty_prec = int(sym_info.get("quantityPrecision", 2))
+
+                            # Calculate tick_size and step_size
+                            tick_size = 10**(-price_prec) if price_prec >= 0 else 10**abs(price_prec)
+                            step_size = 10**(-qty_prec) if qty_prec >= 0 else 10**abs(qty_prec)
+
+                            min_qty = float(sym_info.get("minOrderSize", step_size))
+
+                            self._contract_cache[sym] = {
+                                "step_size": step_size,
+                                "min_qty": min_qty,
+                                "tick_size": tick_size,
+                                "contract_size": 1
+                            }
+                        logger.info(f"WEEX: Cached {len(self._contract_cache)} symbols from exchangeInfo")
+            except Exception as e:
+                logger.error(f"WEEX: Failed to fetch exchangeInfo: {e}")
+
         if symbol in self._contract_cache:
             return self._contract_cache[symbol]
-        # Defaults based on price magnitude (good enough for most pairs)
-        # For BTC ($64k): step=0.001 BTC, tick=$0.1
-        # For low-price coins: step=1, tick=$0.0001
+
+        # Defaults based on price magnitude (good enough for most pairs if exchangeInfo failed)
         try:
             price = self.get_mark_price(symbol)
             if price > 0:
