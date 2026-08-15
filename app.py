@@ -203,10 +203,8 @@ _db_lock = _threading.Lock()
 def save_db(db: dict):
     with _db_lock:
         try:
-            tmp_file = str(DB_FILE) + ".tmp"
-            with open(tmp_file, "w", encoding="utf-8") as f:
+            with open(DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(db, f, indent=2, ensure_ascii=False)
-            os.replace(tmp_file, str(DB_FILE))
         except OSError as e:
             logger.error("DB save failed: %s", e)
 
