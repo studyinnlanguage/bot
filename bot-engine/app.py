@@ -43,7 +43,7 @@ app.config["SECRET_KEY"] = os.environ.get("BOT_ENGINE_SECRET", secrets.token_hex
 
 socketio = SocketIO(
     app,
-    cors_allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+    cors_allowed_origins="*",
     async_mode="threading",
     ping_timeout=60,
     ping_interval=25,
