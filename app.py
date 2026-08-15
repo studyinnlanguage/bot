@@ -403,19 +403,19 @@ def write_user_bot_config(user_id: str) -> str:
     user_bot_dir = USER_INSTANCES_DIR / user_id
     user_bot_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy bot-engine files if not already copied (only first time)
-    if not (user_bot_dir / "app.py").exists():
-        for item in BOT_ENGINE_DIR.iterdir():
-            if item.name in ('logs', '__pycache__', 'config.json', 'config.json.bak',
-                           '.local_activation.dat', '.admin_password.txt',
-                           'licenses.json', 'crash.log', 'user_configs'):
-                continue
-            dest = user_bot_dir / item.name
-            if item.is_dir():
-                if not dest.exists():
-                    shutil.copytree(item, dest, ignore=shutil.ignore_patterns('__pycache__'))
-            else:
-                shutil.copy2(item, dest)
+    # Copy bot-engine files (always sync on start to run latest code)
+    for item in BOT_ENGINE_DIR.iterdir():
+        if item.name in ('logs', '__pycache__', 'config.json', 'config.json.bak',
+                       '.local_activation.dat', '.admin_password.txt',
+                       'licenses.json', 'crash.log', 'user_configs'):
+            continue
+        dest = user_bot_dir / item.name
+        if item.is_dir():
+            if dest.exists():
+                shutil.rmtree(dest, ignore_errors=True)
+            shutil.copytree(item, dest, ignore=shutil.ignore_patterns('__pycache__'))
+        else:
+            shutil.copy2(item, dest)
 
     config_path = user_bot_dir / "config.json"
     with open(config_path, "w", encoding="utf-8") as f:
@@ -694,6 +694,33 @@ def admin_panel():
     if not is_admin():
         return render_template("saas_admin.html", admin_login_required=True)
     return render_template("saas_admin.html", admin_login_required=False)
+
+@app.route("/api/debug/logs")
+def list_logs():
+    if not is_admin():
+        return "Unauthorized", 403
+    files = [f.name for f in LOG_DIR.iterdir() if f.is_file()]
+    return jsonify(files)
+
+@app.route("/api/debug/logs/saas")
+def get_saas_logs():
+    if not is_admin():
+        return "Unauthorized", 403
+    log_file = LOG_DIR / "saas.log"
+    if not log_file.exists():
+        return "Log file not found", 404
+    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+        return Response(f.read(), mimetype="text/plain")
+
+@app.route("/api/debug/logs/<user_id>")
+def get_user_bot_logs(user_id):
+    if not is_admin():
+        return "Unauthorized", 403
+    log_file = LOG_DIR / f"bot_{user_id}.log"
+    if not log_file.exists():
+        return "Log file not found", 404
+    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+        return Response(f.read(), mimetype="text/plain")
 
 @app.route("/favicon.ico")
 def favicon():
