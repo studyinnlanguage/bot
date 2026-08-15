@@ -1267,11 +1267,10 @@ def bot_engine_proxy(path=''):
     excluded = {'content-encoding', 'transfer-encoding', 'connection', 'content-length', 'keep-alive'}
     response_headers = [(k, v) for k, v in resp.headers.items() if k.lower() not in excluded]
 
-    content = resp.content
     content_type = resp.headers.get('content-type', '')
 
     if 'text/html' in content_type:
-        html = content.decode('utf-8', errors='replace')
+        html = resp.content.decode('utf-8', errors='replace')
         html = html.replace('href="/static/', 'href="/bot/static/')
         html = html.replace('src="/static/', 'src="/bot/static/')
         html = html.replace("fetch('/api/", "fetch('/bot/api/")
@@ -1289,18 +1288,26 @@ def bot_engine_proxy(path=''):
 </div>
 '''
         html = html.replace('</body>', saas_bar + '</body>')
-        content = html.encode('utf-8')
+        return Response(html.encode('utf-8'), status=resp.status_code, headers=response_headers)
 
     elif 'javascript' in content_type:
-        js = content.decode('utf-8', errors='replace')
+        js = resp.content.decode('utf-8', errors='replace')
         js = js.replace("fetch('/api/", "fetch('/bot/api/")
         js = js.replace('fetch("/api/', 'fetch("/bot/api/')
         import re
         js = re.sub(r'io\s*\(\s*\{', "io({path: '/bot/socket.io', ", js)
         js = re.sub(r'io\s*\(\s*\)', "io({path: '/bot/socket.io'})", js)
-        content = js.encode('utf-8')
+        return Response(js.encode('utf-8'), status=resp.status_code, headers=response_headers)
 
-    return Response(content, status=resp.status_code, headers=response_headers)
+    else:
+        # Stream non-HTML and non-JS content (e.g. Socket.IO polling, static files)
+        def generate():
+            try:
+                for chunk in resp.iter_content(chunk_size=4096):
+                    yield chunk
+            except Exception as e:
+                logger.error("Proxy streaming error: %s", e)
+        return Response(generate(), status=resp.status_code, headers=response_headers)
 
 # ============================================================
 # Admin API
