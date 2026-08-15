@@ -444,4 +444,4 @@ if __name__ == "__main__":
     logger.info(" Bot Engine - Starting (port %d)", port)
     logger.info("="*60)
     # NOTE: For production, use gunicorn with eventlet worker instead of this dev server
-    socketio.run(app, host=host, port=port, debug=False, use_reloader=False)
+    socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
