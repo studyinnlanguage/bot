@@ -8,3 +8,73 @@
 2026-08-17 01:55:08,599 [INFO] saas:  Payment wallet: YOUR_USD...HERE (TRC20 (USDT))
 2026-08-17 01:55:08,603 [INFO] saas:  Google OAuth: NOT configured
 2026-08-17 01:55:08,604 [INFO] saas: ============================================================
+2026-08-17 23:58:55,753 [ERROR] saas: ADMIN_SECRET env var NOT SET! Admin panel login is DISABLED.
+2026-08-17 23:58:55,754 [ERROR] saas: Set it like:  set ADMIN_SECRET=your_password  (Windows)
+2026-08-17 23:58:55,755 [ERROR] saas:           or:  export ADMIN_SECRET=your_password  (Linux/Mac)
+2026-08-17 23:58:55,756 [INFO] saas: ============================================================
+2026-08-17 23:58:55,756 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-08-17 23:58:55,756 [INFO] saas:  Bot engine dir: D:\bot\bot-engine
+2026-08-17 23:58:55,756 [INFO] saas:  Admin panel: DISABLED (no ADMIN_SECRET env var)
+2026-08-17 23:58:55,756 [INFO] saas:  Payment wallet: YOUR_USD...HERE (TRC20 (USDT))
+2026-08-17 23:58:55,756 [INFO] saas:  Google OAuth: NOT configured
+2026-08-17 23:58:55,757 [INFO] saas: ============================================================
+2026-08-17 23:59:40,677 [ERROR] saas: ADMIN_SECRET env var NOT SET! Admin panel login is DISABLED.
+2026-08-17 23:59:40,678 [ERROR] saas: Set it like:  set ADMIN_SECRET=your_password  (Windows)
+2026-08-17 23:59:40,678 [ERROR] saas:           or:  export ADMIN_SECRET=your_password  (Linux/Mac)
+2026-08-17 23:59:40,679 [INFO] saas: ============================================================
+2026-08-17 23:59:40,680 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-08-17 23:59:40,680 [INFO] saas:  Bot engine dir: D:\bot\bot-engine
+2026-08-17 23:59:40,680 [INFO] saas:  Admin panel: DISABLED (no ADMIN_SECRET env var)
+2026-08-17 23:59:40,680 [INFO] saas:  Payment wallet: YOUR_USD...HERE (TRC20 (USDT))
+2026-08-17 23:59:40,680 [INFO] saas:  Google OAuth: NOT configured
+2026-08-17 23:59:40,681 [INFO] saas: ============================================================
+2026-08-17 23:59:40,681 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-17 23:59:40,681 [INFO] saas: Loaded 0 users, 0 licenses, 0 orders from PostgreSQL
+2026-08-17 23:59:40,727 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-17 23:59:40,729 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-17 23:59:40,729 [INFO] saas: Loaded 0 users, 0 licenses, 0 orders from PostgreSQL
+2026-08-18 00:00:12,514 [ERROR] saas: ADMIN_SECRET env var NOT SET! Admin panel login is DISABLED.
+2026-08-18 00:00:12,515 [ERROR] saas: Set it like:  set ADMIN_SECRET=your_password  (Windows)
+2026-08-18 00:00:12,515 [ERROR] saas:           or:  export ADMIN_SECRET=your_password  (Linux/Mac)
+2026-08-18 00:00:12,516 [INFO] saas: ============================================================
+2026-08-18 00:00:12,516 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-08-18 00:00:12,517 [INFO] saas:  Bot engine dir: D:\bot\bot-engine
+2026-08-18 00:00:12,517 [INFO] saas:  Admin panel: DISABLED (no ADMIN_SECRET env var)
+2026-08-18 00:00:12,517 [INFO] saas:  Payment wallet: YOUR_USD...HERE (TRC20 (USDT))
+2026-08-18 00:00:12,517 [INFO] saas:  Google OAuth: NOT configured
+2026-08-18 00:00:12,518 [INFO] saas: ============================================================
+2026-08-18 00:00:12,518 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:00:12,518 [INFO] saas: Loaded 0 users, 0 licenses, 0 orders from PostgreSQL
+2026-08-18 00:00:12,555 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:00:12,556 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:00:12,557 [INFO] saas: Loaded 1 users, 1 licenses, 1 orders from PostgreSQL
+2026-08-18 00:00:49,546 [ERROR] saas: ADMIN_SECRET env var NOT SET! Admin panel login is DISABLED.
+2026-08-18 00:00:49,546 [ERROR] saas: Set it like:  set ADMIN_SECRET=your_password  (Windows)
+2026-08-18 00:00:49,546 [ERROR] saas:           or:  export ADMIN_SECRET=your_password  (Linux/Mac)
+2026-08-18 00:00:49,547 [INFO] saas: ============================================================
+2026-08-18 00:00:49,547 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-08-18 00:00:49,547 [INFO] saas:  Bot engine dir: D:\bot\bot-engine
+2026-08-18 00:00:49,548 [INFO] saas:  Admin panel: DISABLED (no ADMIN_SECRET env var)
+2026-08-18 00:00:49,548 [INFO] saas:  Payment wallet: YOUR_USD...HERE (TRC20 (USDT))
+2026-08-18 00:00:49,548 [INFO] saas:  Google OAuth: NOT configured
+2026-08-18 00:00:49,548 [INFO] saas: ============================================================
+2026-08-18 00:00:49,548 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:00:49,549 [INFO] saas: Loaded 0 users, 0 licenses, 0 orders from PostgreSQL
+2026-08-18 00:00:49,581 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:00:49,583 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:00:49,583 [INFO] saas: Loaded 1 users, 1 licenses, 1 orders from PostgreSQL
+2026-08-18 00:06:17,375 [ERROR] saas: ADMIN_SECRET env var NOT SET! Admin panel login is DISABLED.
+2026-08-18 00:06:17,376 [ERROR] saas: Set it like:  set ADMIN_SECRET=your_password  (Windows)
+2026-08-18 00:06:17,376 [ERROR] saas:           or:  export ADMIN_SECRET=your_password  (Linux/Mac)
+2026-08-18 00:06:17,377 [INFO] saas: ============================================================
+2026-08-18 00:06:17,378 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-08-18 00:06:17,378 [INFO] saas:  Bot engine dir: D:\bot\bot-engine
+2026-08-18 00:06:17,378 [INFO] saas:  Admin panel: DISABLED (no ADMIN_SECRET env var)
+2026-08-18 00:06:17,378 [INFO] saas:  Payment wallet: YOUR_USD...HERE (TRC20 (USDT))
+2026-08-18 00:06:17,378 [INFO] saas:  Google OAuth: NOT configured
+2026-08-18 00:06:17,379 [INFO] saas: ============================================================
+2026-08-18 00:06:17,379 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:06:17,379 [INFO] saas: Loaded 0 users, 0 licenses, 0 orders from PostgreSQL
+2026-08-18 00:06:17,418 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:06:17,420 [INFO] saas: PostgreSQL database tables initialized successfully
+2026-08-18 00:06:17,420 [INFO] saas: Loaded 1 users, 1 licenses, 1 orders from PostgreSQL

@@ -69,10 +69,11 @@ DB_FILE = BASE_DIR / "database.json"
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 try:
     import psycopg2
+    import psycopg2.extras
 except ImportError:
     psycopg2 = None
+    psycopg2.extras = None
 PG_ENABLED = bool(DATABASE_URL) and psycopg2 is not None
-PG_TABLE = "app_kv"
 LOG_DIR = BASE_DIR / "logs"
 USER_CONFIGS_DIR = BASE_DIR / "user_configs"
 USER_INSTANCES_DIR = BASE_DIR / "user_instances"
@@ -209,12 +210,59 @@ def _pg_init():
         conn = _pg_connect()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    f'CREATE TABLE IF NOT EXISTS "{PG_TABLE}" ('
-                    f'section TEXT NOT NULL, key TEXT NOT NULL, '
-                    f'payload JSONB NOT NULL, PRIMARY KEY (section, key))'
-                )
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id VARCHAR(36) PRIMARY KEY,
+                        email VARCHAR(255) UNIQUE NOT NULL,
+                        name VARCHAR(255),
+                        password_hash VARCHAR(255),
+                        role VARCHAR(50) DEFAULT 'user',
+                        banned BOOLEAN DEFAULT FALSE,
+                        created_at VARCHAR(50),
+                        subscription JSONB DEFAULT '{}'::jsonb,
+                        license_key VARCHAR(50),
+                        referral_code VARCHAR(50),
+                        referred_by VARCHAR(36),
+                        bot_config JSONB DEFAULT '{}'::jsonb
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS licenses (
+                        key VARCHAR(50) PRIMARY KEY,
+                        plan VARCHAR(50),
+                        days INTEGER,
+                        note TEXT,
+                        created_at VARCHAR(50),
+                        expires_at VARCHAR(50),
+                        used_by VARCHAR(36),
+                        activated_at VARCHAR(50),
+                        active BOOLEAN DEFAULT FALSE,
+                        revoked BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS orders (
+                        id VARCHAR(50) PRIMARY KEY,
+                        user_id VARCHAR(36),
+                        user_email VARCHAR(255),
+                        user_name VARCHAR(255),
+                        package_id VARCHAR(50),
+                        package_name VARCHAR(50),
+                        amount NUMERIC,
+                        currency VARCHAR(20) DEFAULT 'USDT',
+                        days INTEGER,
+                        status VARCHAR(50) DEFAULT 'pending',
+                        tx_hash VARCHAR(255),
+                        screenshot VARCHAR(255),
+                        created_at VARCHAR(50),
+                        submitted_at VARCHAR(50),
+                        verified_at VARCHAR(50),
+                        license_key VARCHAR(50),
+                        rejection_reason TEXT
+                    )
+                """)
             conn.commit()
+            logger.info("PostgreSQL database tables initialized successfully")
         finally:
             conn.close()
     except Exception as e:
@@ -233,19 +281,85 @@ def _load_json_db() -> dict:
             logger.error("DB load failed: %s", e)
     return db
 
+def _parse_json_column(val):
+    if val is None:
+        return {}
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except json.JSONDecodeError:
+            pass
+    return {}
+
 def _load_pg_db() -> dict:
     db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}}
     _pg_init()
     conn = _pg_connect()
     try:
         with conn.cursor() as cur:
-            cur.execute(f'SELECT section, key, payload FROM "{PG_TABLE}"')
-            rows = cur.fetchall()
+            # Load users
+            cur.execute("SELECT id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config FROM users")
+            user_rows = cur.fetchall()
+            for r in user_rows:
+                db["users"][r[0]] = {
+                    "id": r[0],
+                    "email": r[1],
+                    "name": r[2],
+                    "password_hash": r[3],
+                    "role": r[4],
+                    "banned": r[5],
+                    "created_at": r[6],
+                    "subscription": _parse_json_column(r[7]),
+                    "license_key": r[8],
+                    "referral_code": r[9],
+                    "referred_by": r[10],
+                    "bot_config": _parse_json_column(r[11])
+                }
+
+            # Load licenses
+            cur.execute("SELECT key, plan, days, note, created_at, expires_at, used_by, activated_at, active, revoked FROM licenses")
+            lic_rows = cur.fetchall()
+            for r in lic_rows:
+                db["licenses"][r[0]] = {
+                    "key": r[0],
+                    "plan": r[1],
+                    "days": r[2],
+                    "note": r[3],
+                    "created_at": r[4],
+                    "expires_at": r[5],
+                    "used_by": r[6],
+                    "activated_at": r[7],
+                    "active": r[8],
+                    "revoked": r[9]
+                }
+
+            # Load orders
+            cur.execute("SELECT id, user_id, user_email, user_name, package_id, package_name, amount, currency, days, status, tx_hash, screenshot, created_at, submitted_at, verified_at, license_key, rejection_reason FROM orders")
+            order_rows = cur.fetchall()
+            for r in order_rows:
+                db["orders"][r[0]] = {
+                    "id": r[0],
+                    "user_id": r[1],
+                    "user_email": r[2],
+                    "user_name": r[3],
+                    "package_id": r[4],
+                    "package_name": r[5],
+                    "amount": float(r[6]) if r[6] is not None else 0.0,
+                    "currency": r[7],
+                    "days": r[8],
+                    "status": r[9],
+                    "tx_hash": r[10],
+                    "screenshot": r[11],
+                    "created_at": r[12],
+                    "submitted_at": r[13],
+                    "verified_at": r[14],
+                    "license_key": r[15],
+                    "rejection_reason": r[16]
+                }
     finally:
         conn.close()
-    for section, key, payload in rows:
-        if section in db:
-            db[section][key] = payload
     logger.info("Loaded %d users, %d licenses, %d orders from PostgreSQL",
                 len(db["users"]), len(db["licenses"]), len(db["orders"]))
     return db
@@ -277,26 +391,137 @@ _db_lock = _threading.Lock()
 _spawn_lock = _threading.Lock()
 
 def save_db(db: dict):
-    """Persist the DB (PostgreSQL primary, database.json fallback).
-
-    'bot_processes' holds only pid/port of live engines and is deliberately
-    NOT stored — a stale entry after a restart was a root cause of the
-    second-login / bot-forgets-everything issues.
-    """
+    """Persist the DB (PostgreSQL primary, database.json fallback)."""
     with _db_lock:
         if PG_ENABLED:
             try:
                 conn = _pg_connect()
                 try:
                     with conn.cursor() as cur:
-                        for section in ("users", "licenses", "orders"):
-                            cur.execute(f'DELETE FROM "{PG_TABLE}" WHERE section = %s', (section,))
-                            for key, payload in (db.get(section) or {}).items():
-                                cur.execute(
-                                    f'INSERT INTO "{PG_TABLE}" (section, key, payload) VALUES (%s, %s, %s)',
-                                    (section, key, payload),
-                                )
+                        # 1. Sync Users
+                        user_ids = []
+                        for uid, u in (db.get("users") or {}).items():
+                            user_ids.append(uid)
+                            cur.execute("""
+                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    email = EXCLUDED.email,
+                                    name = EXCLUDED.name,
+                                    password_hash = EXCLUDED.password_hash,
+                                    role = EXCLUDED.role,
+                                    banned = EXCLUDED.banned,
+                                    created_at = EXCLUDED.created_at,
+                                    subscription = EXCLUDED.subscription,
+                                    license_key = EXCLUDED.license_key,
+                                    referral_code = EXCLUDED.referral_code,
+                                    referred_by = EXCLUDED.referred_by,
+                                    bot_config = EXCLUDED.bot_config
+                            """, (
+                                u.get("id"),
+                                u.get("email"),
+                                u.get("name"),
+                                u.get("password_hash"),
+                                u.get("role", "user"),
+                                u.get("banned", False),
+                                u.get("created_at"),
+                                psycopg2.extras.Json(u.get("subscription", {})),
+                                u.get("license_key"),
+                                u.get("referral_code"),
+                                u.get("referred_by"),
+                                psycopg2.extras.Json(u.get("bot_config", {}))
+                            ))
+                        if user_ids:
+                            cur.execute("DELETE FROM users WHERE id NOT IN %s", (tuple(user_ids),))
+                        else:
+                            cur.execute("DELETE FROM users")
+
+                        # 2. Sync Licenses
+                        lic_keys = []
+                        for key, l in (db.get("licenses") or {}).items():
+                            lic_keys.append(key)
+                            cur.execute("""
+                                INSERT INTO licenses (key, plan, days, note, created_at, expires_at, used_by, activated_at, active, revoked)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (key) DO UPDATE SET
+                                    plan = EXCLUDED.plan,
+                                    days = EXCLUDED.days,
+                                    note = EXCLUDED.note,
+                                    created_at = EXCLUDED.created_at,
+                                    expires_at = EXCLUDED.expires_at,
+                                    used_by = EXCLUDED.used_by,
+                                    activated_at = EXCLUDED.activated_at,
+                                    active = EXCLUDED.active,
+                                    revoked = EXCLUDED.revoked
+                            """, (
+                                l.get("key"),
+                                l.get("plan"),
+                                l.get("days"),
+                                l.get("note"),
+                                l.get("created_at"),
+                                l.get("expires_at"),
+                                l.get("used_by"),
+                                l.get("activated_at"),
+                                l.get("active", False),
+                                l.get("revoked", False)
+                            ))
+                        if lic_keys:
+                            cur.execute("DELETE FROM licenses WHERE key NOT IN %s", (tuple(lic_keys),))
+                        else:
+                            cur.execute("DELETE FROM licenses")
+
+                        # 3. Sync Orders
+                        order_ids = []
+                        for oid, o in (db.get("orders") or {}).items():
+                            order_ids.append(oid)
+                            cur.execute("""
+                                INSERT INTO orders (id, user_id, user_email, user_name, package_id, package_name, amount, currency, days, status, tx_hash, screenshot, created_at, submitted_at, verified_at, license_key, rejection_reason)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    user_id = EXCLUDED.user_id,
+                                    user_email = EXCLUDED.user_email,
+                                    user_name = EXCLUDED.user_name,
+                                    package_id = EXCLUDED.package_id,
+                                    package_name = EXCLUDED.package_name,
+                                    amount = EXCLUDED.amount,
+                                    currency = EXCLUDED.currency,
+                                    days = EXCLUDED.days,
+                                    status = EXCLUDED.status,
+                                    tx_hash = EXCLUDED.tx_hash,
+                                    screenshot = EXCLUDED.screenshot,
+                                    created_at = EXCLUDED.created_at,
+                                    submitted_at = EXCLUDED.submitted_at,
+                                    verified_at = EXCLUDED.verified_at,
+                                    license_key = EXCLUDED.license_key,
+                                    rejection_reason = EXCLUDED.rejection_reason
+                            """, (
+                                o.get("id"),
+                                o.get("user_id"),
+                                o.get("user_email"),
+                                o.get("user_name"),
+                                o.get("package_id"),
+                                o.get("package_name"),
+                                o.get("amount"),
+                                o.get("currency", "USDT"),
+                                o.get("days"),
+                                o.get("status", "pending"),
+                                o.get("tx_hash"),
+                                o.get("screenshot"),
+                                o.get("created_at"),
+                                o.get("submitted_at"),
+                                o.get("verified_at"),
+                                o.get("license_key"),
+                                o.get("rejection_reason")
+                            ))
+                        if order_ids:
+                            cur.execute("DELETE FROM orders WHERE id NOT IN %s", (tuple(order_ids),))
+                        else:
+                            cur.execute("DELETE FROM orders")
+
                     conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    raise e
                 finally:
                     conn.close()
                 return
