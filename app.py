@@ -205,6 +205,19 @@ def verify_password(password: str, stored: str) -> bool:
 def _pg_connect():
     return psycopg2.connect(DATABASE_URL)
 
+def _sync_table_columns(cur, table_name, expected_columns):
+    """Check if all expected columns exist in the table. If not, auto-add them."""
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+        (table_name,)
+    )
+    existing_cols = {row[0].lower() for row in cur.fetchall()}
+    
+    for col_name, col_def in expected_columns.items():
+        if col_name.lower() not in existing_cols:
+            logger.info("Auto-migration: Adding missing column '%s' to table '%s'", col_name, table_name)
+            cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
+
 def _pg_init():
     try:
         conn = _pg_connect()
@@ -261,8 +274,60 @@ def _pg_init():
                         rejection_reason TEXT
                     )
                 """)
+                
+                # Sync columns for schema updates
+                users_cols = {
+                    "id": "VARCHAR(36)",
+                    "email": "VARCHAR(255)",
+                    "name": "VARCHAR(255)",
+                    "password_hash": "VARCHAR(255)",
+                    "role": "VARCHAR(50) DEFAULT 'user'",
+                    "banned": "BOOLEAN DEFAULT FALSE",
+                    "created_at": "VARCHAR(50)",
+                    "subscription": "JSONB DEFAULT '{}'::jsonb",
+                    "license_key": "VARCHAR(50)",
+                    "referral_code": "VARCHAR(50)",
+                    "referred_by": "VARCHAR(36)",
+                    "bot_config": "JSONB DEFAULT '{}'::jsonb"
+                }
+                licenses_cols = {
+                    "key": "VARCHAR(50)",
+                    "plan": "VARCHAR(50)",
+                    "days": "INTEGER",
+                    "note": "TEXT",
+                    "created_at": "VARCHAR(50)",
+                    "expires_at": "VARCHAR(50)",
+                    "used_by": "VARCHAR(36)",
+                    "activated_at": "VARCHAR(50)",
+                    "active": "BOOLEAN DEFAULT FALSE",
+                    "revoked": "BOOLEAN DEFAULT FALSE"
+                }
+                orders_cols = {
+                    "id": "VARCHAR(50)",
+                    "user_id": "VARCHAR(36)",
+                    "user_email": "VARCHAR(255)",
+                    "user_name": "VARCHAR(255)",
+                    "package_id": "VARCHAR(50)",
+                    "package_name": "VARCHAR(50)",
+                    "amount": "NUMERIC",
+                    "currency": "VARCHAR(20) DEFAULT 'USDT'",
+                    "days": "INTEGER",
+                    "status": "VARCHAR(50) DEFAULT 'pending'",
+                    "tx_hash": "VARCHAR(255)",
+                    "screenshot": "VARCHAR(255)",
+                    "created_at": "VARCHAR(50)",
+                    "submitted_at": "VARCHAR(50)",
+                    "verified_at": "VARCHAR(50)",
+                    "license_key": "VARCHAR(50)",
+                    "rejection_reason": "TEXT"
+                }
+                
+                _sync_table_columns(cur, "users", users_cols)
+                _sync_table_columns(cur, "licenses", licenses_cols)
+                _sync_table_columns(cur, "orders", orders_cols)
+                
             conn.commit()
-            logger.info("PostgreSQL database tables initialized successfully")
+            logger.info("PostgreSQL database tables initialized and verified successfully")
         finally:
             conn.close()
     except Exception as e:
