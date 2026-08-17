@@ -80,6 +80,10 @@ class SymbolWorker(threading.Thread):
         self.tp_mode = "both"             # updated from cfg on entry
         self.entry_signal = None          # Signal.BUY / Signal.SELL / None
         self.ema_reversal_tp_fired = False  # one-shot guard per position
+        # After an EMA-reversal TP, we must re-enter the OPPOSITE side
+        # immediately — even if the exchange hasn't cleared the old position
+        # yet (API lag). This flag forces that re-entry on the next tick.
+        self.reversal_pending_side = None  # "LONG" / "SHORT" / None
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
@@ -359,6 +363,9 @@ class SymbolWorker(threading.Thread):
                         # not a false positive).
                         self._last_cross_time = 0
                         opposite_side = "LONG" if close_side_label == "SHORT" else "SHORT"
+                        # Force immediate re-entry on the next tick, even if the
+                        # exchange hasn't fully cleared the old position yet.
+                        self.reversal_pending_side = opposite_side
                         self.engine._emit("log", {
                             "level": "info",
                             "msg": (f"[{symbol}] 🔄 EMA55 REVERSAL detected — bot will open "
@@ -405,7 +412,7 @@ class SymbolWorker(threading.Thread):
                 self.expected_pos_side = None
                 self.waiting_for_new_cross = True  # Strict mode: must wait for fresh cross
                 self.engine.strategy.reset_cross_state()
-            elif actual_side != "NONE" and self.expected_pos_side != actual_side:
+            elif actual_side != "NONE" and self.expected_pos_side != actual_side and self.reversal_pending_side is None:
                 # Position flipped or new opposite position opened externally
                 self.engine._emit("log", {
                     "level": "warn",
@@ -436,7 +443,7 @@ class SymbolWorker(threading.Thread):
         #     we infer it from `actual_side` (LONG -> BUY, SHORT -> SELL).
         #     This is correct because LONG positions are only opened on BUY
         #     signals and SHORT positions only on SELL signals in this strategy.
-        if actual_side != "NONE" and self.sl_price is None and self.tp_price is None:
+        if actual_side != "NONE" and self.sl_price is None and self.tp_price is None and self.reversal_pending_side is None:
             entry = pos.entry_price
             if entry > 0:
                 sl_pct_val = float(cfg.get("stop_loss_pct", 2))
@@ -519,34 +526,61 @@ class SymbolWorker(threading.Thread):
         # 6. Bot is SILENT while waiting - no spam logs
         # ===================================================================
 
-        # If we already have an open position, do nothing (SL/TP handled by watchdog)
-        if pos.side != "NONE" and pos.size != 0:
+        # === ENTRY ALLOWED? ===
+        # A position already open blocks a NEW entry UNLESS an immediate
+        # reversal is pending (EMA55 just flipped): in that case the old
+        # position is being closed and we must re-enter the opposite side
+        # right away, even if the exchange still shows the old side (API lag).
+        pending_reversal = self.reversal_pending_side is not None
+        if pos.side != "NONE" and pos.size != 0 and not pending_reversal:
             return
 
-        # No position. Check if we should enter a new trade.
-        # STRICT: Only enter on a FRESH cross.
-        if not result.just_crossed:
-            # SILENT: Don't log anything when waiting (no spam!)
-            # Only log ONCE when transitioning to waiting state
-            if self.waiting_for_new_cross and not hasattr(self, '_waiting_logged'):
-                self._waiting_logged = True
-                self.engine._emit("log", {
-                    "level": "info",
-                    "msg": (f"[{symbol}] ⏳ Waiting for FRESH cross before entering trade... (silent mode)")
-                })
-            return
+        if pending_reversal:
+            target_side = self.reversal_pending_side
+            desired_sig = Signal.BUY if target_side == "LONG" else Signal.SELL
+            if signal != desired_sig:
+                # Signal drifted before re-entry — give up forced reversal,
+                # wait for a fresh cross like normal.
+                return
+            if pos.side != "NONE" and pos.size != 0 and pos.side == target_side:
+                # Target position already open — just clear the pending flag.
+                self.reversal_pending_side = None
+                return
+            # Close any lingering OLD (opposite) position, then enter.
+            if pos.side != "NONE" and pos.size != 0 and pos.side != target_side:
+                try:
+                    self.engine.trader.close_position(symbol)
+                except Exception as e:
+                    logger.warning(f"[{symbol}] Reversal cleanup close failed: {e}")
+            self.reversal_pending_side = None
+            self.waiting_for_new_cross = False
+            if hasattr(self, '_waiting_logged'):
+                delattr(self, '_waiting_logged')
+        else:
+            # No position. Check if we should enter a new trade.
+            # STRICT: Only enter on a FRESH cross.
+            if not result.just_crossed:
+                # SILENT: Don't log anything when waiting (no spam!)
+                # Only log ONCE when transitioning to waiting state
+                if self.waiting_for_new_cross and not hasattr(self, '_waiting_logged'):
+                    self._waiting_logged = True
+                    self.engine._emit("log", {
+                        "level": "info",
+                        "msg": (f"[{symbol}] ⏳ Waiting for FRESH cross before entering trade... (silent mode)")
+                    })
+                return
 
-        # Fresh cross happened! Check cooldown (min 30s between crosses)
-        now = time.time()
-        if now - self._last_cross_time < 30:
-            # Too soon after last cross - ignore (prevents rapid false crosses)
-            return
-        self._last_cross_time = now
+            # Fresh cross happened! Check cooldown (min 30s between crosses)
+            now = time.time()
+            if now - self._last_cross_time < 30:
+                # Too soon after last cross - ignore (prevents rapid false crosses)
+                return
+            self._last_cross_time = now
 
-        # Clear waiting state.
-        self.waiting_for_new_cross = False
-        if hasattr(self, '_waiting_logged'):
-            delattr(self, '_waiting_logged')
+            # Clear waiting state.
+            self.waiting_for_new_cross = False
+            if hasattr(self, '_waiting_logged'):
+                delattr(self, '_waiting_logged')
 
         # Check mode allows this trade
         if signal == Signal.BUY and mode not in ("long", "both"):
@@ -656,6 +690,7 @@ class SymbolWorker(threading.Thread):
                 self.trades_today += 1
                 self.last_signal = Signal.BUY
                 self.expected_pos_side = "LONG"
+                self.reversal_pending_side = None
                 # Get ACTUAL entry price from position (not mark_price)
                 actual_entry = self._get_actual_entry_price(symbol, mark_price)
                 # Set software watchdog (always — this is the source of truth
@@ -705,6 +740,7 @@ class SymbolWorker(threading.Thread):
                 self.trades_today += 1
                 self.last_signal = Signal.SELL
                 self.expected_pos_side = "SHORT"
+                self.reversal_pending_side = None
                 # Get ACTUAL entry price from position (not mark_price)
                 actual_entry = self._get_actual_entry_price(symbol, mark_price)
                 # Set software watchdog
