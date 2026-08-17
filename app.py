@@ -70,9 +70,10 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 try:
     import psycopg2
     import psycopg2.extras
+    _Json = psycopg2.extras.Json
 except ImportError:
     psycopg2 = None
-    psycopg2.extras = None
+    _Json = None
 PG_ENABLED = bool(DATABASE_URL) and psycopg2 is not None
 LOG_DIR = BASE_DIR / "logs"
 USER_CONFIGS_DIR = BASE_DIR / "user_configs"
@@ -490,11 +491,11 @@ def save_db(db: dict):
                                 u.get("role", "user"),
                                 u.get("banned", False),
                                 u.get("created_at"),
-                                psycopg2.extras.Json(u.get("subscription", {})),
+                                _Json(u.get("subscription", {})),
                                 u.get("license_key"),
                                 u.get("referral_code"),
                                 u.get("referred_by"),
-                                psycopg2.extras.Json(u.get("bot_config", {}))
+                                _Json(u.get("bot_config", {}))
                             ))
                         if user_ids:
                             cur.execute("DELETE FROM users WHERE id NOT IN %s", (tuple(user_ids),))
