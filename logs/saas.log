@@ -1,0 +1,10 @@
+2026-08-17 01:55:08,585 [ERROR] saas: ADMIN_SECRET env var NOT SET! Admin panel login is DISABLED.
+2026-08-17 01:55:08,588 [ERROR] saas: Set it like:  set ADMIN_SECRET=your_password  (Windows)
+2026-08-17 01:55:08,589 [ERROR] saas:           or:  export ADMIN_SECRET=your_password  (Linux/Mac)
+2026-08-17 01:55:08,594 [INFO] saas: ============================================================
+2026-08-17 01:55:08,596 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-08-17 01:55:08,597 [INFO] saas:  Bot engine dir: C:\Users\Ikoder Studio\Downloads\bot-main\bot-engine
+2026-08-17 01:55:08,598 [INFO] saas:  Admin panel: DISABLED (no ADMIN_SECRET env var)
+2026-08-17 01:55:08,599 [INFO] saas:  Payment wallet: YOUR_USD...HERE (TRC20 (USDT))
+2026-08-17 01:55:08,603 [INFO] saas:  Google OAuth: NOT configured
+2026-08-17 01:55:08,604 [INFO] saas: ============================================================

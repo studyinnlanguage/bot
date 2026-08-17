@@ -645,20 +645,23 @@ class WEEXFuturesTrader:
                 # Other error (e.g., leverage out of range) - return as failure
                 return {"success": False, "error": str(e)}
 
-        # All bodies failed with parameter errors
-        # WEEX leverage API is unreliable — don't block the bot.
-        # Bot will use exchange default leverage (usually 20x).
+        # All bodies failed with parameter errors.
+        # WEEX leverage API is unreliable — report it honestly so the UI can
+        # tell the user the exchange default will be used (they may need to
+        # set it manually at weex.com). The bot continues with the default
+        # rather than being blocked.
         logger.warning(
-            "WEEX set_leverage failed for %s (tried %d body shapes, all returned parameter errors). "
-            "Bot will use exchange default leverage. Last error: %s",
+            "WEEX set_leverage FAILED for %s (tried %d body shapes, all returned parameter errors). "
+            "Exchange default leverage will be used. Last error: %s",
             symbol, parameter_errors, last_error,
         )
         return {
-            "success": True,  # Don't block the bot
+            "success": False,
             "leverage": leverage,
-            "warning": f"Could not set leverage to {leverage}x for {symbol} (WEEX API rejected all body formats). "
-                       f"Bot will use WEEX's default leverage. "
-                       f"Tip: Set leverage manually at weex.com -> Futures -> {symbol}",
+            "error": (f"Could not set leverage to {leverage}x for {symbol} "
+                      f"(WEEX API rejected all request formats). "
+                      f"Bot will use WEEX's exchange default leverage. "
+                      f"Tip: set it manually at weex.com -> Futures -> {symbol}"),
             "raw": "default",
         }
 

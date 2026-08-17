@@ -61,6 +61,18 @@ import requests as req_lib
 BASE_DIR = Path(__file__).resolve().parent
 BOT_ENGINE_DIR = BASE_DIR / "bot-engine"
 DB_FILE = BASE_DIR / "database.json"
+
+# PostgreSQL is the PRIMARY database when DATABASE_URL is set
+# (recommended on Railway / VPS). Without it, the app transparently
+# falls back to the local database.json file so it still runs anywhere.
+# 'bot_processes' is runtime-only state (pid/port) and is never persisted.
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
+PG_ENABLED = bool(DATABASE_URL) and psycopg2 is not None
+PG_TABLE = "app_kv"
 LOG_DIR = BASE_DIR / "logs"
 USER_CONFIGS_DIR = BASE_DIR / "user_configs"
 USER_INSTANCES_DIR = BASE_DIR / "user_instances"
@@ -189,19 +201,107 @@ def verify_password(password: str, stored: str) -> bool:
 # Database (JSON file with thread lock)
 # ============================================================
 
-def load_db() -> dict:
+def _pg_connect():
+    return psycopg2.connect(DATABASE_URL)
+
+def _pg_init():
+    try:
+        conn = _pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f'CREATE TABLE IF NOT EXISTS "{PG_TABLE}" ('
+                    f'section TEXT NOT NULL, key TEXT NOT NULL, '
+                    f'payload JSONB NOT NULL, PRIMARY KEY (section, key))'
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error("PostgreSQL init failed: %s", e)
+
+def _load_json_db() -> dict:
+    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}}
     if DB_FILE.exists():
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+            for section in ("users", "licenses", "orders"):
+                db[section] = data.get(section, {})
+            logger.info("Loaded database.json (%d users)", len(db["users"]))
         except (json.JSONDecodeError, OSError) as e:
             logger.error("DB load failed: %s", e)
-    return {"users": {}, "licenses": {}, "bot_processes": {}}
+    return db
+
+def _load_pg_db() -> dict:
+    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}}
+    _pg_init()
+    conn = _pg_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'SELECT section, key, payload FROM "{PG_TABLE}"')
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    for section, key, payload in rows:
+        if section in db:
+            db[section][key] = payload
+    logger.info("Loaded %d users, %d licenses, %d orders from PostgreSQL",
+                len(db["users"]), len(db["licenses"]), len(db["orders"]))
+    return db
+
+def load_db() -> dict:
+    """Load the DB — PostgreSQL when available, else database.json."""
+    if PG_ENABLED:
+        try:
+            db = _load_pg_db()
+            if db["users"] or db["licenses"] or db["orders"]:
+                return db
+            # Empty Postgres → one-time seed from the existing database.json.
+            if DB_FILE.exists():
+                seed = _load_json_db()
+                for section in ("users", "licenses", "orders"):
+                    db[section].update(seed[section])
+                if db["users"] or db["licenses"] or db["orders"]:
+                    save_db(db)
+                    logger.info("Seeded PostgreSQL from database.json (%d users)", len(db["users"]))
+            return db
+        except Exception as e:
+            logger.error("PostgreSQL load failed (%s) — falling back to database.json", e)
+    return _load_json_db()
 
 _db_lock = _threading.Lock()
 
+# Serializes bot-engine process spawn/stop so two concurrent requests
+# (e.g. rapid page loads after login) never start duplicate instances.
+_spawn_lock = _threading.Lock()
+
 def save_db(db: dict):
+    """Persist the DB (PostgreSQL primary, database.json fallback).
+
+    'bot_processes' holds only pid/port of live engines and is deliberately
+    NOT stored — a stale entry after a restart was a root cause of the
+    second-login / bot-forgets-everything issues.
+    """
     with _db_lock:
+        if PG_ENABLED:
+            try:
+                conn = _pg_connect()
+                try:
+                    with conn.cursor() as cur:
+                        for section in ("users", "licenses", "orders"):
+                            cur.execute(f'DELETE FROM "{PG_TABLE}" WHERE section = %s', (section,))
+                            for key, payload in (db.get(section) or {}).items():
+                                cur.execute(
+                                    f'INSERT INTO "{PG_TABLE}" (section, key, payload) VALUES (%s, %s, %s)',
+                                    (section, key, payload),
+                                )
+                    conn.commit()
+                finally:
+                    conn.close()
+                return
+            except Exception as e:
+                logger.error("PostgreSQL save failed (%s) — writing database.json fallback", e)
         try:
             with open(DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(db, f, indent=2, ensure_ascii=False)
@@ -360,48 +460,78 @@ def find_free_port() -> int:
     raise RuntimeError("No free ports available")
 
 def write_user_bot_config(user_id: str) -> str:
-    """Write user's bot config to their own bot-engine config.json."""
+    """Write user's bot config to their own bot-engine config.json.
+
+    IMPORTANT (settings-persistence fix): the bot-engine dashboard saves
+    settings directly into its OWN config.json (via the SaaS proxy), so that
+    file is the FRESHEST source of the user's settings. This function now
+    PRESERVES that file across restarts instead of overwriting it from the
+    SaaS DB (which only holds defaults). The SaaS DB is kept in sync via
+    /api/config POST proxying (see _sync_engine_config_to_db).
+    """
     user = DB["users"].get(user_id, {})
     config = user.get("bot_config", {})
 
-    api_key = decrypt(config.get("api_key_enc", ""))
-    api_secret = decrypt(config.get("api_secret_enc", ""))
-    api_passphrase = decrypt(config.get("api_passphrase_enc", ""))
-
-    bot_config = {
-        "api_key": api_key,
-        "api_secret": api_secret,
-        "api_passphrase": api_passphrase,
-        "exchange": config.get("exchange", "binance"),
-        "testnet": config.get("testnet", True),
-        "symbol": (config.get("symbols_list", ["BTCUSDT"]) or ["BTCUSDT"])[0],
-        "symbols_list": config.get("symbols_list", ["BTCUSDT"]),
-        "timeframe": config.get("timeframe", "5m"),
-        "leverage": config.get("leverage", 10),
-        "amount_mode": config.get("amount_mode", "fixed"),
-        "amount": config.get("amount", 100),
-        "amount_pct": config.get("amount_pct", 10),
-        "stop_loss_pct": config.get("stop_loss_pct", 2),
-        "take_profit_pct": config.get("take_profit_pct", 6),
-        "tp_mode": config.get("tp_mode", "both"),
-        "mode": config.get("mode", "both"),
-        "auto_start": False,
-        "telegram_enabled": config.get("telegram_enabled", False),
-        "telegram_bot_token": decrypt(config.get("telegram_bot_token_enc", "")),
-        "telegram_chat_id": config.get("telegram_chat_id", ""),
-        "email_enabled": config.get("email_enabled", False),
-        "email_smtp_server": "smtp.gmail.com",
-        "email_smtp_port": 587,
-        "email_sender": config.get("email_sender", ""),
-        "email_password": decrypt(config.get("email_password_enc", "")),
-        "email_receiver": config.get("email_receiver", ""),
-        "whatsapp_enabled": config.get("whatsapp_enabled", False),
-        "whatsapp_phone": config.get("whatsapp_phone", ""),
-        "whatsapp_apikey": decrypt(config.get("whatsapp_apikey_enc", "")),
-    }
-
     user_bot_dir = USER_INSTANCES_DIR / user_id
     user_bot_dir.mkdir(parents=True, exist_ok=True)
+    config_path = user_bot_dir / "config.json"
+
+    # Freshest engine settings (saved from the dashboard) — preserve these.
+    existing = {}
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Could not read existing engine config for %s: %s", user_id, e)
+
+    if existing and isinstance(existing, dict):
+        bot_config = existing
+        # Fall back to decrypted SaaS credentials only when the engine lost them.
+        if not bot_config.get("api_key"):
+            bot_config["api_key"] = decrypt(config.get("api_key_enc", ""))
+        if not bot_config.get("api_secret"):
+            bot_config["api_secret"] = decrypt(config.get("api_secret_enc", ""))
+        if not bot_config.get("api_passphrase"):
+            bot_config["api_passphrase"] = decrypt(config.get("api_passphrase_enc", ""))
+    else:
+        api_key = decrypt(config.get("api_key_enc", ""))
+        api_secret = decrypt(config.get("api_secret_enc", ""))
+        api_passphrase = decrypt(config.get("api_passphrase_enc", ""))
+
+        bot_config = {
+            "api_key": api_key,
+            "api_secret": api_secret,
+            "api_passphrase": api_passphrase,
+            "exchange": config.get("exchange", "binance"),
+            "testnet": config.get("testnet", True),
+            "symbol": (config.get("symbols_list", ["BTCUSDT"]) or ["BTCUSDT"])[0],
+            "symbols_list": config.get("symbols_list", ["BTCUSDT"]),
+            "timeframe": config.get("timeframe", "5m"),
+            "leverage": config.get("leverage", 10),
+            "amount_mode": config.get("amount_mode", "fixed"),
+            "amount": config.get("amount", 100),
+            "amount_pct": config.get("amount_pct", 10),
+            "stop_loss_pct": config.get("stop_loss_pct", 2),
+            "take_profit_pct": config.get("take_profit_pct", 6),
+            "tp_mode": config.get("tp_mode", "both"),
+            "mode": config.get("mode", "both"),
+            "auto_start": False,
+            "telegram_enabled": config.get("telegram_enabled", False),
+            "telegram_bot_token": decrypt(config.get("telegram_bot_token_enc", "")),
+            "telegram_chat_id": config.get("telegram_chat_id", ""),
+            "email_enabled": config.get("email_enabled", False),
+            "email_smtp_server": "smtp.gmail.com",
+            "email_smtp_port": 587,
+            "email_sender": config.get("email_sender", ""),
+            "email_password": decrypt(config.get("email_password_enc", "")),
+            "email_receiver": config.get("email_receiver", ""),
+            "whatsapp_enabled": config.get("whatsapp_enabled", False),
+            "whatsapp_phone": config.get("whatsapp_phone", ""),
+            "whatsapp_apikey": decrypt(config.get("whatsapp_apikey_enc", "")),
+        }
+    if "auto_start" not in bot_config:
+        bot_config["auto_start"] = False
 
     # Copy bot-engine files (always sync on start to run latest code)
     for item in BOT_ENGINE_DIR.iterdir():
@@ -417,12 +547,63 @@ def write_user_bot_config(user_id: str) -> str:
         else:
             shutil.copy2(item, dest)
 
-    config_path = user_bot_dir / "config.json"
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(bot_config, f, indent=2, ensure_ascii=False)
 
     (user_bot_dir / "logs").mkdir(exist_ok=True)
     return str(config_path)
+
+
+def _sync_engine_config_to_db(user: dict, data: dict):
+    """Mirror a bot-engine /api/config POST payload into the SaaS DB.
+
+    Called by the proxy when the dashboard inside the iframe saves settings,
+    so the SaaS DB no longer goes stale (root cause of 'bot forgets settings',
+    leverage resets, amount-mode resets, etc.).
+    """
+    config = user.setdefault("bot_config", {})
+    if "exchange" in data:
+        config["exchange"] = "weex" if data["exchange"] == "weex" else "binance"
+    if "testnet" in data:
+        config["testnet"] = bool(data["testnet"])
+    if data.get("api_key") and str(data["api_key"]).strip():
+        config["api_key_enc"] = encrypt(str(data["api_key"]).strip())
+    if data.get("api_secret") and str(data["api_secret"]).strip():
+        config["api_secret_enc"] = encrypt(str(data["api_secret"]).strip())
+    if "api_passphrase" in data:
+        if data["api_passphrase"] and str(data["api_passphrase"]).strip():
+            config["api_passphrase_enc"] = encrypt(str(data["api_passphrase"]).strip())
+        elif data["api_passphrase"] == "":
+            config["api_passphrase_enc"] = ""
+    if "symbols_list" in data and isinstance(data["symbols_list"], list):
+        config["symbols_list"] = [str(s).upper().strip() for s in data["symbols_list"] if str(s).strip()]
+
+    for k in ("timeframe", "amount_mode", "amount", "amount_pct",
+              "stop_loss_pct", "tp_mode", "mode",
+              "telegram_enabled", "telegram_chat_id",
+              "email_enabled", "email_sender", "email_receiver",
+              "whatsapp_enabled", "whatsapp_phone"):
+        if k in data and data[k] is not None:
+            config[k] = data[k]
+
+    # Same clamping the bot-engine applies, so DB stays truthful.
+    try:
+        max_lev = 500 if config.get("exchange") == "weex" else 125
+        config["leverage"] = max(1, min(max_lev, int(data.get("leverage") or config.get("leverage", 10))))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if "amount" in data and data["amount"] is not None:
+            config["amount"] = max(1, float(data["amount"]) or 100)
+        if "amount_pct" in data and data["amount_pct"] is not None:
+            config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
+        if "stop_loss_pct" in data and data["stop_loss_pct"] is not None:
+            sl = max(0.5, min(50, float(data["stop_loss_pct"]) or 2))
+            config["stop_loss_pct"] = sl
+            config["take_profit_pct"] = sl * 3
+    except (TypeError, ValueError):
+        pass
+    save_db(DB)
 
 # Track open file handles for cleanup
 _bot_log_handles: dict[str, object] = {}
@@ -445,132 +626,172 @@ def _close_log_handle(user_id: str):
         except (OSError, ValueError):
             pass
 
+def _wait_for_bot_ready(port: int, timeout: float = 15.0) -> bool:
+    """Poll the bot-engine /api/status until it responds (or timeout)."""
+    import urllib.request as _ur
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with _ur.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=2) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
 def ensure_bot_engine_running(user_id: str) -> dict:
-    """Ensure bot-engine process is running for this user."""
-    status = get_bot_status(user_id)
-    if status["running"]:
-        return {"success": True, "port": status["port"]}
+    """Ensure bot-engine process is running for this user.
 
-    user = DB["users"].get(user_id)
-    if not user:
-        return {"success": False, "error": "User not found"}
+    The critical section is serialized with _spawn_lock so concurrent
+    requests (e.g. rapid duplicate page loads right after login) can never
+    spawn two engines for the same user (port/PID race causing crashes).
+    """
+    with _spawn_lock:
+        status = get_bot_status(user_id)
+        if status["running"]:
+            return {"success": True, "port": status["port"]}
 
-    try:
-        port = find_free_port()
-    except RuntimeError as e:
-        return {"success": False, "error": str(e)}
+        user = DB["users"].get(user_id)
+        if not user:
+            return {"success": False, "error": "User not found"}
 
-    try:
-        write_user_bot_config(user_id)
-    except Exception as e:
-        return {"success": False, "error": f"Config write failed: {e}"}
+        try:
+            port = find_free_port()
+        except RuntimeError as e:
+            return {"success": False, "error": str(e)}
 
-    user_bot_dir = USER_INSTANCES_DIR / user_id
-    try:
-        log_handle = _get_log_handle(user_id)
-        popen_kwargs = {
-            "cwd": str(user_bot_dir),
-            "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1"},
-            "stdout": log_handle,
-            "stderr": subprocess.STDOUT,
-        }
-        if sys.platform == 'win32':
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008
-        else:
-            popen_kwargs["start_new_session"] = True
+        try:
+            write_user_bot_config(user_id)
+        except Exception as e:
+            return {"success": False, "error": f"Config write failed: {e}"}
 
-        proc = subprocess.Popen([sys.executable, "app.py"], **popen_kwargs)
+        user_bot_dir = USER_INSTANCES_DIR / user_id
+        try:
+            log_handle = _get_log_handle(user_id)
+            popen_kwargs = {
+                "cwd": str(user_bot_dir),
+                "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1"},
+                "stdout": log_handle,
+                "stderr": subprocess.STDOUT,
+            }
+            if sys.platform == 'win32':
+                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008
+            else:
+                popen_kwargs["start_new_session"] = True
 
-        DB.setdefault("bot_processes", {})[user_id] = {
-            "pid": proc.pid,
-            "port": port,
-            "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "should_run": True,
-        }
-        save_db(DB)
+            proc = subprocess.Popen([sys.executable, "app.py"], **popen_kwargs)
 
-        logger.info("Started bot-engine (detached) for user %s: PID=%s, port=%s", user_id, proc.pid, port)
-        time.sleep(2)
-
-        if not is_process_alive(proc.pid):
-            log_file = LOG_DIR / f"bot_{user_id}.log"
-            error_detail = ""
-            try:
-                with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                    error_detail = f.read()[-500:]
-            except (OSError, IOError):
-                pass
-            logger.error("Bot-engine crashed immediately for %s. Log: %s", user_id, error_detail)
-            DB.get("bot_processes", {}).pop(user_id, None)
+            DB.setdefault("bot_processes", {})[user_id] = {
+                "pid": proc.pid,
+                "port": port,
+                "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "should_run": True,
+            }
             save_db(DB)
-            return {"success": False, "error": f"Bot-engine crashed on startup. Log: {error_detail[:200]}"}
 
-        return {"success": True, "port": port, "pid": proc.pid}
-    except Exception as e:
-        logger.error("Failed to start bot-engine for %s: %s", user_id, e)
-        return {"success": False, "error": str(e)}
+            logger.info("Started bot-engine (detached) for user %s: PID=%s, port=%s", user_id, proc.pid, port)
+
+            if not is_process_alive(proc.pid):
+                log_file = LOG_DIR / f"bot_{user_id}.log"
+                error_detail = ""
+                try:
+                    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                        error_detail = f.read()[-500:]
+                except (OSError, IOError):
+                    pass
+                logger.error("Bot-engine crashed immediately for %s. Log: %s", user_id, error_detail)
+                DB.get("bot_processes", {}).pop(user_id, None)
+                save_db(DB)
+                return {"success": False, "error": f"Bot-engine crashed on startup. Log: {error_detail[:200]}"}
+
+            # Wait until the engine actually answers HTTP, so the dashboard
+            # iframe doesn't hit 'connection refused' right after spawn.
+            if not _wait_for_bot_ready(port):
+                logger.warning("Bot-engine started but not responding within 15s for %s", user_id)
+                return {"success": True, "port": port, "pid": proc.pid, "starting": True}
+
+            return {"success": True, "port": port, "pid": proc.pid}
+        except Exception as e:
+            logger.error("Failed to start bot-engine for %s: %s", user_id, e)
+            return {"success": False, "error": str(e)}
 
 def start_user_bot(user_id: str) -> dict:
     """Start a user's bot-engine instance."""
-    user = DB["users"].get(user_id)
-    if not user:
-        return {"success": False, "error": "User not found"}
+    with _spawn_lock:
+        user = DB["users"].get(user_id)
+        if not user:
+            return {"success": False, "error": "User not found"}
 
-    existing = DB.get("bot_processes", {}).get(user_id)
-    if existing and existing.get("pid"):
+        existing = DB.get("bot_processes", {}).get(user_id)
+        if existing and existing.get("pid"):
+            try:
+                os.kill(existing["pid"], 0)
+                return {"success": True, "port": existing["port"], "message": "Bot already running"}
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+
+        config = user.get("bot_config", {})
+        if not config.get("api_key_enc"):
+            return {"success": False, "error": "API key not set. Please save settings first."}
+        if config.get("exchange") == "weex" and not config.get("api_passphrase_enc"):
+            return {"success": False, "error": "WEEX passphrase required"}
+        if not config.get("symbols_list"):
+            return {"success": False, "error": "Please add at least one coin"}
+
         try:
-            os.kill(existing["pid"], 0)
-            return {"success": True, "port": existing["port"], "message": "Bot already running"}
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+            port = find_free_port()
+        except RuntimeError as e:
+            return {"success": False, "error": str(e)}
 
-    config = user.get("bot_config", {})
-    if not config.get("api_key_enc"):
-        return {"success": False, "error": "API key not set. Please save settings first."}
-    if config.get("exchange") == "weex" and not config.get("api_passphrase_enc"):
-        return {"success": False, "error": "WEEX passphrase required"}
-    if not config.get("symbols_list"):
-        return {"success": False, "error": "Please add at least one coin"}
+        try:
+            write_user_bot_config(user_id)
+        except Exception as e:
+            return {"success": False, "error": f"Config write failed: {e}"}
 
-    try:
-        port = find_free_port()
-    except RuntimeError as e:
-        return {"success": False, "error": str(e)}
+        user_bot_dir = USER_INSTANCES_DIR / user_id
+        try:
+            log_handle = _get_log_handle(user_id)
+            popen_kwargs = {
+                "cwd": str(user_bot_dir),
+                "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1"},
+                "stdout": log_handle,
+                "stderr": subprocess.STDOUT,
+            }
+            if sys.platform == 'win32':
+                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008
+            else:
+                popen_kwargs["start_new_session"] = True
 
-    try:
-        write_user_bot_config(user_id)
-    except Exception as e:
-        return {"success": False, "error": f"Config write failed: {e}"}
+            proc = subprocess.Popen([sys.executable, "app.py"], **popen_kwargs)
 
-    user_bot_dir = USER_INSTANCES_DIR / user_id
-    try:
-        log_handle = _get_log_handle(user_id)
-        popen_kwargs = {
-            "cwd": str(user_bot_dir),
-            "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1"},
-            "stdout": log_handle,
-            "stderr": subprocess.STDOUT,
-        }
-        if sys.platform == 'win32':
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008
-        else:
-            popen_kwargs["start_new_session"] = True
+            DB.setdefault("bot_processes", {})[user_id] = {
+                "pid": proc.pid,
+                "port": port,
+                "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "should_run": True,
+            }
+            save_db(DB)
+            logger.info("Started bot-engine (detached) for user %s: PID=%s, port=%s", user_id, proc.pid, port)
 
-        proc = subprocess.Popen([sys.executable, "app.py"], **popen_kwargs)
+            if not is_process_alive(proc.pid):
+                log_file = LOG_DIR / f"bot_{user_id}.log"
+                error_detail = ""
+                try:
+                    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                        error_detail = f.read()[-300:]
+                except (OSError, IOError):
+                    pass
+                logger.error("Bot-engine crashed on start for %s. Log: %s", user_id, error_detail)
+                DB.get("bot_processes", {}).pop(user_id, None)
+                save_db(DB)
+                return {"success": False, "error": f"Bot-engine crashed on startup. Log: {error_detail[:200]}"}
 
-        DB.setdefault("bot_processes", {})[user_id] = {
-            "pid": proc.pid,
-            "port": port,
-            "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "should_run": True,
-        }
-        save_db(DB)
-        logger.info("Started bot-engine (detached) for user %s: PID=%s, port=%s", user_id, proc.pid, port)
-        time.sleep(2)
-        return {"success": True, "port": port, "pid": proc.pid}
-    except Exception as e:
-        logger.error("Failed to start bot for %s: %s", user_id, e)
-        return {"success": False, "error": str(e)}
+            _wait_for_bot_ready(port)
+            return {"success": True, "port": port, "pid": proc.pid}
+        except Exception as e:
+            logger.error("Failed to start bot for %s: %s", user_id, e)
+            return {"success": False, "error": str(e)}
 
 def stop_user_bot(user_id: str) -> dict:
     """Stop a user's bot-engine instance."""
@@ -691,9 +912,12 @@ def index():
 
 @app.route("/admin")
 def admin_panel():
-    if not is_admin():
-        return render_template("saas_admin.html", admin_login_required=True)
-    return render_template("saas_admin.html", admin_login_required=False)
+    if is_admin():
+        return render_template("saas_admin.html", admin_login_required=False)
+    if is_logged_in():
+        # Regular users must never see the admin panel (or its login form).
+        return redirect("/")
+    return render_template("saas_admin.html", admin_login_required=True)
 
 @app.route("/api/debug/logs")
 def list_logs():
@@ -822,6 +1046,45 @@ def api_signup():
         "message": "Account created! Please activate your license key to get started.",
     })
 
+def _dedupe_users_by_email(keep_id: str):
+    """Merge duplicate user records sharing the same email into `keep_id`.
+
+    A duplicate record is the ONLY way a user logging in with their own email
+    can hit 'license already activated by another user': the login loop simply
+    returns whichever same-email record comes first, and the license may be
+    bound to the other record. Duplicates can appear if an account was ever
+    created twice for the same email (Google auto-signup racing a manual
+    signup, admin bootstrap, restored DB snapshot, etc.).
+    """
+    keep = DB["users"].get(keep_id)
+    if not keep:
+        return
+    keep_email = (keep.get("email") or "").lower()
+    for uid, u in list(DB["users"].items()):
+        if uid == keep_id or (u.get("email") or "").lower() != keep_email:
+            continue
+        merged = False
+        if u.get("license_key") and not keep.get("license_key"):
+            keep["license_key"] = u["license_key"]
+            lic = DB.get("licenses", {}).get(u["license_key"])
+            if lic:
+                lic["used_by"] = keep_id
+            merged = True
+        if (u.get("subscription") or {}).get("status") == "active" and \
+                (keep.get("subscription") or {}).get("status") != "active":
+            keep["subscription"] = u["subscription"]
+            merged = True
+        for k, v in (u.get("bot_config") or {}).items():
+            if v and not keep.setdefault("bot_config", {}).get(k):
+                keep["bot_config"][k] = v
+                merged = True
+        if merged:
+            logger.info("Merged duplicate account %s (id=%s) into %s (id=%s)",
+                        u.get("email"), uid, keep.get("email"), keep_id)
+        del DB["users"][uid]
+    save_db(DB)
+
+
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
     data = request.get_json(force=True)
@@ -852,6 +1115,8 @@ def api_login():
                 "started_at": now, "expires_at": "9999-12-31T23:59:59Z",
             }
             save_db(DB)
+
+    _dedupe_users_by_email(user["id"])
 
     session["user_id"] = user["id"]
     session.permanent = True
@@ -984,7 +1249,14 @@ def api_license_activate():
         return jsonify({"success": False, "error": "This license has been revoked. Please contact admin."})
 
     if lic.get("used_by") and lic["used_by"] != user["id"]:
-        return jsonify({"success": False, "error": "This license is already activated by another user. One license per user only."})
+        prev = DB["users"].get(lic["used_by"], {})
+        same_email = (prev.get("email") or "").lower() == (user.get("email") or "").lower()
+        same_owner = (user.get("license_key") or "").upper() == key
+        if not (same_email or same_owner):
+            return jsonify({"success": False, "error": "This license key is already linked to another account. If it is your key, log in with the same email/Google account you used before — one key works on one account only."})
+        # Same person (duplicate account record or owner re-activating):
+        # allow a graceful rebind to the current account.
+        logger.info("License %s rebinding to same account id=%s (email=%s)", key, user["id"], user.get("email"))
 
     try:
         expiry = datetime.fromisoformat(lic["expires_at"].replace("Z", "+00:00"))
@@ -1256,11 +1528,26 @@ def bot_engine_proxy(path=''):
 
     body = request.get_data() if method in ('POST', 'PUT', 'PATCH') else None
 
+    # Settings persistence: mirror dashboard config saves into the SaaS DB so
+    # settings survive bot-engine restarts (the DB is the admin's source of truth).
+    if method == 'POST' and path.rstrip('/') == 'api/config' and body:
+        try:
+            payload = json.loads(body)
+            _sync_engine_config_to_db(user, payload)
+        except Exception as e:
+            logger.warning("Could not sync engine config to DB for %s: %s", user["id"], e)
+
     try:
         resp = req_lib.request(method, url, headers=fwd_headers, data=body,
                                stream=True, timeout=30, allow_redirects=False)
     except req_lib.exceptions.ConnectionError:
-        return "Bot engine not responding. Please refresh.", 502
+        # Engine dead (stale PID/port after a restart). Clear the stale entry
+        # so the next request respawns a fresh instance instead of looping.
+        logger.warning("Bot-engine connection refused for %s (port %s). Marking stopped.",
+                       user["id"], port)
+        DB.get("bot_processes", {}).pop(user["id"], None)
+        save_db(DB)
+        return "Bot engine not responding. It is being restarted — refresh the page.", 502
     except Exception as e:
         return f"Proxy error: {str(e)}", 500
 
@@ -1682,6 +1969,12 @@ def google_callback():
 
         if user.get("banned"):
             return redirect("/?error=account_suspended")
+
+        if user.get("google_id") != google_id:
+            user["google_id"] = google_id  # keep the account bound to this Google id
+            save_db(DB)
+
+        _dedupe_users_by_email(user["id"])
 
         session["user_id"] = user["id"]
         session.permanent = True
