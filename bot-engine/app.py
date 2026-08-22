@@ -48,10 +48,9 @@ _BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", "")
 if not _BOT_ENGINE_TOKEN:
     logger.warning("[SECURITY] BOT_ENGINE_TOKEN not set — API endpoints are unprotected!")
 
-# Fix 12b: Restrict CORS to localhost only (bot engine should never be public)
 socketio = SocketIO(
     app,
-    cors_allowed_origins=["http://127.0.0.1:5000", "http://localhost:5000"],
+    cors_allowed_origins="*",
     async_mode="threading",
     ping_timeout=60,
     ping_interval=25,
@@ -59,8 +58,9 @@ socketio = SocketIO(
     engineio_logger=False,
 )
 
-# Fix 12: Static files and root page do not need token (browser loads them via proxy).
-# API endpoints must have the token.
+# Fix 12: Static files, socket.io polling packets, and root page do not require manual token
+# (Socket.IO manages its own connection sessions; browser loads static/HTML via SaaS proxy).
+# API endpoints (/api/...) must have the valid X-Bot-Token.
 _UNPROTECTED_PATHS = ("/", "/favicon.ico")
 
 @app.before_request
@@ -68,8 +68,8 @@ def _verify_bot_token():
     """Reject API requests not bearing the correct X-Bot-Token header."""
     if not _BOT_ENGINE_TOKEN:
         return  # token not configured — skip check (warn logged at startup)
-    # Allow static files and the root page without a token
-    if request.path.startswith("/static/") or request.path in _UNPROTECTED_PATHS:
+    # Allow static files, socket.io transport packets, and the root page without a token
+    if request.path.startswith("/static/") or request.path.startswith("/socket.io") or request.path in _UNPROTECTED_PATHS:
         return
     incoming = request.headers.get("X-Bot-Token", "")
     if not incoming or not secrets.compare_digest(incoming, _BOT_ENGINE_TOKEN):
