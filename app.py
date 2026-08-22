@@ -803,17 +803,24 @@ def write_user_bot_config(user_id: str) -> str:
 
     if existing and isinstance(existing, dict):
         bot_config = existing
-        # Fall back to decrypted SaaS credentials only when the engine lost them.
-        if not bot_config.get("api_key"):
-            bot_config["api_key"] = decrypt(config.get("api_key_enc", ""))
-        if not bot_config.get("api_secret"):
-            bot_config["api_secret"] = decrypt(config.get("api_secret_enc", ""))
-        if not bot_config.get("api_passphrase"):
-            bot_config["api_passphrase"] = decrypt(config.get("api_passphrase_enc", ""))
+        # Ensure credentials from DB take precedence if engine has empty or stale keys
+        if not bot_config.get("api_key") and config.get("api_key_enc"):
+            bot_config["api_key"] = decrypt(config.get("api_key_enc", "")).strip().strip('"').strip("'")
+        if not bot_config.get("api_secret") and config.get("api_secret_enc"):
+            bot_config["api_secret"] = decrypt(config.get("api_secret_enc", "")).strip().strip('"').strip("'")
+        if not bot_config.get("api_passphrase") and config.get("api_passphrase_enc"):
+            bot_config["api_passphrase"] = decrypt(config.get("api_passphrase_enc", "")).strip().strip('"').strip("'")
+        # Sanitize existing keys if present
+        if bot_config.get("api_key"):
+            bot_config["api_key"] = str(bot_config["api_key"]).strip().strip('"').strip("'")
+        if bot_config.get("api_secret"):
+            bot_config["api_secret"] = str(bot_config["api_secret"]).strip().strip('"').strip("'")
+        if bot_config.get("api_passphrase"):
+            bot_config["api_passphrase"] = str(bot_config["api_passphrase"]).strip().strip('"').strip("'")
     else:
-        api_key = decrypt(config.get("api_key_enc", ""))
-        api_secret = decrypt(config.get("api_secret_enc", ""))
-        api_passphrase = decrypt(config.get("api_passphrase_enc", ""))
+        api_key = decrypt(config.get("api_key_enc", "")).strip().strip('"').strip("'")
+        api_secret = decrypt(config.get("api_secret_enc", "")).strip().strip('"').strip("'")
+        api_passphrase = decrypt(config.get("api_passphrase_enc", "")).strip().strip('"').strip("'")
 
         bot_config = {
             "api_key": api_key,

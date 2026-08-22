@@ -53,9 +53,9 @@ class BinanceFuturesTrader:
     """Wraps Binance USDT-M Futures API for the bot. Supports testnet and mainnet."""
 
     def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.testnet = testnet
+        self.api_key = str(api_key or "").strip().strip('"').strip("'")
+        self.api_secret = str(api_secret or "").strip().strip('"').strip("'")
+        self.testnet = bool(testnet)
         self.client = None
         self._exchange_info_cache: dict = {}  # symbol -> {step_size, min_qty, tick_size}
         self._connect()
