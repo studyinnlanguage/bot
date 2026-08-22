@@ -1,9 +1,10 @@
 """
 Flask Web Application - Trading Bot UI
-BOT ENGINE - No authentication (handled by parent SaaS app)
+BOT ENGINE - Requests must come from the SaaS proxy (verified via X-Bot-Token header)
 
 This bot engine is spawned by the SaaS app. Login/license is handled
 by the parent SaaS app. This is only the trading bot.
+All API access is protected by a shared secret token injected by the SaaS proxy.
 """
 from __future__ import annotations
 
@@ -41,15 +42,40 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
 app.config["SECRET_KEY"] = os.environ.get("BOT_ENGINE_SECRET", secrets.token_hex(32))
 
+# Fix 12: Shared secret token — set by parent SaaS when spawning this process.
+# Requests without the correct X-Bot-Token header are rejected.
+_BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", "")
+if not _BOT_ENGINE_TOKEN:
+    logger.warning("[SECURITY] BOT_ENGINE_TOKEN not set — API endpoints are unprotected!")
+
+# Fix 12b: Restrict CORS to localhost only (bot engine should never be public)
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
+    cors_allowed_origins=["http://127.0.0.1:5000", "http://localhost:5000"],
     async_mode="threading",
     ping_timeout=60,
     ping_interval=25,
     logger=False,
     engineio_logger=False,
 )
+
+# Fix 12: Static files and root page do not need token (browser loads them via proxy).
+# API endpoints must have the token.
+_UNPROTECTED_PATHS = ("/", "/favicon.ico")
+
+@app.before_request
+def _verify_bot_token():
+    """Reject API requests not bearing the correct X-Bot-Token header."""
+    if not _BOT_ENGINE_TOKEN:
+        return  # token not configured — skip check (warn logged at startup)
+    # Allow static files and the root page without a token
+    if request.path.startswith("/static/") or request.path in _UNPROTECTED_PATHS:
+        return
+    incoming = request.headers.get("X-Bot-Token", "")
+    if not incoming or not secrets.compare_digest(incoming, _BOT_ENGINE_TOKEN):
+        logger.warning("[SECURITY] Blocked request without valid X-Bot-Token: %s %s",
+                       request.method, request.path)
+        return Response("Unauthorized", status=403)
 
 # ---------- Default config ----------
 
@@ -104,6 +130,13 @@ def save_config(cfg: dict):
 
 CONFIG = load_config()
 ENGINE = BotEngine(socketio, CONFIG)
+
+# Auto-start monitor on startup if API credentials are already saved
+if CONFIG.get("api_key") and CONFIG.get("api_secret"):
+    try:
+        ENGINE.start_monitor(CONFIG)
+    except Exception as _e:
+        logger.warning("Could not auto-start monitor on startup: %s", _e)
 
 
 # ---------- Routes ----------
@@ -400,13 +433,34 @@ def test_connection():
 def get_balance():
     trader = ENGINE.trader or ENGINE.monitor_trader
     if not trader:
-        return jsonify({"success": False, "error": "Bot not connected"})
+        if CONFIG.get("api_key") and CONFIG.get("api_secret"):
+            try:
+                from bot.engine import get_trader
+                trader = get_trader(CONFIG)
+                ENGINE.monitor_trader = trader
+            except Exception as e:
+                return jsonify({"success": False, "error": f"Connection error: {e}"})
+        else:
+            return jsonify({"success": False, "error": "Bot not connected"})
     try:
         bal = trader.get_balance()
         return jsonify({"success": True, "balance": bal,
                         "exchange": CONFIG.get("exchange", "binance"),
                         "testnet": CONFIG.get("testnet", True)})
     except Exception as e:
+        logger.error("get_balance error: %s", e)
+        # Try one fresh reconnection attempt
+        if CONFIG.get("api_key") and CONFIG.get("api_secret"):
+            try:
+                from bot.engine import get_trader
+                trader = get_trader(CONFIG)
+                ENGINE.monitor_trader = trader
+                bal = trader.get_balance()
+                return jsonify({"success": True, "balance": bal,
+                                "exchange": CONFIG.get("exchange", "binance"),
+                                "testnet": CONFIG.get("testnet", True)})
+            except Exception as e2:
+                return jsonify({"success": False, "error": str(e2)})
         return jsonify({"success": False, "error": str(e)})
 
 

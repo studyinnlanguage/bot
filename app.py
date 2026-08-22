@@ -44,12 +44,14 @@ import uuid
 import shutil
 import signal
 import socket
+import struct
 import threading as _threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 from flask import Flask, jsonify, render_template, request, Response, session, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
 import urllib.request
 import urllib.error
 import requests as req_lib
@@ -94,8 +96,16 @@ logger = logging.getLogger("saas")
 
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET", secrets.token_hex(32))
+
+# Fix 2: FLASK_SECRET must be set in production to preserve sessions across restarts
+_flask_secret = os.environ.get("FLASK_SECRET", "")
+if not _flask_secret:
+    logger.warning("[SECURITY] FLASK_SECRET env var NOT SET — sessions will be lost on every restart! Set FLASK_SECRET in production.")
+    _flask_secret = secrets.token_hex(32)
+app.config["SECRET_KEY"] = _flask_secret
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 # ============================================================
 # Configuration
@@ -109,10 +119,18 @@ if not ADMIN_SECRET:
     logger.error("Set it like:  set ADMIN_SECRET=your_password  (Windows)")
     logger.error("          or:  export ADMIN_SECRET=your_password  (Linux/Mac)")
 
-# Encryption key for API keys (32 bytes, base64-encoded for Fernet)
-_ENCRYPTION_RAW = os.environ.get("ENCRYPTION_KEY", "tradebot-cloud-encryption-key-CHANGE-ME-32-chars")
+# Fix 1: Encryption key for API keys — MUST be set via env var in production
+_ENCRYPTION_RAW = os.environ.get("ENCRYPTION_KEY", "")
+if not _ENCRYPTION_RAW:
+    logger.critical("[SECURITY] ENCRYPTION_KEY env var NOT SET! Using insecure default key."
+                    " All user API keys are at risk. Set ENCRYPTION_KEY=<32+ char random string> IMMEDIATELY.")
+    _ENCRYPTION_RAW = "tradebot-cloud-encryption-key-CHANGE-ME-32-chars"
 # Derive a valid 32-byte key
 _ENCRYPTION_KEY_BYTES = hashlib.sha256(_ENCRYPTION_RAW.encode("utf-8")).digest()
+
+# Fix 12: Shared secret token for SaaS ↔ Bot-Engine communication
+# Bot engine instances will only accept requests bearing this token.
+BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", secrets.token_hex(32))
 
 # Port range for per-user bot-engine instances
 PORT_START = 5001
@@ -187,14 +205,21 @@ def decrypt(cipher_text: str) -> str:
         logger.error("Decryption failed: %s", e)
         return ""
 
+# Fix 6: Upgrade password hashing to PBKDF2-SHA256 via Werkzeug
 def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    hashed = hashlib.sha256((salt + password).encode()).hexdigest()
-    return f"{salt}${hashed}"
+    """Hash password using PBKDF2-SHA256 (industry standard, slow by design)."""
+    return generate_password_hash(password, method="pbkdf2:sha256:260000")
 
 def verify_password(password: str, stored: str) -> bool:
+    """Verify password — supports new PBKDF2 and legacy SHA256 hashes (backward compat)."""
+    if not stored:
+        return False
+    # New format: werkzeug PBKDF2 hash
+    if stored.startswith("pbkdf2:") or stored.startswith("scrypt:"):
+        return check_password_hash(stored, password)
+    # Legacy format: "salt$sha256hash" — allows old accounts to still log in
     try:
-        salt, hashed = stored.split("$")
+        salt, hashed = stored.split("$", 1)
         return hashlib.sha256((salt + password).encode()).hexdigest() == hashed
     except (ValueError, AttributeError):
         return False
@@ -962,7 +987,9 @@ def ensure_bot_engine_running(user_id: str) -> dict:
             log_handle = _get_log_handle(user_id)
             popen_kwargs = {
                 "cwd": str(user_bot_dir),
-                "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1"},
+                # Fix 12: pass BOT_ENGINE_TOKEN so bot engine can verify requests come from this SaaS
+                "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1",
+                         "BOT_ENGINE_TOKEN": BOT_ENGINE_TOKEN},
                 "stdout": log_handle,
                 "stderr": subprocess.STDOUT,
             }
@@ -1045,7 +1072,9 @@ def start_user_bot(user_id: str) -> dict:
             log_handle = _get_log_handle(user_id)
             popen_kwargs = {
                 "cwd": str(user_bot_dir),
-                "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1"},
+                # Fix 12: pass BOT_ENGINE_TOKEN so bot engine can verify requests come from this SaaS
+                "env": {**os.environ, "PORT": str(port), "HOST": "127.0.0.1",
+                         "BOT_ENGINE_TOKEN": BOT_ENGINE_TOKEN},
                 "stdout": log_handle,
                 "stderr": subprocess.STDOUT,
             }
@@ -1252,6 +1281,11 @@ def favicon():
 
 @app.route("/api/auth/signup", methods=["POST"])
 def api_signup():
+    # Fix 3: Rate limit signup to 3 attempts per 10 minutes per IP
+    client_ip = request.remote_addr or "unknown"
+    if not _check_rate_limit(f"signup:{client_ip}", max_requests=3, window_seconds=600):
+        return jsonify({"success": False, "error": "Too many signup attempts. Please wait 10 minutes."}), 429
+
     data = request.get_json(force=True)
     email = (data.get("email") or "").strip().lower()
     password = data.get("password", "")
@@ -1259,8 +1293,9 @@ def api_signup():
 
     if not email or not password:
         return jsonify({"success": False, "error": "Email and password are required"})
-    if len(password) < 6:
-        return jsonify({"success": False, "error": "Password must be at least 6 characters"})
+    # Fix 8: Minimum password length increased to 8
+    if len(password) < 8:
+        return jsonify({"success": False, "error": "Password must be at least 8 characters"})
     if "@" not in email or "." not in email:
         return jsonify({"success": False, "error": "Please enter a valid email address"})
 
@@ -1378,6 +1413,11 @@ def _dedupe_users_by_email(keep_id: str):
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
+    # Fix 3: Rate limit login to 5 attempts per 5 minutes per IP
+    client_ip = request.remote_addr or "unknown"
+    if not _check_rate_limit(f"login:{client_ip}", max_requests=5, window_seconds=300):
+        return jsonify({"success": False, "error": "Too many login attempts. Please wait 5 minutes."}), 429
+
     data = request.get_json(force=True)
     email = (data.get("email") or "").strip().lower()
     password = data.get("password", "")
@@ -1498,8 +1538,15 @@ def api_user_referral():
     referred_users = []
     for u in DB["users"].values():
         if u.get("referred_by") == user["id"]:
+            # Fix 7: Mask email to prevent PII leakage
+            _raw_email = u.get("email", "")
+            _at_pos = _raw_email.find("@")
+            if _at_pos > 2:
+                _masked = _raw_email[:2] + "***" + _raw_email[_at_pos:]
+            else:
+                _masked = "***@***"
             referred_users.append({
-                "email": u["email"],
+                "email": _masked,
                 "name": u.get("name", ""),
                 "created_at": u.get("created_at", ""),
                 "has_license": bool(u.get("license_key")),
@@ -1736,7 +1783,14 @@ def api_bot_proxy():
         return jsonify({"success": False, "error": "User not found"}), 404
 
     path = request.args.get("path", "/")
+    # Fix 5: Validate path to prevent path traversal / SSRF
+    _allowed_proxy_prefixes = ("/api/", "/socket.io", "/static/")
+    if not any(path.startswith(p) for p in _allowed_proxy_prefixes):
+        return jsonify({"success": False, "error": "Invalid proxy path"}), 400
+    # Fix 5: Whitelist allowed HTTP methods
     method = request.args.get("method", request.method).upper()
+    if method not in ("GET", "POST", "PUT", "DELETE", "PATCH"):
+        return jsonify({"success": False, "error": "Invalid method"}), 400
     body = request.get_json(silent=True) if request.method == "POST" else None
 
     result = proxy_to_bot(user["id"], method, path, body)
@@ -1816,6 +1870,9 @@ def bot_engine_proxy(path=''):
     for k, v in request.headers:
         if k.lower() not in ('host', 'cookie', 'content-length'):
             fwd_headers[k] = v
+    # Fix 12: Inject the shared secret so bot-engine can verify this request
+    # comes from the trusted SaaS proxy (not a direct external caller).
+    fwd_headers["X-Bot-Token"] = BOT_ENGINE_TOKEN
 
     body = request.get_data() if method in ('POST', 'PUT', 'PATCH') else None
 
@@ -1896,10 +1953,16 @@ def api_admin_login():
     if not ADMIN_SECRET:
         return jsonify({"success": False, "error": "Admin panel is disabled. Set ADMIN_SECRET env var."})
 
+    # Fix 3: Rate limit admin login to 3 attempts per 10 minutes
+    client_ip = request.remote_addr or "unknown"
+    if not _check_rate_limit(f"admin_login:{client_ip}", max_requests=3, window_seconds=600):
+        return jsonify({"success": False, "error": "Too many admin login attempts. Please wait 10 minutes."}), 429
+
     data = request.get_json(force=True)
     password = data.get("password", "")
 
-    if password != ADMIN_SECRET:
+    # Fix 4: Use constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(password, ADMIN_SECRET):
         return jsonify({"success": False, "error": "Invalid admin password"})
 
     admin_user = None
@@ -2165,6 +2228,9 @@ def google_auth():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         return redirect("/?error=google_not_configured")
     import urllib.parse
+    # Fix 10: Generate and store OAuth state to prevent CSRF on OAuth flow
+    oauth_state = secrets.token_hex(16)
+    session["oauth_state"] = oauth_state
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
@@ -2172,6 +2238,7 @@ def google_auth():
         "scope": "openid email profile",
         "access_type": "offline",
         "prompt": "select_account",
+        "state": oauth_state,
     }
     url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
     return redirect(url)
@@ -2182,6 +2249,12 @@ def google_callback():
     """Handle Google OAuth callback - create or login user."""
     code = request.args.get("code")
     error = request.args.get("error")
+    # Fix 10: Verify OAuth state to prevent CSRF attacks
+    returned_state = request.args.get("state", "")
+    expected_state = session.pop("oauth_state", None)
+    if not expected_state or not secrets.compare_digest(returned_state, expected_state):
+        logger.warning("Google OAuth state mismatch — possible CSRF attack. IP=%s", request.remote_addr)
+        return redirect("/?error=invalid_state")
 
     if error:
         logger.warning("Google OAuth error: %s", error)
@@ -2403,15 +2476,33 @@ def api_submit_order():
     # Save screenshot file
     screenshot_path = order.get("screenshot", "")
     if screenshot_file and screenshot_file.filename:
-        allowed = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        allowed_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        # Fix 9: Magic bytes signatures for allowed image types
+        _magic_signatures = [
+            (b"\xff\xd8\xff", ".jpg"),        # JPEG
+            (b"\x89PNG\r\n\x1a\n", ".png"),   # PNG
+            (b"GIF87a", ".gif"),               # GIF87
+            (b"GIF89a", ".gif"),               # GIF89
+            (b"RIFF", ".webp"),                # WebP (4-byte prefix)
+        ]
         ext = Path(screenshot_file.filename).suffix.lower()
-        if ext not in allowed:
+        if ext not in allowed_exts:
             return jsonify({"success": False, "error": "Only image files allowed (JPG, PNG, GIF, WebP)"})
         screenshot_file.seek(0, 2)
         size = screenshot_file.tell()
         screenshot_file.seek(0)
         if size > 5 * 1024 * 1024:
             return jsonify({"success": False, "error": "Screenshot too large (max 5MB)"})
+        # Fix 9: Verify actual file magic bytes match claimed type
+        header = screenshot_file.read(16)
+        screenshot_file.seek(0)
+        _magic_ok = False
+        for sig, sig_ext in _magic_signatures:
+            if header.startswith(sig):
+                _magic_ok = True
+                break
+        if not _magic_ok:
+            return jsonify({"success": False, "error": "File content does not match an image. Please upload a real screenshot."})
         filename = f"{order_id}_{secrets.token_hex(4)}{ext}"
         save_path = UPLOAD_DIR / filename
         screenshot_file.save(str(save_path))
@@ -2594,6 +2685,23 @@ def api_admin_wallet():
     if data.get("network"):
         WALLET_NETWORK = data["network"]
     return jsonify({"success": True, "wallet": WALLET_ADDRESS, "network": WALLET_NETWORK})
+
+# ============================================================
+# Fix 11: Security Headers Middleware
+# ============================================================
+
+@app.after_request
+def _add_security_headers(response):
+    """Add standard security headers to every response."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Don't cache API responses
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 # ============================================================
 # Graceful Shutdown

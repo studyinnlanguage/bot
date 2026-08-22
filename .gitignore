@@ -1,0 +1,56 @@
+﻿# ============================================================
+# TradeBot SaaS - .gitignore
+# ============================================================
+
+# Sensitive runtime data — NEVER commit these
+database.json
+user_instances/
+user_configs/
+logs/
+uploads/
+
+# Bot engine per-user copies
+bot-engine/logs/
+bot-engine/config.json
+bot-engine/config.json.bak
+bot-engine/.local_activation.dat
+bot-engine/.admin_password.txt
+bot-engine/licenses.json
+bot-engine/crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+.env/
+
+# Environment variables (contains secrets!)
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log

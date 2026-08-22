@@ -163,17 +163,65 @@ class BinanceFuturesTrader:
 
     def get_balance(self) -> float:
         """Get USDT balance available for trading. Auto-retries on network errors."""
-        if _CONNECTOR == "binance-futures-connector":
-            acct = self._retry_api_call(self.client.balance)
-            for item in acct:
-                if item.get("asset") == "USDT":
-                    return float(item.get("availableBalance", 0))
-            return 0.0
-        else:
-            acct = self._retry_api_call(self.client.futures_account)
-            for item in acct.get("assets", []):
-                if item.get("asset") == "USDT":
-                    return float(item.get("availableBalance", 0))
+        try:
+            if _CONNECTOR == "binance-futures-connector":
+                acct = self._retry_api_call(self.client.balance)
+                if isinstance(acct, dict) and "code" in acct and acct.get("code") != 200:
+                    logger.error("Binance balance API error: %s", acct)
+                    return 0.0
+                if isinstance(acct, list):
+                    for item in acct:
+                        if isinstance(item, dict) and str(item.get("asset", "")).upper() == "USDT":
+                            for key in ("availableBalance", "balance", "crossWalletBalance", "maxWithdrawAmount", "walletBalance"):
+                                val = item.get(key)
+                                if val not in (None, "", 0, "0"):
+                                    try:
+                                        v = float(val)
+                                        if v > 0:
+                                            return v
+                                    except (ValueError, TypeError):
+                                        continue
+                            try:
+                                return float(item.get("availableBalance", item.get("balance", 0.0)))
+                            except (ValueError, TypeError):
+                                return 0.0
+                return 0.0
+            else:
+                try:
+                    acct = self._retry_api_call(self.client.futures_account_balance)
+                    if isinstance(acct, list):
+                        for item in acct:
+                            if isinstance(item, dict) and str(item.get("asset", "")).upper() == "USDT":
+                                for key in ("availableBalance", "balance", "crossWalletBalance", "maxWithdrawAmount", "walletBalance"):
+                                    val = item.get(key)
+                                    if val not in (None, "", 0, "0"):
+                                        try:
+                                            v = float(val)
+                                            if v > 0:
+                                                return v
+                                        except (ValueError, TypeError):
+                                            continue
+                                return float(item.get("availableBalance", item.get("balance", 0.0)))
+                except Exception:
+                    pass
+
+                acct = self._retry_api_call(self.client.futures_account)
+                if isinstance(acct, dict):
+                    for item in acct.get("assets", []):
+                        if isinstance(item, dict) and str(item.get("asset", "")).upper() == "USDT":
+                            for key in ("availableBalance", "walletBalance", "marginBalance", "crossWalletBalance", "maxWithdrawAmount"):
+                                val = item.get(key)
+                                if val not in (None, "", 0, "0"):
+                                    try:
+                                        v = float(val)
+                                        if v > 0:
+                                            return v
+                                    except (ValueError, TypeError):
+                                        continue
+                            return float(item.get("availableBalance", item.get("walletBalance", 0.0)))
+                return 0.0
+        except Exception as e:
+            logger.error("Binance get_balance failed: %s", e)
             return 0.0
 
     def get_position(self, symbol: str) -> Position:
