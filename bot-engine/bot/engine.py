@@ -87,6 +87,9 @@ class SymbolWorker(threading.Thread):
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
+        # Per-worker strategy instance — CRITICAL FIX: prevents multi-coin workers
+        # from overwriting each other's cross detection and reversal state.
+        self.strategy = EMAQuadStrategy()
         # Leverage readiness event — workers wait on this before trading
         self._leverage_ready = leverage_ready
 
@@ -113,7 +116,7 @@ class SymbolWorker(threading.Thread):
             df = self.engine.trader.get_klines(self.symbol, interval=self.config["timeframe"], limit=200)
             self._last_df = df
             if df is not None and len(df) >= 60:
-                seed_result = self.engine.strategy.analyze(df)
+                seed_result = self.strategy.analyze(df)
                 if seed_result:
                     self.engine._emit("log", {
                         "level": "info",
@@ -127,7 +130,7 @@ class SymbolWorker(threading.Thread):
                             "candles": self._candles_to_list(df),
                             "emas": self._emas_to_list(df),
                         })
-                        indicators = self.engine.strategy.latest_indicators(df)
+                        indicators = self.strategy.latest_indicators(df)
                         try:
                             mp = self.engine.trader.get_mark_price(self.symbol)
                         except Exception:
@@ -214,7 +217,7 @@ class SymbolWorker(threading.Thread):
         self.last_check = datetime.now(timezone.utc).isoformat()
 
         # 2. Compute indicators
-        indicators = self.engine.strategy.latest_indicators(df)
+        indicators = self.strategy.latest_indicators(df)
         # Get mark price - use close price as fallback (mark price API may fail)
         try:
             mark_price = self.engine.trader.get_mark_price(symbol)
@@ -258,11 +261,11 @@ class SymbolWorker(threading.Thread):
         # 5.5 Strategy analysis — done EARLY (before SL/TP check) so we can
         # detect EMA55 reversal-style TP triggers. `result` is reused below
         # for entry logic too (no second analyze() call — strategy has state).
-        result = self.engine.strategy.analyze(df)
+        result = self.strategy.analyze(df)
         if result is None:
             self.engine._emit("log", {
                 "level": "warn",
-                "msg": f"[{symbol}] Not enough data yet (need >= {self.engine.strategy.ema_long + 5} candles)."
+                "msg": f"[{symbol}] Not enough data yet (need >= {self.strategy.ema_long + 5} candles)."
             })
             # Still emit position so UI stays in sync
             self.engine._emit("position", {
@@ -357,7 +360,7 @@ class SymbolWorker(threading.Thread):
                     # tick — NOT wait for EMA55 to go to HOLD first.
                     # So we use reset_for_reversal() instead of reset_cross_state().
                     if is_ema_reversal_tp:
-                        self.engine.strategy.reset_for_reversal()
+                        self.strategy.reset_for_reversal()
                         # Clear the 30s cross cooldown so the reversal
                         # is NOT blocked (the EMA55 flip is a real cross,
                         # not a false positive).
@@ -373,7 +376,7 @@ class SymbolWorker(threading.Thread):
                         })
                     else:
                         # SL or fixed-TP: require fresh cross (wait for HOLD first)
-                        self.engine.strategy.reset_cross_state()
+                        self.strategy.reset_cross_state()
                     # Notification
                     try:
                         if sl_hit:
@@ -411,7 +414,7 @@ class SymbolWorker(threading.Thread):
                 })
                 self.expected_pos_side = None
                 self.waiting_for_new_cross = True  # Strict mode: must wait for fresh cross
-                self.engine.strategy.reset_cross_state()
+                self.strategy.reset_cross_state()
             elif actual_side != "NONE" and self.expected_pos_side != actual_side and self.reversal_pending_side is None:
                 # Position flipped or new opposite position opened externally
                 self.engine._emit("log", {
@@ -933,18 +936,15 @@ class SymbolWorker(threading.Thread):
 
     def _compute_trade_size(self, price: float, leverage: int) -> float:
         """
-        Compute base-asset quantity based on amount_mode:
-        - 'fixed'  : use cfg['amount'] as USDT position size
-        - 'percent': use (balance * amount_pct / 100) as USDT position size
+        Compute base-asset quantity based on amount_mode and leverage:
+        - 'fixed'  : use cfg['amount'] as USDT margin, scaled by leverage for total notional exposure
+        - 'percent': use (balance * amount_pct / 100) as USDT margin, scaled by leverage for total notional exposure
 
-        CRITICAL FIX: Fetches the REAL step_size from the exchange so
-        compute_quantity rounds correctly. Previously used default 0.001
-        which caused orders to fail on coins with larger step sizes
-        (e.g., step=1 for some coins) when the computed quantity was
-        between 0 and step_size after rounding.
+        Fetches the REAL step_size from the exchange so compute_quantity rounds correctly.
         """
         cfg = self.config
         amount_mode = cfg.get("amount_mode", "fixed")
+        lev = max(1, int(leverage or cfg.get("leverage", 10)))
 
         if amount_mode == "percent":
             try:
@@ -952,9 +952,11 @@ class SymbolWorker(threading.Thread):
             except Exception:
                 balance = 0.0
             pct = float(cfg.get("amount_pct", 10))
-            notional = balance * pct / 100.0
+            margin = balance * pct / 100.0
+            notional = margin * lev
         else:
-            notional = float(cfg.get("amount", 100))
+            margin = float(cfg.get("amount", 100))
+            notional = margin * lev
 
         # Fetch real step_size from exchange for accurate rounding
         qty_step = 0.001  # safe fallback
@@ -964,7 +966,7 @@ class SymbolWorker(threading.Thread):
         except Exception:
             pass
 
-        return self.engine.trader.compute_quantity(notional, price, leverage, qty_step=qty_step)
+        return self.engine.trader.compute_quantity(notional, price, lev, qty_step=qty_step)
 
     def _candles_to_list(self, df, n=200):
         """Convert df candles to list of dicts for UI chart."""
@@ -984,7 +986,7 @@ class SymbolWorker(threading.Thread):
 
     def _emas_to_list(self, df, n=200):
         """Convert EMA columns to dict of lists for UI chart."""
-        enriched = self.engine.strategy.indicators.compute(df)
+        enriched = self.strategy.indicators.compute(df)
         tail = enriched.tail(n)
         out = {}
         for col, key in [("ema_8", "ema8"), ("ema_13", "ema13"),

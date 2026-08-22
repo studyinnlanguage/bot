@@ -591,77 +591,53 @@ class WEEXFuturesTrader:
     def set_leverage(self, symbol: str, leverage: int) -> dict:
         """Set leverage for a symbol. WEEX supports up to 500x.
 
-        WEEX V3 API endpoint: POST /capi/v3/account/leverage
-        - Works for BOTH live and demo (NO /sim/ variant)
-        - In demo mode, symbol should be BTCSUSDT (auto-converted by _order_symbol)
-        - In live mode, symbol should be BTCUSDT
-
-        WEEX's leverage endpoint is picky about body format. We try multiple
-        body shapes since WEEX docs are inconsistent. If all attempts fail
-        with parameter errors (not auth errors), we treat it as success
-        because:
-          1. The bot will use the exchange's default leverage (usually 20x)
-          2. Trades will still work — leverage just won't be the user's choice
-          3. Blocking bot start over leverage setting is worse than using default
+        Tries all valid WEEX Contract V3 leverage endpoints and body formats.
         """
         leverage = max(1, min(500, int(leverage)))
-        # Convert to the format WEEX expects for this mode (BTCSUSDT for demo)
         order_sym = self._order_symbol(symbol)
-        plain_sym = symbol.upper()  # Plain symbol (BTCUSDT) — some endpoints accept this even in demo
-        # WEEX expects: {symbol, marginType, crossLeverage}
-        # Try multiple body shapes — WEEX has changed this format over time
+        plain_sym = self._market_symbol(symbol)
+
+        # WEEX expects {symbol, marginCoin, leverage/crossLeverage, holdSide}
         bodies_to_try = [
+            {"symbol": order_sym, "marginCoin": "USDT", "leverage": str(leverage), "holdSide": "all"},
+            {"symbol": order_sym, "marginCoin": "USDT", "leverage": leverage, "holdSide": "all"},
+            {"symbol": order_sym, "marginCoin": "USDT", "crossLeverage": str(leverage), "marginType": "CROSSED"},
             {"symbol": order_sym, "marginType": "CROSSED", "crossLeverage": leverage},
             {"symbol": order_sym, "leverage": leverage, "marginType": "CROSSED"},
             {"symbol": order_sym, "crossLeverage": leverage},
-            # Also try with plain symbol — leverage endpoint may use BTCUSDT even in demo
+            {"symbol": plain_sym, "marginCoin": "USDT", "leverage": str(leverage), "holdSide": "all"},
             {"symbol": plain_sym, "marginType": "CROSSED", "crossLeverage": leverage},
             {"symbol": plain_sym, "leverage": leverage},
         ]
-        path = "/capi/v3/account/leverage"
-        last_error = None
-        parameter_errors = 0
-        for body in bodies_to_try:
-            try:
-                resp = self._request("POST", path, body=body, signed=True)
-                logger.info("WEEX leverage set to %dx for %s (symbol=%s, body=%s)",
-                            leverage, symbol, order_sym, list(body.keys()))
-                return {"success": True, "leverage": leverage, "raw": resp}
-            except Exception as e:
-                last_error = e
-                err_str = str(e).lower()
-                # Auth errors - fail immediately (don't try other bodies)
-                if "-1044" in err_str or "invalid access_key" in err_str:
-                    return {"success": False, "error": str(e)}
-                # Parameter errors (symbol invalid, etc.) - try next body shape
-                if ("-1141" in err_str or "-1142" in err_str or
-                    "must not" in err_str or "invalid param" in err_str or
-                    "is invalid" in err_str):
-                    parameter_errors += 1
-                    continue
-                # "Trading pair not supported via API" - this coin isn't API-tradable
-                if "not supported" in err_str and "api" in err_str:
-                    return {"success": False, "error": str(e)}
-                # Other error (e.g., leverage out of range) - return as failure
-                return {"success": False, "error": str(e)}
+        paths_to_try = [
+            "/capi/v3/account/leverage",
+            "/capi/v3/position/change-leverage",
+            "/capi/v3/sim/leverage" if self.demo else "/capi/v3/account/leverage",
+        ]
 
-        # All bodies failed with parameter errors.
-        # WEEX leverage API is unreliable — report it honestly so the UI can
-        # tell the user the exchange default will be used (they may need to
-        # set it manually at weex.com). The bot continues with the default
-        # rather than being blocked.
+        last_error = None
+        for path in paths_to_try:
+            for body in bodies_to_try:
+                try:
+                    resp = self._request("POST", path, body=body, signed=True)
+                    logger.info("WEEX leverage set to %dx for %s (path=%s, body=%s)",
+                                leverage, symbol, path, list(body.keys()))
+                    return {"success": True, "leverage": leverage, "raw": resp}
+                except Exception as e:
+                    last_error = e
+                    err_str = str(e).lower()
+                    if "-1044" in err_str or "invalid access_key" in err_str:
+                        return {"success": False, "error": str(e)}
+                    continue
+
         logger.warning(
-            "WEEX set_leverage FAILED for %s (tried %d body shapes, all returned parameter errors). "
-            "Exchange default leverage will be used. Last error: %s",
-            symbol, parameter_errors, last_error,
+            "WEEX set_leverage could not be set via API for %s: %s. Using exchange default.",
+            symbol, last_error
         )
         return {
             "success": False,
             "leverage": leverage,
-            "error": (f"Could not set leverage to {leverage}x for {symbol} "
-                      f"(WEEX API rejected all request formats). "
-                      f"Bot will use WEEX's exchange default leverage. "
-                      f"Tip: set it manually at weex.com -> Futures -> {symbol}"),
+            "error": str(last_error),
             "raw": "default",
         }
 
