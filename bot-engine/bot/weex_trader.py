@@ -51,15 +51,15 @@ class WEEXFuturesTrader:
 
     def __init__(self, api_key: str, api_secret: str, passphrase: str,
                  testnet: bool = True):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.passphrase = passphrase
-        self.demo = testnet  # WEEX uses "demo mode" instead of separate testnet
+        self.api_key = str(api_key or "").strip().strip('"').strip("'")
+        self.api_secret = str(api_secret or "").strip().strip('"').strip("'")
+        self.passphrase = str(passphrase or "").strip().strip('"').strip("'")
+        self.demo = bool(testnet)  # WEEX uses "demo mode" instead of separate testnet
         self.base_url = WEEX_BASE_URL
         self.session = requests.Session()
         self._contract_cache: dict = {}  # symbol -> contract specs
 
-        if not (api_key and api_secret and passphrase):
+        if not (self.api_key and self.api_secret and self.passphrase):
             raise ValueError("WEEX requires API Key, Secret, AND Passphrase")
 
         logger.info("Connected to WEEX Futures (%s)",

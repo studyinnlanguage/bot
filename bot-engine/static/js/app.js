@@ -743,9 +743,9 @@ async function saveSettings() {
     const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
     const cfg = {
         exchange: exchange,
-        api_key: $('apiKey').value || undefined,
-        api_secret: $('apiSecret').value || undefined,
-        api_passphrase: $('apiPassphrase').value || undefined,
+        api_key: $('apiKey')?.value?.trim() || undefined,
+        api_secret: $('apiSecret')?.value?.trim() || undefined,
+        api_passphrase: $('apiPassphrase')?.value?.trim() || undefined,
         symbols_list: coins,
         symbol: coins[0],
         timeframe: $('timeframe').value,
