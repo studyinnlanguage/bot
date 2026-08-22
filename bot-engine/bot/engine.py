@@ -157,6 +157,8 @@ class SymbolWorker(threading.Thread):
             })
 
         while not self.stop_event.is_set():
+            if not self.engine.is_running:
+                break
             try:
                 self._tick()
             except Exception as e:
@@ -166,7 +168,7 @@ class SymbolWorker(threading.Thread):
                     "msg": f"[{self.symbol}] tick error: {str(e)[:100]}"
                 })
             for _ in range(poll_seconds):
-                if self.stop_event.is_set():
+                if self.stop_event.is_set() or not self.engine.is_running:
                     break
                 time.sleep(1)
 
@@ -1317,8 +1319,10 @@ class BotEngine:
                                 "level": "error",
                                 "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): Your API Key is REJECTED by Binance! 1) Check 'Enable Futures'. 2) If IP restricted, whitelist your VPS IP. 3) Ensure it's a Futures key, not Spot!"
                             })
-                            # Stop the bot
+                            # Stop the bot completely and kill all threads
                             self.is_running = False
+                            for w in self.workers.values():
+                                w.stop_event.set()
                             return
                         elif "-4141" in err or "Symbol is closed" in err or "band" in err:
                             self._emit("log", {
