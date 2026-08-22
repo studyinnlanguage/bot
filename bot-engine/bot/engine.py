@@ -1315,7 +1315,7 @@ class BotEngine:
                         if "-2015" in err or "Invalid API-key" in err or "-1044" in err or "401" in err:
                             self._emit("log", {
                                 "level": "error",
-                                "msg": f"[{sym}] ❌ API AUTH FAILED: {err[:80]}. Bot stopped."
+                                "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): Your API Key is REJECTED by Binance! 1) Check 'Enable Futures'. 2) If IP restricted, whitelist your VPS IP. 3) Ensure it's a Futures key, not Spot!"
                             })
                             # Stop the bot
                             self.is_running = False
