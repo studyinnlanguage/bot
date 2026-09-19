@@ -439,7 +439,9 @@ function updatePositionUI(data) {
         else if (pnl < 0) pnlEl.classList.add('pnl-negative');
         else pnlEl.classList.add('pnl-zero');
     }
-    if ($('posLeverage')) $('posLeverage').textContent = `${data.leverage || 1}x`;
+    const cfgLev = parseInt($('leverage')?.value) || 10;
+    const lev = (data.leverage && data.leverage > 1) ? data.leverage : (data.leverage || cfgLev);
+    if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
 }
 
 // ===== Multi-Coin Management =====
@@ -527,7 +529,8 @@ function selectSymbol(sym) {
     if (positionsBySymbol[sym]) {
         updatePositionUI(positionsBySymbol[sym]);
     } else {
-        updatePositionUI({ symbol: sym, side: 'NONE', size: 0, entry_price: 0, mark_price: 0, unrealized_pnl: 0, leverage: 1 });
+        const curLev = parseInt($('leverage')?.value) || 10;
+        updatePositionUI({ symbol: sym, side: 'NONE', size: 0, entry_price: 0, mark_price: 0, unrealized_pnl: 0, leverage: curLev });
     }
     if (chartDataBySymbol[sym]) {
         renderChartForSymbol(sym);
@@ -611,7 +614,13 @@ async function loadSettings() {
         setExchange(exchange);
         if ($('apiPassphrase')) $('apiPassphrase').placeholder = cfg.api_passphrase ? 'Saved' : 'WEEX Passphrase';
         if ($('timeframe')) $('timeframe').value = cfg.timeframe || '1d';
-        if ($('leverage')) $('leverage').value = cfg.leverage || 10;
+        if ($('leverage')) {
+            const savedLev = cfg.leverage || 10;
+            $('leverage').value = savedLev;
+            if ($('posLeverage') && (!$('posLeverage').textContent || $('posLeverage').textContent === '1x')) {
+                $('posLeverage').textContent = `${savedLev}x`;
+            }
+        }
         if ($('amount')) $('amount').value = cfg.amount || 100;
         if ($('amountPct')) $('amountPct').value = cfg.amount_pct || 10;
         if ($('stopLossPct')) $('stopLossPct').value = cfg.stop_loss_pct || 2;
@@ -1213,19 +1222,40 @@ function attachListeners() {
         btn.addEventListener('click', () => setAmountMode(btn.dataset.mode));
     });
 
+    // Helper function to apply leverage immediately to exchange and UI
+    async function applyLeverageDirect(lev) {
+        const levInput = $('leverage');
+        if (levInput) levInput.value = lev;
+        if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
+        log('info', `Applying ${lev}x leverage...`);
+        try {
+            const res = await fetch('/api/leverage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ leverage: lev, symbol: activeSymbol })
+            });
+            const data = await res.json();
+            if (data.success) {
+                log('success', `⚡ Leverage successfully set to ${data.leverage || lev}x!`);
+            } else {
+                log('warn', `Leverage notice: ${data.error || 'Saved in config'}`);
+            }
+        } catch (e) {
+            log('info', `Leverage set to ${lev}x (Save settings dabayein apply karne ke liye)`);
+        }
+    }
+
     // Quick leverage
     document.querySelectorAll('.quick-leverage .btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const lev = btn.dataset.lev;
-            const levInput = $('leverage');
-            if (levInput) levInput.value = lev;
+            const lev = parseInt(btn.dataset.lev);
             document.querySelectorAll('.quick-leverage .btn').forEach(b => {
                 b.style.background = '';
                 b.style.color = '';
             });
             btn.style.background = '#f0b90b';
             btn.style.color = '#0b0e11';
-            log('info', `Leverage set to ${lev}x (Save dabana padega apply karne ke liye)`);
+            applyLeverageDirect(lev);
         });
     });
 
@@ -1235,9 +1265,6 @@ function attachListeners() {
         maxLevBtn.addEventListener('click', () => {
             const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
             const maxLev = exchange === 'weex' ? 500 : 100;
-            const levInput = $('leverage');
-            if (levInput) levInput.value = maxLev;
-            log('info', `⚠ Leverage set to ${maxLev}x (Save dabana padega)`);
             // Highlight matching quick-lev button
             document.querySelectorAll('.quick-leverage .btn').forEach(b => {
                 b.style.background = '';
@@ -1248,6 +1275,7 @@ function attachListeners() {
                 btnMatch.style.background = '#f0b90b';
                 btnMatch.style.color = '#0b0e11';
             }
+            applyLeverageDirect(maxLev);
         });
     }
 

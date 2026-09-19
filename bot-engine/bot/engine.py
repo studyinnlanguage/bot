@@ -1260,6 +1260,76 @@ class BotEngine:
             self.monitor_thread = None
         self.monitor_trader = None
 
+    def apply_leverage(self, leverage: int, symbol: Optional[str] = None) -> dict:
+        """Apply leverage to symbol(s) on exchange and update config, running workers, and UI."""
+        symbols = [symbol.strip().upper()] if symbol else self._symbols_list()
+        if not symbols:
+            symbols = [str(self.config.get("symbol", "BTCUSDT")).strip().upper()]
+
+        self.config["leverage"] = leverage
+        # Update running workers
+        with self.lock:
+            for w in self.workers.values():
+                w.config["leverage"] = leverage
+
+        results = {}
+        active_trader = self.trader or self.monitor_trader
+        if not active_trader:
+            try:
+                active_trader = get_trader(self.config)
+            except Exception as e:
+                logger.warning("Could not instantiate trader for apply_leverage: %s", e)
+                active_trader = None
+
+        if active_trader:
+            for sym in symbols:
+                try:
+                    r = active_trader.set_leverage(sym, leverage)
+                    results[sym] = r
+                    actual = r.get("leverage", leverage) if r.get("success") else leverage
+                    if r.get("success"):
+                        self._emit("log", {
+                            "level": "success",
+                            "msg": f"[{sym}] ⚡ Leverage set to {actual}x on {self.config.get('exchange', 'binance').upper()}"
+                        })
+                    else:
+                        self._emit("log", {
+                            "level": "warn",
+                            "msg": f"[{sym}] ⚠️ Leverage notice: {r.get('error', 'unknown')}"
+                        })
+                except Exception as e:
+                    logger.error("Failed to set leverage for %s: %s", sym, e)
+                    results[sym] = {"success": False, "error": str(e)}
+
+        # Emit updated position event for the active symbol so UI updates immediately
+        cur_sym = self.active_symbol or (symbols[0] if symbols else "BTCUSDT")
+        try:
+            if active_trader:
+                pos = active_trader.get_position(cur_sym)
+                self._emit("position", {
+                    "symbol": cur_sym,
+                    "side": pos.side,
+                    "size": pos.size,
+                    "entry_price": pos.entry_price,
+                    "mark_price": pos.mark_price,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                    "leverage": pos.leverage,
+                })
+            else:
+                self._emit("position", {
+                    "symbol": cur_sym,
+                    "side": "NONE",
+                    "size": 0,
+                    "entry_price": 0,
+                    "mark_price": 0,
+                    "unrealized_pnl": 0,
+                    "leverage": leverage,
+                })
+        except Exception:
+            pass
+
+        return {"success": True, "leverage": leverage, "results": results}
+
     def start(self, config: dict):
         """Start the bot with the given config."""
         # ZOMBIE STATE CHECK
@@ -1300,7 +1370,7 @@ class BotEngine:
             try:
                 for sym in symbols:
                     r = self.trader.set_leverage(sym, lev)
-                    if r["success"]:
+                    if r.get("success"):
                         actual_lev = r.get("leverage", lev)
                         if r.get("adjusted"):
                             self._emit("log", {
@@ -1312,6 +1382,20 @@ class BotEngine:
                                 "level": "info",
                                 "msg": f"[{sym}] Leverage set: {actual_lev}x"
                             })
+                        # Emit position immediately with actual leverage
+                        try:
+                            pos = self.trader.get_position(sym)
+                            self._emit("position", {
+                                "symbol": sym,
+                                "side": pos.side,
+                                "size": pos.size,
+                                "entry_price": pos.entry_price,
+                                "mark_price": pos.mark_price,
+                                "unrealized_pnl": pos.unrealized_pnl,
+                                "leverage": pos.leverage,
+                            })
+                        except Exception:
+                            pass
                     else:
                         err = str(r.get("error", ""))
                         if "-2015" in err or "Invalid API-key" in err or "-1044" in err or "401" in err:

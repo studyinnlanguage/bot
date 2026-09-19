@@ -215,8 +215,40 @@ def update_config():
 
     save_config(CONFIG)
 
+    # Immediately apply leverage on exchange if credentials are present
+    if CONFIG.get("api_key") and CONFIG.get("api_secret"):
+        try:
+            ENGINE.apply_leverage(CONFIG["leverage"])
+        except Exception as _e:
+            logger.warning("Could not auto-apply leverage on config save: %s", _e)
+        try:
+            ENGINE.start_monitor(CONFIG)
+        except Exception as _e:
+            logger.warning("Could not start monitor on config save: %s", _e)
+
     safe_keys = ("api_secret", "email_password", "telegram_bot_token", "whatsapp_apikey")
     return jsonify({"success": True, "config": {k: v for k, v in CONFIG.items() if k not in safe_keys}})
+
+
+@app.route("/api/leverage", methods=["POST"])
+def set_leverage():
+    data = request.get_json(silent=True) or {}
+    lev = data.get("leverage")
+    symbol = data.get("symbol")
+    if not lev:
+        return jsonify({"success": False, "error": "Leverage is required"}), 400
+    try:
+        lev = int(lev)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid leverage"}), 400
+
+    max_lev = 500 if (CONFIG.get("exchange") or "binance").lower() == "weex" else 125
+    lev = max(1, min(max_lev, lev))
+    CONFIG["leverage"] = lev
+    save_config(CONFIG)
+
+    res = ENGINE.apply_leverage(lev, symbol=symbol)
+    return jsonify(res)
 
 
 @app.route("/api/test_notification", methods=["POST"])

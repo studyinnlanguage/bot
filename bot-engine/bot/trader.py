@@ -58,6 +58,7 @@ class BinanceFuturesTrader:
         self.testnet = bool(testnet)
         self.client = None
         self._exchange_info_cache: dict = {}  # symbol -> {step_size, min_qty, tick_size}
+        self._symbol_leverage: dict[str, int] = {}  # symbol -> last set/confirmed leverage
         self._connect()
 
     def _connect(self):
@@ -224,58 +225,111 @@ class BinanceFuturesTrader:
             logger.error("Binance get_balance failed: %s", e)
             return 0.0
 
+    def _call_change_leverage(self, symbol: str, leverage: int) -> dict:
+        """Call Binance API to change initial leverage, trying all client library method variants."""
+        symbol = str(symbol).strip().upper()
+        leverage = int(leverage)
+        # binance-futures-connector / binance-connector-python uses change_initial_leverage
+        # python-binance uses futures_change_leverage
+        # some wrappers use change_leverage
+        for method_name in ("change_initial_leverage", "futures_change_leverage", "change_leverage"):
+            fn = getattr(self.client, method_name, None)
+            if callable(fn):
+                return fn(symbol=symbol, leverage=leverage)
+        raise AttributeError(
+            f"Binance client ({type(self.client).__name__}) has no supported leverage method "
+            "(tried change_initial_leverage, futures_change_leverage, change_leverage)"
+        )
+
     def get_position(self, symbol: str) -> Position:
-        """Get current position for a symbol using /fapi/v2/positionRisk. Auto-retries."""
-        if _CONNECTOR == "binance-futures-connector":
+        """Get current position for a symbol using positionRisk / futures_position_information. Auto-retries."""
+        symbol = str(symbol).strip().upper()
+        cached_lev = self._symbol_leverage.get(symbol, 1)
+
+        positions = None
+        for method_name in ("get_position_risk", "futures_position_information", "position_risk"):
+            fn = getattr(self.client, method_name, None)
+            if callable(fn):
+                try:
+                    positions = self._retry_api_call(fn, symbol=symbol)
+                    break
+                except Exception as e:
+                    logger.warning("%s failed for %s: %s", method_name, symbol, e)
+
+        if not positions:
+            return Position(symbol, "NONE", 0.0, 0.0, 0.0, 0.0, cached_lev)
+
+        if isinstance(positions, dict):
+            if "code" in positions and positions.get("code") != 200:
+                logger.warning("Binance position API error for %s: %s", symbol, positions)
+                return Position(symbol, "NONE", 0.0, 0.0, 0.0, 0.0, cached_lev)
+            positions = [positions]
+        elif not isinstance(positions, list):
+            return Position(symbol, "NONE", 0.0, 0.0, 0.0, 0.0, cached_lev)
+
+        # Match exact symbol
+        matching = [p for p in positions if isinstance(p, dict) and str(p.get("symbol", "")).upper() == symbol]
+        if not matching:
+            matching = [p for p in positions if isinstance(p, dict)]
+
+        if not matching:
+            return Position(symbol, "NONE", 0.0, 0.0, 0.0, 0.0, cached_lev)
+
+        # In Hedge mode or multiple positions, find active one if any
+        p = matching[0]
+        for item in matching:
             try:
-                positions = self._retry_api_call(self.client.get_position_risk, symbol=symbol)
-            except Exception as e:
-                logger.warning("get_position_risk failed: %s. Returning NONE.", e)
-                return Position(symbol, "NONE", 0.0, 0.0, 0.0, 0.0, 1)
-            if not positions:
-                return Position(symbol, "NONE", 0.0, 0.0, 0.0, 0.0, 1)
-            p = positions[0]
-            amt = float(p.get("positionAmt", 0))
-            side = "LONG" if amt > 0 else ("SHORT" if amt < 0 else "NONE")
-            return Position(
-                symbol=symbol,
-                side=side,
-                size=amt,
-                entry_price=float(p.get("entryPrice", 0)),
-                mark_price=float(p.get("markPrice", 0)),
-                unrealized_pnl=float(p.get("unRealizedProfit", 0)),
-                leverage=int(float(p.get("leverage", 1))),
-            )
-        else:
-            positions = self._retry_api_call(self.client.futures_position_information, symbol=symbol)
-            if not positions:
-                return Position(symbol, "NONE", 0.0, 0.0, 0.0, 0.0, 1)
-            p = positions[0]
-            amt = float(p.get("positionAmt", 0))
-            side = "LONG" if amt > 0 else ("SHORT" if amt < 0 else "NONE")
-            return Position(
-                symbol=symbol,
-                side=side,
-                size=amt,
-                entry_price=float(p.get("entryPrice", 0)),
-                mark_price=float(p.get("markPrice", 0)),
-                unrealized_pnl=float(p.get("unRealizedProfit", 0)),
-                leverage=int(float(p.get("leverage", 1))),
-            )
+                if abs(float(item.get("positionAmt", 0))) > 0:
+                    p = item
+                    break
+            except (ValueError, TypeError):
+                continue
+
+        amt = float(p.get("positionAmt", 0))
+        side = "LONG" if amt > 0 else ("SHORT" if amt < 0 else "NONE")
+
+        # Parse leverage from API response
+        lev = cached_lev
+        for k in ("leverage", "lever", "marginLevel"):
+            v = p.get(k)
+            if v not in (None, "", 0, "0"):
+                try:
+                    lev_val = int(float(v))
+                    if lev_val > 0:
+                        lev = lev_val
+                        self._symbol_leverage[symbol] = lev
+                    break
+                except (ValueError, TypeError):
+                    continue
+
+        return Position(
+            symbol=symbol,
+            side=side,
+            size=amt,
+            entry_price=float(p.get("entryPrice", 0)),
+            mark_price=float(p.get("markPrice", 0)),
+            unrealized_pnl=float(p.get("unRealizedProfit", 0)),
+            leverage=lev,
+        )
 
     # ---------- Orders ----------
 
     def set_leverage(self, symbol: str, leverage: int) -> dict:
         """Set leverage for a symbol (1-125). Auto-adjusts if leverage
         exceeds the symbol's max allowed leverage (error -4028)."""
+        symbol = str(symbol).strip().upper()
         leverage = max(1, min(125, int(leverage)))
         try:
-            if _CONNECTOR == "binance-futures-connector":
-                resp = self.client.change_leverage(symbol=symbol, leverage=leverage)
-            else:
-                resp = self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
-            logger.info("Leverage set to %dx for %s", leverage, symbol)
-            return {"success": True, "leverage": leverage, "raw": resp}
+            resp = self._call_change_leverage(symbol, leverage)
+            actual_lev = leverage
+            if isinstance(resp, dict) and "leverage" in resp:
+                try:
+                    actual_lev = int(resp["leverage"])
+                except (ValueError, TypeError):
+                    actual_lev = leverage
+            self._symbol_leverage[symbol] = actual_lev
+            logger.info("Leverage set to %dx for %s (resp: %s)", actual_lev, symbol, resp)
+            return {"success": True, "leverage": actual_lev, "raw": resp}
         except Exception as e:
             msg = str(e)
             # Auto-fix: Leverage too high for this coin → reduce and retry
@@ -285,13 +339,17 @@ class BinanceFuturesTrader:
                     if try_lev >= leverage:
                         continue
                     try:
-                        if _CONNECTOR == "binance-futures-connector":
-                            resp = self.client.change_leverage(symbol=symbol, leverage=try_lev)
-                        else:
-                            resp = self.client.futures_change_leverage(symbol=symbol, leverage=try_lev)
+                        resp = self._call_change_leverage(symbol, try_lev)
+                        actual_lev = try_lev
+                        if isinstance(resp, dict) and "leverage" in resp:
+                            try:
+                                actual_lev = int(resp["leverage"])
+                            except (ValueError, TypeError):
+                                actual_lev = try_lev
+                        self._symbol_leverage[symbol] = actual_lev
                         logger.info("Leverage auto-adjusted to %dx for %s (requested %dx)",
-                                    try_lev, symbol, leverage)
-                        return {"success": True, "leverage": try_lev, "raw": resp,
+                                    actual_lev, symbol, leverage)
+                        return {"success": True, "leverage": actual_lev, "raw": resp,
                                 "adjusted": True, "original": leverage}
                     except Exception:
                         continue
@@ -303,8 +361,9 @@ class BinanceFuturesTrader:
             # Binance throws if leverage is unchanged; treat as success
             if "No need to change leverage" in msg or "leverage not changed" in msg.lower() \
                or "-4046" in msg:
+                self._symbol_leverage[symbol] = leverage
                 return {"success": True, "leverage": leverage, "raw": msg}
-            logger.error("Failed to set leverage: %s", e)
+            logger.error("Failed to set leverage for %s: %s", symbol, e)
             return {"success": False, "error": msg}
 
     def get_symbol_filters(self, symbol: str) -> dict:
