@@ -58,6 +58,7 @@ class WEEXFuturesTrader:
         self.base_url = WEEX_BASE_URL
         self.session = requests.Session()
         self._contract_cache: dict = {}  # symbol -> contract specs
+        self._symbol_leverage: dict[str, int] = {}  # symbol -> last set leverage
 
         if not (self.api_key and self.api_secret and self.passphrase):
             raise ValueError("WEEX requires API Key, Secret, AND Passphrase")
@@ -535,14 +536,19 @@ class WEEXFuturesTrader:
                 v = p.get(k)
                 if v not in (None, "", 0, "0"):
                     try:
-                        lev = int(float(v)); break
+                        lev_val = int(float(v))
+                        if lev_val > 0:
+                            lev = lev_val
+                            self._symbol_leverage[symbol] = lev
+                        break
                     except (TypeError, ValueError):
                         continue
             return WEEXPosition(
                 symbol=symbol, side=side, size=qty, entry_price=entry,
                 mark_price=mark, unrealized_pnl=pnl, leverage=lev,
             )
-        return WEEXPosition(symbol, "NONE", 0, 0, 0, 0, 1)
+        cached_lev = self._symbol_leverage.get(symbol, 1)
+        return WEEXPosition(symbol, "NONE", 0, 0, 0, 0, cached_lev)
 
     # ---------- Orders ----------
 
@@ -620,6 +626,7 @@ class WEEXFuturesTrader:
             for body in bodies_to_try:
                 try:
                     resp = self._request("POST", path, body=body, signed=True)
+                    self._symbol_leverage[symbol] = leverage
                     logger.info("WEEX leverage set to %dx for %s (path=%s, body=%s)",
                                 leverage, symbol, path, list(body.keys()))
                     return {"success": True, "leverage": leverage, "raw": resp}
@@ -630,6 +637,7 @@ class WEEXFuturesTrader:
                         return {"success": False, "error": str(e)}
                     continue
 
+        self._symbol_leverage[symbol] = leverage
         logger.warning(
             "WEEX set_leverage could not be set via API for %s: %s. Using exchange default.",
             symbol, last_error

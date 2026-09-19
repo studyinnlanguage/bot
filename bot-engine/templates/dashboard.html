@@ -398,7 +398,7 @@
                             <strong id="posPnl" class="pnl-zero">$0.00</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Leverage</span><strong id="posLeverage">1x</strong>
+                            <span>Leverage</span><strong id="posLeverage">{{ config.leverage | default(10) }}x</strong>
                         </div>
                     </div>
                 </div>
