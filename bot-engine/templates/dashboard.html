@@ -2,33 +2,36 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#0b0e11">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#080b11">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <meta name="apple-mobile-web-app-title" content="TradingBot">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TradingBot Pro">
     <link rel="manifest" href="/static/manifest.json">
-    <title>Binance Futures Bot - EMA Strategy</title>
+    <title>Binance Futures Bot - Pro Terminal</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Local libraries (no CDN required - works offline) -->
     <script src="{{ url_for('static', filename='lib/socket.io.min.js') }}"></script>
     <script src="{{ url_for('static', filename='lib/lightweight-charts.js') }}"></script>
 </head>
-<body>
-    <!-- Top Navigation -->
+<body data-mob-tab="terminal">
+    <!-- Top Navigation Header -->
     <header class="topbar">
         <div class="brand">
-            <div class="logo">B</div>
-            <div>
-                <h1>Binance Futures Bot</h1>
-                <span class="subtitle">EMA Quad Strategy (8, 13, 21, 55) - Multi-Coin</span>
+            <div class="logo">⚡</div>
+            <div class="brand-text">
+                <h1>Futures Trading Terminal <span class="pro-badge">PRO v2</span></h1>
+                <span class="subtitle">EMA Quad Trend Rider (8, 13, 21, 55) • Multi-Coin Dynamic Trailing</span>
             </div>
         </div>
         <div class="topbar-actions">
-            <div class="env-badge" id="envBadge" style="display:flex;gap:6px">
+            <div class="live-clock" id="liveClock">--:--:-- UTC</div>
+            <div class="env-badge" id="envBadge">
                 <span id="exchangeBadge">BINANCE</span>
-                <span style="color:#848e9c">|</span>
+                <span style="color:#5e6673">|</span>
                 <span id="modeBadge">TESTNET</span>
             </div>
             <div class="status-pill" id="botStatusPill">
@@ -38,14 +41,69 @@
         </div>
     </header>
 
+    <!-- Mobile Quick Status & Action Strip (Visible on mobile/tablet) -->
+    <div class="mobile-quick-strip" id="mobQuickStrip">
+        <div class="mob-quick-coin">
+            <span id="mobCoin">BTCUSDT</span>
+            <span class="mob-quick-price" id="mobPrice">$--</span>
+        </div>
+        <div class="mob-quick-pnl pnl-zero" id="mobPnl">$0.00 (0.00%)</div>
+        <div style="display:flex;gap:6px">
+            <button id="mobQuickStartBtn" class="btn btn-sm btn-success">▶ Start</button>
+            <button id="mobQuickStopBtn" class="btn btn-sm btn-danger" disabled>■ Stop</button>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
     <main class="layout">
-        <!-- LEFT: Settings + Position + Stats -->
+        <!-- SIDEBAR: Controls + Stats + Settings + Notifications -->
         <aside class="sidebar">
-            <!-- Settings Card -->
-            <section class="card">
+            <!-- 1. Bot Controls Card (Quick Actions) -->
+            <section class="card controls-card" data-tab-section="controls">
                 <div class="card-header">
-                    <h2>Settings</h2>
-                    <button id="saveSettings" class="btn btn-sm btn-primary">Save</button>
+                    <h2><span class="card-icon">⚡</span> Engine Controls</h2>
+                </div>
+                <div class="card-body">
+                    <div class="btn-group">
+                        <button id="startBtn" class="btn btn-success btn-lg">▶ START BOT</button>
+                        <button id="stopBtn" class="btn btn-danger btn-lg" disabled>■ STOP BOT</button>
+                    </div>
+                    <button id="testConnBtn" class="btn btn-block" style="background:rgba(14,203,129,0.1);color:#0ecb81;border:1px solid rgba(14,203,129,0.3);margin-top:6px;font-weight:700">🔌 TEST CONNECTION (Check API Keys)</button>
+                    <button id="closeBtn" class="btn btn-warning btn-block" style="margin-top:6px">✕ Close Position (Selected Coin)</button>
+                    <button id="forceStopBtn" class="btn btn-block" style="background:rgba(246,70,93,0.08);color:#f6465d;border:1px dashed rgba(246,70,93,0.4);margin-top:6px;font-size:11px">⚠ FORCE RESET (if stuck)</button>
+                </div>
+            </section>
+
+            <!-- 2. Account Stats Card -->
+            <section class="card stats-card" data-tab-section="position">
+                <div class="card-header">
+                    <h2><span class="card-icon">📊</span> Account Performance</h2>
+                </div>
+                <div class="card-body stats-grid">
+                    <div class="stat">
+                        <div class="stat-label">USDT Balance</div>
+                        <div class="stat-value" id="statBalance">--</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Active Coins</div>
+                        <div class="stat-value" id="statCoins">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Trades Today</div>
+                        <div class="stat-value" id="statTrades">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Active Symbol</div>
+                        <div class="stat-value" id="statSymbol" style="font-size:14px">--</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. Bot Settings Card -->
+            <section class="card settings-card" data-tab-section="controls">
+                <div class="card-header">
+                    <h2><span class="card-icon">⚙️</span> Configuration</h2>
+                    <button id="saveSettings" class="btn btn-sm btn-primary">Save Settings</button>
                 </div>
                 <div class="card-body">
                     <!-- Exchange Selector -->
@@ -105,6 +163,7 @@
                             </select>
                         </div>
                     </div>
+
                     <div class="form-row">
                         <div class="form-group">
                             <label>Leverage (1-<span id="maxLevLabel">125</span>x)</label>
@@ -137,7 +196,7 @@
                         <div class="hint">Bot will use this % of available USDT balance per trade.</div>
                     </div>
 
-                    <!-- Stop Loss / Take Profit (STRICT 1:3 RR) -->
+                    <!-- Stop Loss / Take Profit -->
                     <div class="form-row">
                         <div class="form-group">
                             <label>Stop Loss % (STRICT, min 0.5%)</label>
@@ -145,25 +204,26 @@
                             <div class="hint">⚠ STRICT: SL minimum 0.5%, always active</div>
                         </div>
                         <div class="form-group">
-                            <label>Take Profit % (Auto 1:3 RR)</label>
-                            <input type="text" id="takeProfitPct" value="6.0" readonly
-                                style="background:#181a20;color:#0ecb81;font-weight:600">
-                            <div class="hint">⚡ ALWAYS = SL × 3 (used in Fixed / Both modes)</div>
+                            <label>Take Profit Target</label>
+                            <input type="text" id="takeProfitPct" value="Dynamic (1:1 ➔ 1:2 ➔ 1:3...)" readonly
+                                style="background:rgba(10,14,22,0.95);color:#0ecb81;font-weight:700">
+                            <div class="hint">⚡ Auto ratchet step trailing (with Break-even SL)</div>
                         </div>
                     </div>
 
                     <!-- TP MODE SELECTOR -->
                     <div class="form-group">
-                        <label>Take Profit MODE</label>
-                        <select id="tpMode" style="width:100%;padding:10px;background:#181a20;border:1px solid #2a2e36;color:#eaecef;border-radius:6px;font-size:14px;">
-                            <option value="both">BOTH — Fixed % OR EMA55 flip (whichever first) [RECOMMENDED]</option>
+                        <label>Take Profit Mode</label>
+                        <select id="tpMode" style="width:100%;padding:10px;background:rgba(10,14,22,0.95);border:1px solid rgba(255,255,255,0.1);color:#eaecef;border-radius:8px;font-size:13px;">
+                            <option value="trailing" selected>🎯 DYNAMIC TRAILING (1:1 ➔ 1:2 ➔ 1:3... + Break-even SL) [RECOMMENDED]</option>
+                            <option value="both">BOTH — Fixed % OR EMA55 flip (whichever first)</option>
                             <option value="fixed">FIXED — TP at SL×3% (classic 1:3 RR)</option>
                             <option value="ema_reversal">EMA55 REVERSAL — TP when EMA55 flips opposite</option>
                         </select>
                         <div class="hint">
-                            <b>FIXED</b>: TP at fixed % (e.g. +6% for LONG).<br>
-                            <b>EMA55 REVERSAL</b>: LONG closes when EMA55 becomes TOP line; SHORT closes when EMA55 becomes BOTTOM line.<br>
-                            <b>BOTH</b>: Whichever triggers first (safest).
+                            <b>DYNAMIC TRAILING</b>: Starts 1:1 TP. When hit, moves SL to Break-even &amp; sets TP to 1:2. When 1:2 hit, locks +1R profit &amp; sets TP to 1:3 until dynamic SL or opposite flip! 🚀<br>
+                            <b>EMA55 REVERSAL</b>: LONG closes when EMA55 flips to TOP; SHORT closes when EMA55 flips to BOTTOM.<br>
+                            <b>BOTH</b>: Whichever triggers first.
                         </div>
                     </div>
 
@@ -181,44 +241,31 @@
                         <button class="btn btn-sm weex-only" data-lev="400" style="display:none">400x</button>
                         <button class="btn btn-sm weex-only" data-lev="500" style="display:none">500x</button>
                     </div>
-                    <div class="form-row" style="margin-top:8px">
+                    <div class="form-row" style="margin-top:10px">
                         <div class="form-group" style="margin:0">
-                            <label style="color:#f0b90b;font-weight:600">⚠ Max Leverage</label>
-                            <button type="button" id="maxLeverageBtn" class="btn btn-block btn-primary" style="font-weight:600">SET 100x LEVERAGE</button>
+                            <label style="color:#f0b90b;font-weight:600">⚡ Fast Set Max Leverage</label>
+                            <button type="button" id="maxLeverageBtn" class="btn btn-block btn-primary" style="font-weight:700">SET 100x LEVERAGE</button>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- Bot Controls -->
-            <section class="card controls-card">
-                <div class="card-body">
-                    <div class="btn-group">
-                        <button id="startBtn" class="btn btn-success btn-lg">▶ START BOT</button>
-                        <button id="stopBtn" class="btn btn-danger btn-lg" disabled>■ STOP BOT</button>
-                    </div>
-                    <button id="testConnBtn" class="btn btn-block" style="background:#1e2126;color:#0ecb81;border:1px solid #0ecb81;margin-top:6px;font-weight:600">🔌 TEST CONNECTION (Check API Keys)</button>
-                    <button id="closeBtn" class="btn btn-warning btn-block">✕ Close Position (Selected Coin)</button>
-                    <button id="forceStopBtn" class="btn btn-block" style="background:#2a2e36;color:#f6465d;border:1px dashed #f6465d;margin-top:6px;font-size:11px">⚠ FORCE RESET (if stuck)</button>
-                </div>
-            </section>
-
-            <!-- Notifications -->
-            <section class="card">
+            <!-- 4. Notifications Card -->
+            <section class="card notifications-card" data-tab-section="logs">
                 <div class="card-header">
-                    <h2>Notifications</h2>
-                    <button id="testNotificationBtn" class="btn btn-sm btn-primary">Test (No Save)</button>
+                    <h2><span class="card-icon">🔔</span> Alerts &amp; Notifications</h2>
+                    <button id="testNotificationBtn" class="btn btn-sm btn-primary">Test Channels</button>
                 </div>
                 <div class="card-body">
                     <div class="notif-help-box">
-                        ⚡ <strong>Test button</strong> will check without saving first. Enter values first, then click Test.
+                        ⚡ <strong>Test button</strong> will check channels without needing to save first. Enter values, then click Test.
                     </div>
 
                     <!-- Telegram -->
                     <div class="notif-channel">
                         <label class="notif-toggle">
                             <input type="checkbox" id="telegramEnabled">
-                            <span class="notif-label">📱 Telegram</span>
+                            <span class="notif-label">📱 Telegram Alerts</span>
                         </label>
                         <div class="notif-fields">
                             <input type="text" id="telegramBotToken" placeholder="Bot Token (e.g. 8344811500:AAH1TWZ...)">
@@ -227,11 +274,8 @@
                         <div class="hint">
                             <strong>Steps:</strong><br>
                             1. On Telegram, go to <a href="https://t.me/BotFather" target="_blank">@BotFather</a> → /newbot → <strong>copy</strong> the <strong>Bot Token</strong><br>
-                            2. Send <strong>/start</strong> message to your new bot<br>
-                            3. Go to <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> and send /start → You will get your <strong>Chat ID</strong> (numbers)<br>
-                            <br>
-                            <strong>⚠️ Important:</strong> In Chat ID, enter <strong>not the bot's ID</strong>, you must enter your personal ID. If "Forbidden: bot can't send to bot" appears, then Chat ID is incorrect.<br>
-                            <strong>⚠️ Unauthorized</strong> appears, then Bot Token is incorrect.
+                            2. Send <strong>/start</strong> to your new bot<br>
+                            3. Go to <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> and send /start → Copy your numeric <strong>Chat ID</strong>
                         </div>
                     </div>
 
@@ -241,11 +285,11 @@
                     <div class="notif-channel">
                         <label class="notif-toggle">
                             <input type="checkbox" id="emailEnabled">
-                            <span class="notif-label">📧 Email</span>
+                            <span class="notif-label">📧 Email Alerts</span>
                         </label>
                         <div class="notif-fields">
                             <input type="email" id="emailSender" placeholder="Sender Gmail (you@gmail.com)">
-                            <input type="password" id="emailPassword" placeholder="16-char App Password (NOT gmail password)">
+                            <input type="password" id="emailPassword" placeholder="16-char App Password (NOT regular password)">
                             <input type="email" id="emailReceiver" placeholder="Receiver Email">
                             <div class="form-row">
                                 <input type="text" id="emailSmtpServer" placeholder="SMTP Server" value="smtp.gmail.com">
@@ -253,14 +297,8 @@
                             </div>
                         </div>
                         <div class="hint">
-                            <strong>⚠️ Regular Gmail password will not work!</strong><br>
-                            Steps to create App Password:<br>
-                            1. <a href="https://myaccount.google.com/security" target="_blank">Google Account → Security</a><br>
-                            2. <strong>Turn on 2-Step Verification</strong> (if not already)<br>
-                            3. Click on <strong>"App passwords"</strong><br>
-                            4. Select "Mail", enter a name, click "Create"<br>
-                            5. You will get a <strong>16-character password</strong> (e.g. abcd efgh ijkl mnop) - copy it<br>
-                            6. Enter this 16-char password in the bot UI (with or without spaces, both will work)
+                            <strong>⚠️ Gmail App Password:</strong><br>
+                            Go to <a href="https://myaccount.google.com/security" target="_blank">Google Account → Security</a> → 2-Step Verification → App passwords → Generate 16-char password.
                         </div>
                     </div>
 
@@ -270,7 +308,7 @@
                     <div class="notif-channel">
                         <label class="notif-toggle">
                             <input type="checkbox" id="whatsappEnabled">
-                            <span class="notif-label">💬 WhatsApp</span>
+                            <span class="notif-label">💬 WhatsApp Alerts</span>
                         </label>
                         <div class="notif-fields">
                             <input type="text" id="whatsappPhone" placeholder="Phone (e.g. 923001234567, no +)">
@@ -278,54 +316,30 @@
                         </div>
                         <div class="hint">
                             1. Add <strong>+34 644 79 33 67</strong> on WhatsApp<br>
-                            2. Send "I allow callmebot to send me messages"<br>
-                            3. You will get the API key in the reply
+                            2. Send "I allow callmebot to send me messages" → You will get your API key in reply.
                         </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Stats -->
-            <section class="card">
-                <div class="card-header"><h2>Stats</h2></div>
-                <div class="card-body stats-grid">
-                    <div class="stat">
-                        <div class="stat-label">USDT Balance</div>
-                        <div class="stat-value" id="statBalance">--</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-label">Active Coins</div>
-                        <div class="stat-value" id="statCoins">0</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-label">Trades Today</div>
-                        <div class="stat-value" id="statTrades">0</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-label">Active Symbol</div>
-                        <div class="stat-value" id="statSymbol" style="font-size:14px">--</div>
                     </div>
                 </div>
             </section>
         </aside>
 
-        <!-- RIGHT: Coin tabs + Chart + Indicators + Position + Logs -->
+        <!-- MAIN CONTENT: Tabs + Chart + Indicators + Position + Logs -->
         <section class="main-content">
-            <!-- Coin Tabs (click to switch view) -->
-            <div class="card coin-tabs-card">
+            <!-- Coin Tabs -->
+            <div class="card coin-tabs-card" data-tab-section="terminal">
                 <div class="card-body coin-tabs" id="coinTabs">
-                    <span class="hint-inline">No coins added yet. Add coins from settings.</span>
+                    <span class="hint-inline">No coins added yet. Add coins from settings panel.</span>
                 </div>
             </div>
 
-            <!-- Chart -->
-            <div class="card chart-card">
+            <!-- Chart Card -->
+            <div class="card chart-card" data-tab-section="terminal">
                 <div class="card-header">
-                    <h2 id="chartTitle">Price Chart - Select a coin</h2>
+                    <h2 id="chartTitle"><span class="card-icon">📈</span> Price Chart - Select a coin</h2>
                     <div class="legend">
                         <span class="legend-item"><span class="legend-color" style="background:#2196f3"></span>EMA 8</span>
                         <span class="legend-item"><span class="legend-color" style="background:#ff9800"></span>EMA 13</span>
-                        <span class="legend-item"><span class="legend-color" style="background:#9c27b0"></span>EMA 21</span>
+                        <span class="legend-item"><span class="legend-color" style="background:#ab47bc"></span>EMA 21</span>
                         <span class="legend-item"><span class="legend-color" style="background:#f44336"></span>EMA 55</span>
                     </div>
                 </div>
@@ -336,28 +350,30 @@
 
             <!-- Indicators + Position row -->
             <div class="row-2">
-                <!-- Indicators -->
-                <div class="card">
-                    <div class="card-header"><h2>Live Indicators - <span id="indicatorsSymbol">--</span></h2></div>
+                <!-- Indicators Card -->
+                <div class="card indicators-card" data-tab-section="terminal">
+                    <div class="card-header">
+                        <h2><span class="card-icon">⚡</span> Live Indicators - <span id="indicatorsSymbol">--</span></h2>
+                    </div>
                     <div class="card-body">
                         <div class="indicators-grid">
                             <div class="indicator">
                                 <div class="ind-label">Mark Price</div>
                                 <div class="ind-value" id="indPrice">--</div>
                             </div>
-                            <div class="indicator">
+                            <div class="indicator" style="border-left-color:#2196f3">
                                 <div class="ind-label" style="color:#2196f3">EMA 8</div>
                                 <div class="ind-value" id="indEma8">--</div>
                             </div>
-                            <div class="indicator">
+                            <div class="indicator" style="border-left-color:#ff9800">
                                 <div class="ind-label" style="color:#ff9800">EMA 13</div>
                                 <div class="ind-value" id="indEma13">--</div>
                             </div>
-                            <div class="indicator">
-                                <div class="ind-label" style="color:#9c27b0">EMA 21</div>
+                            <div class="indicator" style="border-left-color:#ab47bc">
+                                <div class="ind-label" style="color:#ab47bc">EMA 21</div>
                                 <div class="ind-value" id="indEma21">--</div>
                             </div>
-                            <div class="indicator">
+                            <div class="indicator" style="border-left-color:#f44336">
                                 <div class="ind-label" style="color:#f44336">EMA 55</div>
                                 <div class="ind-value" id="indEma55">--</div>
                             </div>
@@ -366,26 +382,29 @@
                                 <div class="ind-value" id="indSignal">--</div>
                             </div>
                         </div>
+
                         <!-- EMA Stack Visualizer -->
                         <div class="ema-stack-viz">
-                            <div class="ema-stack-title">EMA Stack (top → bottom)</div>
+                            <div class="ema-stack-title">EMA Stack Order (Top ➔ Bottom)</div>
                             <div id="emaStackList" class="ema-stack-list">
-                                <div class="ema-stack-empty">Waiting for data...</div>
+                                <div class="ema-stack-empty">Waiting for candlestick data...</div>
                             </div>
                             <div class="ema-stack-rule" id="emaStackRule">Strategy: EMA55 at BOTTOM = BUY LONG | EMA55 at TOP = SELL SHORT</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Position -->
-                <div class="card">
-                    <div class="card-header"><h2>Open Position - <span id="positionSymbol">--</span></h2></div>
+                <!-- Open Position Card -->
+                <div class="card position-card" id="positionCard" data-tab-section="position">
+                    <div class="card-header">
+                        <h2><span class="card-icon">🎯</span> Open Position - <span id="positionSymbol">--</span></h2>
+                    </div>
                     <div class="card-body position-grid">
                         <div class="pos-row">
-                            <span>Side</span><strong id="posSide">NONE</strong>
+                            <span>Trade Side</span><strong id="posSide">NONE</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Size</span><strong id="posSize">0.000</strong>
+                            <span>Position Size</span><strong id="posSize">0.0000</strong>
                         </div>
                         <div class="pos-row">
                             <span>Entry Price</span><strong id="posEntry">--</strong>
@@ -398,16 +417,24 @@
                             <strong id="posPnl" class="pnl-zero">$0.00</strong>
                         </div>
                         <div class="pos-row">
+                            <span>Trailing Target</span>
+                            <strong id="posTrailingTp" style="color:#0ecb81">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Dynamic Stop Loss</span>
+                            <strong id="posCurrentSl" style="color:#f6465d">--</strong>
+                        </div>
+                        <div class="pos-row">
                             <span>Leverage</span><strong id="posLeverage">{{ config.leverage | default(10) }}x</strong>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Logs -->
-            <div class="card logs-card">
+            <!-- Activity Logs Console -->
+            <div class="card logs-card" data-tab-section="logs">
                 <div class="card-header">
-                    <h2>Activity Logs</h2>
+                    <h2><span class="card-icon">📋</span> Activity Logs</h2>
                     <button id="clearLogs" class="btn btn-sm">Clear</button>
                 </div>
                 <div class="card-body">
@@ -416,6 +443,26 @@
             </div>
         </section>
     </main>
+
+    <!-- Mobile Segmented Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav" id="mobileNav">
+        <button type="button" class="mob-nav-item active" data-tab="terminal">
+            <span class="mob-nav-icon">📈</span>
+            <span class="mob-nav-text">Terminal</span>
+        </button>
+        <button type="button" class="mob-nav-item" data-tab="position">
+            <span class="mob-nav-icon">⚡</span>
+            <span class="mob-nav-text">Position</span>
+        </button>
+        <button type="button" class="mob-nav-item" data-tab="controls">
+            <span class="mob-nav-icon">⚙️</span>
+            <span class="mob-nav-text">Controls</span>
+        </button>
+        <button type="button" class="mob-nav-item" data-tab="logs">
+            <span class="mob-nav-icon">📋</span>
+            <span class="mob-nav-text">Logs</span>
+        </button>
+    </nav>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

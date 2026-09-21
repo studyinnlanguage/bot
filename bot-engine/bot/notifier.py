@@ -325,11 +325,34 @@ class Notifier:
         )
         return self.send(title, msg)
 
+    def notify_trailing_step(self, symbol: str, side: str, reached_stage: int, next_stage: int,
+                             mark_price: float, next_tp: float, new_sl: float, sl_info: str):
+        """Send Trailing TP stage advancement notification."""
+        title = f"🎯 Trailing TP Stage {reached_stage} Reached - {symbol}"
+        msg = (
+            f"🎯 Trailing TP Step {reached_stage} Hit!\n\n"
+            f"Symbol: {symbol} ({side})\n"
+            f"Trigger Price: ${mark_price:.4f}\n"
+            f"Next Target (TP{next_stage}): 1:{next_stage} (${next_tp:.4f})\n"
+            f"New SL: {sl_info}\n"
+        )
+        return self.send(title, msg)
+
     def notify_bot_start(self, config: dict):
         """Send bot start notification."""
         title = "Bot Started"
         exchange = config.get("exchange", "binance").upper()
         symbols = ",".join(config.get("symbols_list", []))
+        tp_mode = (config.get("tp_mode") or "trailing").lower()
+        if tp_mode == "trailing":
+            tp_desc = "Dynamic Trailing (1:1 ➔ 1:2 ➔ 1:3... + Break-even SL)"
+        elif tp_mode == "ema_reversal":
+            tp_desc = "EMA55-Reversal (opposite flip)"
+        elif tp_mode == "both":
+            tp_desc = f"Both (Fixed {config.get('take_profit_pct', 0)}% OR EMA55-flip)"
+        else:
+            tp_desc = f"Fixed {config.get('take_profit_pct', 0)}% (1:3 RR)"
+
         msg = (
             f"Exchange: {exchange}\n"
             f"Symbols: {symbols}\n"
@@ -337,7 +360,7 @@ class Notifier:
             f"Leverage: {config.get('leverage')}x\n"
             f"Mode: {config.get('mode')}\n"
             f"SL: {config.get('stop_loss_pct', 0)}%\n"
-            f"TP: {config.get('take_profit_pct', 0)}% (or opposite-signal)\n"
+            f"TP: {tp_desc}\n"
             f"Environment: {'TESTNET' if config.get('testnet') else 'MAINNET'}"
         )
         return self.send(title, msg)
