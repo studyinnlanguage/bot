@@ -45,6 +45,10 @@ function setBotRunning(running) {
     const stopBtn = $('stopBtn');
     if (startBtn) startBtn.disabled = running;
     if (stopBtn) stopBtn.disabled = !running;
+    const mobStart = $('mobQuickStartBtn');
+    const mobStop = $('mobQuickStopBtn');
+    if (mobStart) mobStart.disabled = running;
+    if (mobStop) mobStop.disabled = !running;
     const pill = $('botStatusPill');
     const text = $('botStatusText');
     if (pill && text) {
@@ -442,6 +446,63 @@ function updatePositionUI(data) {
     const cfgLev = parseInt($('leverage')?.value) || 10;
     const lev = (data.leverage && data.leverage > 1) ? data.leverage : (data.leverage || cfgLev);
     if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
+
+    // Trailing TP Target & Dynamic SL
+    const trailingEl = $('posTrailingTp');
+    if (trailingEl) {
+        if (data.side && data.side !== 'NONE' && data.tp_price && data.tp_stage) {
+            trailingEl.textContent = `TP${data.tp_stage} (1:${data.tp_stage}) @ $${fmt(data.tp_price)}`;
+            trailingEl.style.color = '#0ecb81';
+        } else if (data.side && data.side !== 'NONE' && data.tp_price) {
+            trailingEl.textContent = `$${fmt(data.tp_price)}`;
+            trailingEl.style.color = '#0ecb81';
+        } else {
+            trailingEl.textContent = '--';
+            trailingEl.style.color = '#848e9c';
+        }
+    }
+    const slEl = $('posCurrentSl');
+    if (slEl) {
+        if (data.side && data.side !== 'NONE' && data.sl_price) {
+            let slDesc = `$${fmt(data.sl_price)}`;
+            if (data.tp_stage >= 3) {
+                slDesc += ` (Locked TP${data.tp_stage - 2} 💰)`;
+                slEl.style.color = '#0ecb81';
+            } else if (data.tp_stage === 2) {
+                slDesc += ` (Break-even 🛡️)`;
+                slEl.style.color = '#f0b90b';
+            } else {
+                slEl.style.color = '#f6465d';
+            }
+            slEl.textContent = slDesc;
+        } else {
+            slEl.textContent = '--';
+            slEl.style.color = '#848e9c';
+        }
+    }
+
+    // Dynamic aura glow on Position Card
+    const posCard = $('positionCard');
+    if (posCard) {
+        posCard.classList.remove('is-long', 'is-short');
+        if (data.side === 'LONG') posCard.classList.add('is-long');
+        else if (data.side === 'SHORT') posCard.classList.add('is-short');
+    }
+
+    // Mobile quick strip update
+    if ($('mobCoin')) $('mobCoin').textContent = data.symbol || activeSymbol || 'BTCUSDT';
+    if ($('mobPrice')) $('mobPrice').textContent = data.mark_price ? `$${fmt(data.mark_price)}` : '$--';
+    const mobPnl = $('mobPnl');
+    if (mobPnl) {
+        if (data.side && data.side !== 'NONE') {
+            const sign = pnl > 0 ? '+' : '';
+            mobPnl.textContent = `${data.side} ${sign}$${pnl.toFixed(2)}`;
+            mobPnl.className = 'mob-quick-pnl ' + (pnl > 0 ? 'pnl-positive' : pnl < 0 ? 'pnl-negative' : 'pnl-zero');
+        } else {
+            mobPnl.textContent = '$0.00 (FLAT)';
+            mobPnl.className = 'mob-quick-pnl pnl-zero';
+        }
+    }
 }
 
 // ===== Multi-Coin Management =====
@@ -629,7 +690,7 @@ async function loadSettings() {
             $('takeProfitPct').value = tp.toFixed(1);
         }
         if ($('tpMode')) {
-            $('tpMode').value = cfg.tp_mode || 'both';
+            $('tpMode').value = cfg.tp_mode || 'trailing';
             // Trigger visibility update for TP % hint
             if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
         }
@@ -764,7 +825,7 @@ async function saveSettings() {
         amount_pct: parseFloat($('amountPct').value),
         stop_loss_pct: parseFloat($('stopLossPct').value) || 0,
         take_profit_pct: parseFloat($('takeProfitPct').value) || 0,
-        tp_mode: $('tpMode') ? $('tpMode').value : 'both',
+        tp_mode: $('tpMode') ? $('tpMode').value : 'trailing',
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
         // Notifications
@@ -987,6 +1048,11 @@ function attachListeners() {
     if (stopBtn) stopBtn.addEventListener('click', stopBot);
     if (closeBtn) closeBtn.addEventListener('click', closePosition);
 
+    const mobStart = $('mobQuickStartBtn');
+    const mobStop = $('mobQuickStopBtn');
+    if (mobStart) mobStart.addEventListener('click', startBot);
+    if (mobStop) mobStop.addEventListener('click', stopBot);
+
     // Test Connection button - checks API credentials
     const testConnBtn = $('testConnBtn');
     if (testConnBtn) {
@@ -1186,10 +1252,13 @@ function attachListeners() {
         const sl = parseFloat(slInput?.value) || 0;
         const tp = sl * 3;
         const tpInput = $('takeProfitPct');
-        const mode = tpModeSel ? tpModeSel.value : 'both';
+        const mode = tpModeSel ? tpModeSel.value : 'trailing';
         if (tpInput) {
-            tpInput.value = tp.toFixed(1);
-            if (mode === 'ema_reversal') {
+            if (mode === 'trailing') {
+                tpInput.style.color = '#0ecb81';
+                tpInput.style.fontStyle = 'normal';
+                tpInput.value = `Dynamic (1:1 ➔ 1:2 ➔ 1:3...)`;
+            } else if (mode === 'ema_reversal') {
                 // TP % is not used — show as inactive
                 tpInput.style.color = '#848e9c';
                 tpInput.style.fontStyle = 'italic';
@@ -1287,9 +1356,50 @@ function attachListeners() {
     });
 }
 
+// ===== Mobile Navigation & Live Clock =====
+function initMobileNav() {
+    const nav = $('mobileNav');
+    if (!nav) return;
+    const items = nav.querySelectorAll('.mob-nav-item');
+    items.forEach(item => {
+        item.addEventListener('click', () => {
+            const tab = item.dataset.tab;
+            document.body.dataset.mobTab = tab;
+            items.forEach(i => i.classList.toggle('active', i === item));
+            // Trigger chart resize if switching to terminal tab
+            if (tab === 'terminal' && chart && $('chart')) {
+                setTimeout(() => {
+                    const c = $('chart');
+                    chart.applyOptions({
+                        width: c.clientWidth,
+                        height: c.clientHeight || 360
+                    });
+                    if (chart.timeScale) chart.timeScale().fitContent();
+                }, 80);
+            }
+        });
+    });
+}
+
+function initLiveClock() {
+    const el = $('liveClock');
+    if (!el) return;
+    function tick() {
+        const now = new Date();
+        const h = String(now.getUTCHours()).padStart(2, '0');
+        const m = String(now.getUTCMinutes()).padStart(2, '0');
+        const s = String(now.getUTCSeconds()).padStart(2, '0');
+        el.textContent = `${h}:${m}:${s} UTC`;
+    }
+    setInterval(tick, 1000);
+    tick();
+}
+
 // ===== Main Init =====
 document.addEventListener('DOMContentLoaded', () => {
     try { attachListeners(); } catch (e) { console.error(e); }
+    try { initMobileNav(); } catch (e) { console.error(e); }
+    try { initLiveClock(); } catch (e) { console.error(e); }
     try { initSocket(); } catch (e) { console.error(e); }
     try { loadSettings(); } catch (e) { console.error(e); }
     try { refreshStatus(); } catch (e) { console.error(e); }

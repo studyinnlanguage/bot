@@ -94,7 +94,7 @@ DEFAULT_CONFIG = {
     "amount_pct": 10,
     "stop_loss_pct": 2,
     "take_profit_pct": 6,
-    "tp_mode": "both",
+    "tp_mode": "trailing",
     "mode": "both",
     "auto_start": False,
     "telegram_enabled": False,
@@ -196,9 +196,9 @@ def update_config():
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
     CONFIG["stop_loss_pct"] = max(0.5, min(50, float(CONFIG.get("stop_loss_pct", 2))))
-    CONFIG["tp_mode"] = (CONFIG.get("tp_mode") or "both").lower()
-    if CONFIG["tp_mode"] not in ("fixed", "ema_reversal", "both"):
-        CONFIG["tp_mode"] = "both"
+    CONFIG["tp_mode"] = (CONFIG.get("tp_mode") or "trailing").lower()
+    if CONFIG["tp_mode"] not in ("fixed", "ema_reversal", "both", "trailing"):
+        CONFIG["tp_mode"] = "trailing"
     CONFIG["take_profit_pct"] = CONFIG["stop_loss_pct"] * 3
     CONFIG["testnet"] = bool(CONFIG["testnet"])
     CONFIG["telegram_enabled"] = bool(CONFIG.get("telegram_enabled"))
