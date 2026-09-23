@@ -295,12 +295,18 @@ class BinanceFuturesTrader:
             if v not in (None, "", 0, "0"):
                 try:
                     lev_val = int(float(v))
-                    if lev_val > 0:
+                    if lev_val > 1:
                         lev = lev_val
                         self._symbol_leverage[symbol] = lev
+                    elif lev_val == 1 and cached_lev > 1:
+                        lev = cached_lev
+                    elif lev_val > 0 and lev <= 1:
+                        lev = lev_val
                     break
                 except (ValueError, TypeError):
                     continue
+        if lev <= 1 and cached_lev > 1:
+            lev = cached_lev
 
         return Position(
             symbol=symbol,
