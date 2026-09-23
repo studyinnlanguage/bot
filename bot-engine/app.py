@@ -176,7 +176,7 @@ def update_config():
 
     for k in ["exchange", "api_passphrase", "symbol", "symbols_list", "timeframe",
               "leverage", "amount", "amount_mode", "amount_pct",
-              "stop_loss_pct", "take_profit_pct", "tp_mode", "mode", "testnet", "auto_start",
+              "stop_loss_pct", "take_profit_pct", "trailing_roe_pct", "tp_mode", "mode", "testnet", "auto_start",
               "telegram_enabled", "telegram_bot_token", "telegram_chat_id",
               "email_enabled", "email_smtp_server", "email_smtp_port",
               "email_sender", "email_password", "email_receiver",
@@ -197,6 +197,7 @@ def update_config():
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
     CONFIG["stop_loss_pct"] = max(0.5, min(50, float(CONFIG.get("stop_loss_pct", 2))))
+    CONFIG["trailing_roe_pct"] = float(CONFIG.get("trailing_roe_pct", 80.0))
     CONFIG["tp_mode"] = (CONFIG.get("tp_mode") or "trailing").lower()
     if CONFIG["tp_mode"] not in ("fixed", "ema_reversal", "both", "trailing"):
         CONFIG["tp_mode"] = "trailing"

@@ -215,13 +215,13 @@
                     <div class="form-group">
                         <label>Take Profit Mode</label>
                         <select id="tpMode" style="width:100%;padding:10px;background:rgba(10,14,22,0.95);border:1px solid rgba(255,255,255,0.1);color:#eaecef;border-radius:8px;font-size:13px;">
-                            <option value="trailing" selected>🎯 DYNAMIC TRAILING (1:1 ➔ 1:2 ➔ 1:3... + Break-even SL) [RECOMMENDED]</option>
+                            <option value="trailing" selected>🎯 DYNAMIC TRAILING (1:1 ➔ 1:2 ➔ 1:3... Scaled to Leverage) [RECOMMENDED]</option>
                             <option value="both">BOTH — Fixed % OR EMA55 flip (whichever first)</option>
                             <option value="fixed">FIXED — TP at SL×3% (classic 1:3 RR)</option>
                             <option value="ema_reversal">EMA55 REVERSAL — TP when EMA55 flips opposite</option>
                         </select>
                         <div class="hint">
-                            <b>DYNAMIC TRAILING</b>: Starts 1:1 TP. When hit, moves SL to Break-even &amp; sets TP to 1:2. When 1:2 hit, locks +1R profit &amp; sets TP to 1:3 until dynamic SL or opposite flip! 🚀<br>
+                            <b>DYNAMIC TRAILING</b>: Starts TP1 at true 1:1 (+80% ROE scaled to active leverage). When TP1 is hit, moves SL to Break-even (0 loss) &amp; sets TP to 1:2 (+160% ROE). When 1:2 hit, locks TP1 profit (+80% ROE) &amp; sets TP to 1:3! 🚀<br>
                             <b>EMA55 REVERSAL</b>: LONG closes when EMA55 flips to TOP; SHORT closes when EMA55 flips to BOTTOM.<br>
                             <b>BOTH</b>: Whichever triggers first.
                         </div>
