@@ -94,6 +94,7 @@ DEFAULT_CONFIG = {
     "amount_pct": 10,
     "stop_loss_pct": 2,
     "take_profit_pct": 6,
+    "trailing_roe_pct": 80.0,
     "tp_mode": "trailing",
     "mode": "both",
     "auto_start": False,

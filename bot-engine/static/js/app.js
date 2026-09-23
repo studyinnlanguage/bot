@@ -399,6 +399,19 @@ function initSocket() {
         socket.on('position', (data) => {
             const sym = data.symbol;
             if (!sym) return;
+            const prev = positionsBySymbol[sym] || {};
+            // If new payload is an open position but missing tp/sl info, retain previous values
+            if (data.side && data.side !== 'NONE') {
+                if ((data.tp_price === undefined || data.tp_price === 0) && prev.tp_price) {
+                    data.tp_price = prev.tp_price;
+                }
+                if ((data.tp_stage === undefined || data.tp_stage === 0) && prev.tp_stage) {
+                    data.tp_stage = prev.tp_stage;
+                }
+                if ((data.sl_price === undefined || data.sl_price === 0) && prev.sl_price) {
+                    data.sl_price = prev.sl_price;
+                }
+            }
             positionsBySymbol[sym] = data;
             if (sym === activeSymbol) updatePositionUI(data);
         });
