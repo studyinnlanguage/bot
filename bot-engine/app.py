@@ -88,13 +88,13 @@ DEFAULT_CONFIG = {
     "symbol": "BTCUSDT",
     "symbols_list": ["BTCUSDT"],
     "timeframe": "5m",
-    "leverage": 10,
+    "leverage": 125,
     "amount_mode": "fixed",
     "amount": 100,
     "amount_pct": 10,
     "stop_loss_pct": 2,
     "take_profit_pct": 6,
-    "trailing_roe_pct": 80.0,
+    "trailing_roe_pct": 100.0,
     "tp_mode": "trailing",
     "mode": "both",
     "auto_start": False,
@@ -118,7 +118,13 @@ def load_config() -> dict:
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-            return {**DEFAULT_CONFIG, **cfg}
+            merged = {**DEFAULT_CONFIG, **cfg}
+            # Auto-migrate legacy 'both' or 'fixed' modes to pure 'trailing'
+            if merged.get("tp_mode") in ("both", "fixed") or merged.get("tp_mode") not in ("trailing", "ema_reversal"):
+                merged["tp_mode"] = "trailing"
+            if not merged.get("trailing_roe_pct") or float(merged.get("trailing_roe_pct", 0)) < 20:
+                merged["trailing_roe_pct"] = 100.0
+            return merged
         except (json.JSONDecodeError, OSError) as e:
             logger.error("Failed to load config: %s", e)
     return DEFAULT_CONFIG.copy()
@@ -197,9 +203,9 @@ def update_config():
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
     CONFIG["stop_loss_pct"] = max(0.5, min(50, float(CONFIG.get("stop_loss_pct", 2))))
-    CONFIG["trailing_roe_pct"] = float(CONFIG.get("trailing_roe_pct", 80.0))
+    CONFIG["trailing_roe_pct"] = max(20.0, min(500.0, float(CONFIG.get("trailing_roe_pct", 100.0))))
     CONFIG["tp_mode"] = (CONFIG.get("tp_mode") or "trailing").lower()
-    if CONFIG["tp_mode"] not in ("fixed", "ema_reversal", "both", "trailing"):
+    if CONFIG["tp_mode"] in ("both", "fixed") or CONFIG["tp_mode"] not in ("trailing", "ema_reversal"):
         CONFIG["tp_mode"] = "trailing"
     CONFIG["take_profit_pct"] = CONFIG["stop_loss_pct"] * 3
     CONFIG["testnet"] = bool(CONFIG["testnet"])

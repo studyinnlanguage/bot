@@ -215,16 +215,18 @@
                     <div class="form-group">
                         <label>Take Profit Mode</label>
                         <select id="tpMode" style="width:100%;padding:10px;background:rgba(10,14,22,0.95);border:1px solid rgba(255,255,255,0.1);color:#eaecef;border-radius:8px;font-size:13px;">
-                            <option value="trailing" selected>🎯 DYNAMIC TRAILING (1:1 ➔ 1:2 ➔ 1:3... Scaled to Leverage) [RECOMMENDED]</option>
-                            <option value="both">BOTH — Fixed % OR EMA55 flip (whichever first)</option>
-                            <option value="fixed">FIXED — TP at SL×3% (classic 1:3 RR)</option>
+                            <option value="trailing" selected>🎯 DYNAMIC TRAILING (1:1 ➔ 1:2 ➔ 1:3... Margin Scaled) [ACTIVE]</option>
                             <option value="ema_reversal">EMA55 REVERSAL — TP when EMA55 flips opposite</option>
                         </select>
                         <div class="hint">
-                            <b>DYNAMIC TRAILING</b>: Starts TP1 at true 1:1 (+80% ROE scaled to active leverage). When TP1 is hit, moves SL to Break-even (0 loss) &amp; sets TP to 1:2 (+160% ROE). When 1:2 hit, locks TP1 profit (+80% ROE) &amp; sets TP to 1:3! 🚀<br>
-                            <b>EMA55 REVERSAL</b>: LONG closes when EMA55 flips to TOP; SHORT closes when EMA55 flips to BOTTOM.<br>
-                            <b>BOTH</b>: Whichever triggers first.
+                            <b>DYNAMIC TRAILING</b>: Starts TP1 at true 1:1 (+100% ROE = Profit equals Investment Margin, e.g. ~$177 on $177 margin). When TP1 is hit, moves SL to Break-even (0 loss) &amp; sets target to TP2 (1:2 / +200% ROE). When TP2 is hit, locks TP1 profit &amp; sets target to TP3! 🚀
                         </div>
+                    </div>
+
+                    <div class="form-group" id="trailingRoeGroup">
+                        <label>1:1 Target ROE % (Per Trailing Stage)</label>
+                        <input type="number" id="trailingRoePct" value="100" min="20" max="300" step="10">
+                        <div class="hint">⚡ 100% ROE = Exact 1:1 Profit equal to Margin (e.g. +$177 profit on $177 investment at 125x). Default is 100%.</div>
                     </div>
 
                     <div class="quick-leverage">

@@ -462,27 +462,22 @@ function updatePositionUI(data) {
         else if (pnl < 0) pnlEl.classList.add('pnl-negative');
         else pnlEl.classList.add('pnl-zero');
     }
-    const cfgLev = parseInt($('leverage')?.value) || 10;
-    const lev = (data.leverage && data.leverage > 1) ? data.leverage : (data.leverage || cfgLev);
+    const cfgLev = parseInt($('leverage')?.value) || 125;
+    const rawLev = parseInt(data.leverage) || 0;
+    const lev = rawLev > 1 ? rawLev : cfgLev;
     if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
 
     // Trailing TP Target & Dynamic SL
     const trailingEl = $('posTrailingTp');
     const tpMode = (data.tp_mode || $('tpMode')?.value || 'trailing').toLowerCase();
-    const targetRoe = Number(data.target_roe) || 80;
+    const targetRoe = Number(data.target_roe) || 100;
 
     if (trailingEl) {
         if (data.side && data.side !== 'NONE' && data.tp_price) {
-            if (tpMode === 'trailing') {
+            if (tpMode === 'trailing' || tpMode === 'both' || tpMode === 'fixed') {
                 const stage = data.tp_stage || 1;
                 const roe = (stage * targetRoe).toFixed(0);
                 trailingEl.textContent = `TP${stage} (1:${stage} / +${roe}% ROE) @ $${fmt(data.tp_price)}`;
-                trailingEl.style.color = '#0ecb81';
-            } else if (tpMode === 'fixed') {
-                trailingEl.textContent = `Fixed (1:3 RR) @ $${fmt(data.tp_price)}`;
-                trailingEl.style.color = '#0ecb81';
-            } else if (tpMode === 'both') {
-                trailingEl.textContent = `Fixed/EMA @ $${fmt(data.tp_price)}`;
                 trailingEl.style.color = '#0ecb81';
             } else if (tpMode === 'ema_reversal') {
                 trailingEl.textContent = `EMA55 Reversal Target`;
@@ -500,7 +495,7 @@ function updatePositionUI(data) {
     if (slEl) {
         if (data.side && data.side !== 'NONE' && data.sl_price) {
             let slDesc = `$${fmt(data.sl_price)}`;
-            if (tpMode === 'trailing') {
+            if (tpMode === 'trailing' || tpMode === 'both' || tpMode === 'fixed') {
                 const stage = data.tp_stage || 1;
                 if (stage >= 3) {
                     const lockedStage = stage - 2;
@@ -511,7 +506,8 @@ function updatePositionUI(data) {
                     slDesc += ` (Break-even 🛡️)`;
                     slEl.style.color = '#f0b90b';
                 } else {
-                    slDesc += ` (-${targetRoe.toFixed(0)}% ROE 🛡️)`;
+                    const slRoe = Math.min(targetRoe, 80);
+                    slDesc += ` (-${slRoe.toFixed(0)}% ROE 🛡️)`;
                     slEl.style.color = '#f6465d';
                 }
             } else {
@@ -732,8 +728,12 @@ async function loadSettings() {
             const tp = (cfg.stop_loss_pct || 2) * 3;
             $('takeProfitPct').value = tp.toFixed(1);
         }
+        if ($('trailingRoePct')) {
+            $('trailingRoePct').value = cfg.trailing_roe_pct || 100;
+        }
         if ($('tpMode')) {
-            $('tpMode').value = cfg.tp_mode || 'trailing';
+            const rawTp = (cfg.tp_mode || 'trailing').toLowerCase();
+            $('tpMode').value = (rawTp === 'both' || rawTp === 'fixed') ? 'trailing' : rawTp;
             // Trigger visibility update for TP % hint
             if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
         }
@@ -868,6 +868,7 @@ async function saveSettings() {
         amount_pct: parseFloat($('amountPct').value),
         stop_loss_pct: parseFloat($('stopLossPct').value) || 0,
         take_profit_pct: parseFloat($('takeProfitPct').value) || 0,
+        trailing_roe_pct: parseFloat($('trailingRoePct')?.value) || 100,
         tp_mode: $('tpMode') ? $('tpMode').value : 'trailing',
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
@@ -1296,6 +1297,10 @@ function attachListeners() {
         const tp = sl * 3;
         const tpInput = $('takeProfitPct');
         const mode = tpModeSel ? tpModeSel.value : 'trailing';
+        const trailingRoeGroup = $('trailingRoeGroup');
+        if (trailingRoeGroup) {
+            trailingRoeGroup.style.display = (mode === 'trailing') ? 'block' : 'none';
+        }
         if (tpInput) {
             if (mode === 'trailing') {
                 tpInput.style.color = '#0ecb81';
