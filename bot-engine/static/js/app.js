@@ -411,6 +411,12 @@ function initSocket() {
                 if ((data.sl_price === undefined || data.sl_price === 0) && prev.sl_price) {
                     data.sl_price = prev.sl_price;
                 }
+                if (!data.tp_mode && prev.tp_mode) {
+                    data.tp_mode = prev.tp_mode;
+                }
+                if (!data.target_roe && prev.target_roe) {
+                    data.target_roe = prev.target_roe;
+                }
             }
             positionsBySymbol[sym] = data;
             if (sym === activeSymbol) updatePositionUI(data);
@@ -462,13 +468,29 @@ function updatePositionUI(data) {
 
     // Trailing TP Target & Dynamic SL
     const trailingEl = $('posTrailingTp');
+    const tpMode = (data.tp_mode || $('tpMode')?.value || 'trailing').toLowerCase();
+    const targetRoe = Number(data.target_roe) || 80;
+
     if (trailingEl) {
-        if (data.side && data.side !== 'NONE' && data.tp_price && data.tp_stage) {
-            trailingEl.textContent = `TP${data.tp_stage} (1:${data.tp_stage}) @ $${fmt(data.tp_price)}`;
-            trailingEl.style.color = '#0ecb81';
-        } else if (data.side && data.side !== 'NONE' && data.tp_price) {
-            trailingEl.textContent = `$${fmt(data.tp_price)}`;
-            trailingEl.style.color = '#0ecb81';
+        if (data.side && data.side !== 'NONE' && data.tp_price) {
+            if (tpMode === 'trailing') {
+                const stage = data.tp_stage || 1;
+                const roe = (stage * targetRoe).toFixed(0);
+                trailingEl.textContent = `TP${stage} (1:${stage} / +${roe}% ROE) @ $${fmt(data.tp_price)}`;
+                trailingEl.style.color = '#0ecb81';
+            } else if (tpMode === 'fixed') {
+                trailingEl.textContent = `Fixed (1:3 RR) @ $${fmt(data.tp_price)}`;
+                trailingEl.style.color = '#0ecb81';
+            } else if (tpMode === 'both') {
+                trailingEl.textContent = `Fixed/EMA @ $${fmt(data.tp_price)}`;
+                trailingEl.style.color = '#0ecb81';
+            } else if (tpMode === 'ema_reversal') {
+                trailingEl.textContent = `EMA55 Reversal Target`;
+                trailingEl.style.color = '#0ecb81';
+            } else {
+                trailingEl.textContent = `$${fmt(data.tp_price)}`;
+                trailingEl.style.color = '#0ecb81';
+            }
         } else {
             trailingEl.textContent = '--';
             trailingEl.style.color = '#848e9c';
@@ -478,12 +500,20 @@ function updatePositionUI(data) {
     if (slEl) {
         if (data.side && data.side !== 'NONE' && data.sl_price) {
             let slDesc = `$${fmt(data.sl_price)}`;
-            if (data.tp_stage >= 3) {
-                slDesc += ` (Locked TP${data.tp_stage - 2} 💰)`;
-                slEl.style.color = '#0ecb81';
-            } else if (data.tp_stage === 2) {
-                slDesc += ` (Break-even 🛡️)`;
-                slEl.style.color = '#f0b90b';
+            if (tpMode === 'trailing') {
+                const stage = data.tp_stage || 1;
+                if (stage >= 3) {
+                    const lockedStage = stage - 2;
+                    const lockedRoe = (lockedStage * targetRoe).toFixed(0);
+                    slDesc += ` (Locked TP${lockedStage} +${lockedRoe}% ROE 💰)`;
+                    slEl.style.color = '#0ecb81';
+                } else if (stage === 2) {
+                    slDesc += ` (Break-even 🛡️)`;
+                    slEl.style.color = '#f0b90b';
+                } else {
+                    slDesc += ` (-${targetRoe.toFixed(0)}% ROE 🛡️)`;
+                    slEl.style.color = '#f6465d';
+                }
             } else {
                 slEl.style.color = '#f6465d';
             }
