@@ -650,41 +650,48 @@ DB = load_db()
 # ============================================================
 
 def _migrate_db():
-    """Fix old users and add missing fields."""
+    """Fix old users and add missing fields for all accounts (including admin)."""
     fixed = 0
     for uid, user in DB.get("users", {}).items():
+        if not user.get("referral_code"):
+            user["referral_code"] = uid[:8].upper()
+            fixed += 1
+        if "referral_earnings" not in user:
+            user["referral_earnings"] = 0.0
+            fixed += 1
+        if "referral_history" not in user:
+            user["referral_history"] = []
+            fixed += 1
+        if "payout_wallet" not in user:
+            user["payout_wallet"] = ""
+            fixed += 1
+        if "payout_requests" not in user:
+            user["payout_requests"] = []
+            fixed += 1
+
         if user.get("role") == "admin":
             continue
+
         # Skip users who actually activated a license
         if user.get("license_key"):
-            # Still add referral_code if missing
-            if not user.get("referral_code"):
-                user["referral_code"] = uid[:8].upper()
-                fixed += 1
             continue
         sub = user.get("subscription", {})
         if not sub:
             continue
         expires_at = sub.get("expires_at")
         if not expires_at:
-            # Add referral_code if missing
-            if not user.get("referral_code"):
-                user["referral_code"] = uid[:8].upper()
             continue
         # This user has an expires_at but never activated a license
-        # — they were created by the old buggy code. Reset them.
         user["subscription"] = {
             "plan": "none",
             "status": "inactive",
             "started_at": sub.get("created_at", user.get("created_at", "")),
             "expires_at": None,
         }
-        if not user.get("referral_code"):
-            user["referral_code"] = uid[:8].upper()
         fixed += 1
     if fixed > 0:
         save_db(DB)
-        logger.info("DB migration: fixed %d orphan user(s) with bogus expires_at", fixed)
+        logger.info("DB migration: fixed/updated %d user records", fixed)
     # Ensure 'orders' key exists
     if "orders" not in DB:
         DB["orders"] = {}
@@ -1557,10 +1564,15 @@ def api_user_referral():
         return jsonify({"success": False, "error": "User not found"}), 404
 
     ref_code = user.get("referral_code", "")
+    if not ref_code:
+        ref_code = user["id"][:8].upper()
+        user["referral_code"] = ref_code
+        save_db(DB)
+
     # Build referral link from the current request's host
-    host = request.host
+    host = request.headers.get("X-Forwarded-Host") or request.host
     proto = request.headers.get("X-Forwarded-Proto", "https" if request.is_secure else "http")
-    referral_link = f"{proto}://{host}/?ref={ref_code}" if ref_code else ""
+    referral_link = f"{proto}://{host}/?ref={ref_code}"
 
     # Count how many users this person referred
     referral_count = sum(
@@ -1608,7 +1620,7 @@ def api_user_referral():
 
     return jsonify({
         "success": True,
-        "user_name": user.get("name", "") or user.get("email", "").split("@")[0],
+        "user_name": user.get("name", "") or (user.get("email", "").split("@")[0] if user.get("email") else "User"),
         "user_email": user.get("email", ""),
         "license_key": user.get("license_key", ""),
         "subscription": user.get("subscription", {}),
@@ -1628,6 +1640,19 @@ def api_user_referral():
             "lifetime": PACKAGES.get("lifetime", {}).get("referral_bonus", 50),
         },
     })
+
+
+@app.route('/bot/api/user/referral', methods=['GET'])
+def bot_referral_alias():
+    return api_user_referral()
+
+@app.route('/bot/api/user/payout-wallet', methods=['POST'])
+def bot_payout_wallet_alias():
+    return api_user_save_payout_wallet()
+
+@app.route('/bot/api/user/request-payout', methods=['POST'])
+def bot_request_payout_alias():
+    return api_user_request_payout()
 
 
 @app.route("/api/user/payout-wallet", methods=["POST"])
@@ -2049,6 +2074,11 @@ def bot_engine_proxy(path=''):
         html = html.replace('src="/static/', 'src="/bot/static/')
         html = html.replace("fetch('/api/", "fetch('/bot/api/")
         html = html.replace('fetch("/api/', 'fetch("/bot/api/')
+        # Keep SaaS user and auth APIs pointing directly to SaaS root
+        html = html.replace("fetch('/bot/api/user/", "fetch('/api/user/")
+        html = html.replace('fetch("/bot/api/user/', 'fetch("/api/user/')
+        html = html.replace("fetch('/bot/api/auth/", "fetch('/api/auth/")
+        html = html.replace('fetch("/bot/api/auth/', 'fetch("/api/auth/')
         import re
         html = re.sub(r'io\s*\(\s*\{', "io({path: '/bot/socket.io', ", html)
         html = re.sub(r'io\s*\(\s*\)', "io({path: '/bot/socket.io'})", html)
@@ -2068,6 +2098,11 @@ def bot_engine_proxy(path=''):
         js = resp.content.decode('utf-8', errors='replace')
         js = js.replace("fetch('/api/", "fetch('/bot/api/")
         js = js.replace('fetch("/api/', 'fetch("/bot/api/')
+        # Keep SaaS user and auth APIs pointing directly to SaaS root
+        js = js.replace("fetch('/bot/api/user/", "fetch('/api/user/")
+        js = js.replace('fetch("/bot/api/user/', 'fetch("/api/user/')
+        js = js.replace("fetch('/bot/api/auth/", "fetch('/api/auth/")
+        js = js.replace('fetch("/bot/api/auth/', 'fetch("/api/auth/')
         import re
         js = re.sub(r'io\s*\(\s*\{', "io({path: '/bot/socket.io', ", js)
         js = re.sub(r'io\s*\(\s*\)', "io({path: '/bot/socket.io'})", js)
