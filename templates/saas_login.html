@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TradeBot SaaS - Login</title>
+    <title>WEEXIONIC TRADING BOT - Login</title>
+    <link rel="icon" type="image/png" href="/static/img/weexionic-logo.png">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -17,11 +18,15 @@
             padding: 40px; width: 100%; max-width: 440px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
         }
         .logo {
-            width: 72px; height: 72px; background: linear-gradient(135deg, #f0b90b 0%, #f8d12f 100%);
-            color: #0b0e11; border-radius: 18px; display: flex; align-items: center; justify-content: center;
-            font-weight: 800; font-size: 32px; margin: 0 auto 20px; box-shadow: 0 8px 24px rgba(240,185,11,0.3);
+            width: 72px; height: 72px; border-radius: 50%;
+            border: 2px solid rgba(14, 203, 129, 0.7);
+            box-shadow: 0 0 20px rgba(14, 203, 129, 0.45);
+            margin: 0 auto 20px; overflow: hidden; display: flex; align-items: center; justify-content: center;
+            background: #070a0f;
         }
-        .title { text-align: center; font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+        .logo img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+        .title { text-align: center; font-size: 22px; font-weight: 800; margin-bottom: 6px; letter-spacing: 0.5px; }
+        .title span { color: #0ecb81; }
         .subtitle { text-align: center; font-size: 13px; color: #848e9c; margin-bottom: 28px; line-height: 1.5; }
         .tabs { display: flex; background: #0b0e11; border-radius: 10px; padding: 4px; margin-bottom: 24px; }
         .tab {
@@ -68,9 +73,11 @@
 </head>
 <body>
     <div class="login-card">
-        <div class="logo">T</div>
-        <h1 class="title">TradeBot SaaS</h1>
-        <p class="subtitle">EMA 8, 13, 21, 55 Trading Bot Platform<br>24/7 Cloud Trading</p>
+        <div class="logo">
+            <img src="/static/img/weexionic-logo.png" onerror="this.src='/bot/static/img/weexionic-logo.png'" alt="Weexionic">
+        </div>
+        <h1 class="title">WEEXIONIC <span>TRADING BOT</span></h1>
+        <p class="subtitle">EMA Quad-Trend Strategy (8, 13, 21, 55)<br>24/7 Cloud Automated Trading</p>
 
         <div class="tabs">
             <button class="tab active" onclick="switchTab('login', event)">Login</button>

@@ -1,12 +1,12 @@
 {
-    "name": "Binance Futures Bot",
-    "short_name": "TradingBot",
-    "description": "EMA Quad Strategy Trading Bot - Binance & WEEX",
+    "name": "Weexionic Trading Bot",
+    "short_name": "Weexionic",
+    "description": "Weexionic EMA Quad Strategy Trading Bot - Binance & WEEX Pro Terminal",
     "start_url": "/",
     "display": "standalone",
     "orientation": "portrait",
-    "background_color": "#0b0e11",
-    "theme_color": "#f0b90b",
+    "background_color": "#070a0f",
+    "theme_color": "#0ecb81",
     "scope": "/",
     "icons": [
         {
