@@ -136,8 +136,10 @@ BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", secrets.token_hex(32))
 PORT_START = 5001
 PORT_END = 5999
 
-# Payment wallet (set via env vars in production)
-WALLET_ADDRESS = os.environ.get("PAYMENT_WALLET", "YOUR_USDT_WALLET_ADDRESS_HERE")
+# Payment wallets (TRC-20 Tron & BEP-20 BSC BNB Smart Chain)
+WALLET_TRC20 = os.environ.get("PAYMENT_WALLET_TRC20", "TLponfWCPEqdv8CqbvXAZESQYnoNiw5Bpp")
+WALLET_BEP20 = os.environ.get("PAYMENT_WALLET_BEP20", "0xc53cd5f340bea5148ed657ca80ff51626901e609")
+WALLET_ADDRESS = WALLET_TRC20
 WALLET_NETWORK = os.environ.get("PAYMENT_NETWORK", "TRC20 (USDT)")
 
 # Google OAuth (set via env vars)
@@ -697,6 +699,9 @@ def _migrate_db():
         DB["orders"] = {}
         save_db(DB)
         logger.info("DB migration: added 'orders' key")
+    if "used_txids" not in DB:
+        DB["used_txids"] = {}
+        save_db(DB)
 
 _migrate_db()
 
@@ -1720,7 +1725,7 @@ def api_user_request_payout():
                 user["email"], req_id, available_balance, wallet)
     return jsonify({
         "success": True,
-        "message": f"Payout request for ${available_balance} USDT submitted! Admin will transfer to your wallet.",
+        "message": f"Payout request for ${available_balance} USDT submitted! Your funds will be transferred to your wallet within 1 to 3 business days.",
         "payout": payout_entry,
     })
 
@@ -2573,7 +2578,154 @@ def payment_page(order_id):
         return redirect("/packages")
 
     return render_template("saas_payment.html", user=user, order=order,
-                          wallet_address=WALLET_ADDRESS, wallet_network=WALLET_NETWORK)
+                          wallet_trc20=WALLET_TRC20, wallet_bep20=WALLET_BEP20,
+                          wallet_address=WALLET_TRC20, wallet_network=WALLET_NETWORK)
+
+
+def _verify_tx_blockchain(tx_hash: str, expected_amount: float) -> tuple[bool, str]:
+    """
+    Verify payment on TRON (TRC20) or BSC (BEP20).
+    Returns (is_verified, note).
+    """
+    if not tx_hash or len(tx_hash.strip()) < 10:
+        return False, "Invalid transaction hash format."
+
+    clean_tx = tx_hash.strip().lower()
+    clean_tx_no_0x = clean_tx[2:] if clean_tx.startswith("0x") else clean_tx
+
+    # 1. Double spending check
+    used_txids = DB.setdefault("used_txids", {})
+    if clean_tx in used_txids or clean_tx_no_0x in used_txids:
+        return False, "This transaction hash has already been used for an order."
+
+    # 2. Check TRON (TRC20) via TronScan
+    try:
+        tron_url = f"https://apilist.tronscanapi.com/api/transaction-info?hash={clean_tx_no_0x}"
+        req = urllib.request.Request(tron_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            if data.get("contractRet") == "SUCCESS" or data.get("confirmed"):
+                trc20_list = data.get("trc20TransferInfo") or []
+                for t in trc20_list:
+                    to_addr = (t.get("to_address") or "").strip()
+                    amount_str = str(t.get("amount_str") or "0")
+                    decimals = int(t.get("decimals") or 6)
+                    actual_amount = float(amount_str) / (10 ** decimals)
+                    if to_addr.lower() == WALLET_TRC20.lower() and actual_amount >= (expected_amount - 0.5):
+                        return True, f"TRON (TRC-20) verified: {actual_amount} USDT received"
+    except Exception as e:
+        logger.debug("TronScan check error: %s", e)
+
+    # 3. Check BSC (BEP20) via Binance Smart Chain RPC
+    try:
+        bsc_tx = clean_tx if clean_tx.startswith("0x") else "0x" + clean_tx
+        payload = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionReceipt",
+            "params": [bsc_tx],
+            "id": 1
+        }).encode("utf-8")
+        req = urllib.request.Request("https://bsc-dataseed.binance.org", data=payload,
+                                     headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            receipt = data.get("result")
+            if receipt and receipt.get("status") == "0x1":
+                logs = receipt.get("logs") or []
+                target_wallet_padded = WALLET_BEP20.lower().replace("0x", "").zfill(64)
+                transfer_topic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+                for l in logs:
+                    topics = l.get("topics") or []
+                    if len(topics) >= 3 and topics[0].lower() == transfer_topic:
+                        to_topic = topics[2].lower().replace("0x", "")
+                        if to_topic == target_wallet_padded:
+                            raw_data = l.get("data", "0x0")
+                            raw_val = int(raw_data, 16)
+                            val_usdt = raw_val / (10 ** 18)
+                            if val_usdt >= (expected_amount - 0.5):
+                                return True, f"BSC (BEP-20) verified: {val_usdt} USDT received"
+    except Exception as e:
+        logger.debug("BSC RPC check error: %s", e)
+
+    return False, "Transaction is unconfirmed or recipient/amount does not match."
+
+
+def _activate_order_and_credit_referral(order: dict, custom_days: int = None, verified_by: str = "auto") -> tuple[bool, str]:
+    """
+    Activates user subscription, assigns license key, and immediately credits referral bonus to referrer.
+    """
+    order_id = order["id"]
+    days = int(custom_days) if custom_days else order["days"]
+    parts = [secrets.token_hex(2).upper() for _ in range(4)]
+    license_key = f"TRDBOT-{parts[0]}-{parts[1]}-{parts[2]}-{parts[3]}"
+
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(days=days) if days < 9999 else datetime(9999, 12, 31, tzinfo=timezone.utc)
+
+    # 1. Create license in DB
+    lic = {
+        "key": license_key,
+        "plan": order["package_id"],
+        "days": days,
+        "note": f"Order {order_id} - {order['package_name']} - {order['user_email']} ({verified_by})",
+        "created_at": now.isoformat().replace("+00:00", "Z"),
+        "expires_at": expires.isoformat().replace("+00:00", "Z"),
+        "used_by": order["user_id"],
+        "activated_at": now.isoformat().replace("+00:00", "Z"),
+        "active": True,
+        "revoked": False,
+    }
+    DB.setdefault("licenses", {})[license_key] = lic
+
+    # 2. Update user subscription
+    user = DB["users"].get(order["user_id"])
+    if user:
+        user["subscription"] = {
+            "plan": order["package_id"],
+            "status": "active",
+            "started_at": now.isoformat().replace("+00:00", "Z"),
+            "expires_at": expires.isoformat().replace("+00:00", "Z"),
+        }
+        user["license_key"] = license_key
+
+        # 3. Referral bonus credit ($10 for 1-Year, $50 for Lifetime)
+        referred_by_id = user.get("referred_by")
+        if referred_by_id and referred_by_id in DB["users"]:
+            referrer = DB["users"][referred_by_id]
+            pkg = PACKAGES.get(order["package_id"], {})
+            ref_bonus = float(pkg.get("referral_bonus") or 0.0)
+            if ref_bonus > 0:
+                referrer_history = referrer.setdefault("referral_history", [])
+                already_credited = any(h.get("order_id") == order_id for h in referrer_history)
+                if not already_credited:
+                    referrer["referral_earnings"] = float(referrer.get("referral_earnings") or 0.0) + ref_bonus
+                    referrer_history.append({
+                        "order_id": order_id,
+                        "buyer_id": user.get("id"),
+                        "buyer_email": user.get("email"),
+                        "buyer_name": user.get("name"),
+                        "package_id": order["package_id"],
+                        "package_name": order.get("package_name") or pkg.get("name", ""),
+                        "bonus_amount": ref_bonus,
+                        "currency": "USDT",
+                        "timestamp": now.isoformat().replace("+00:00", "Z"),
+                        "status": "credited",
+                    })
+                    logger.info("Credited $%s referral bonus to referrer %s (%s) for order %s",
+                                ref_bonus, referrer.get("email"), referred_by_id, order_id)
+
+    # 4. Mark order verified
+    order["status"] = "verified"
+    order["verified_at"] = now.isoformat().replace("+00:00", "Z")
+    order["verified_by"] = verified_by
+    order["license_key"] = license_key
+    save_db(DB)
+
+    # 5. Send license key via email
+    _send_license_email(order["user_email"], license_key, order["package_name"], days)
+    logger.info("Order %s verified by %s. License %s assigned to %s",
+                order_id, verified_by, license_key, order["user_email"])
+    return True, license_key
 
 
 @app.route("/api/packages", methods=["GET"])
@@ -2640,7 +2792,7 @@ def api_create_order():
 
 @app.route("/api/orders/submit", methods=["POST"])
 def api_submit_order():
-    """User submits payment proof (transaction hash + screenshot)."""
+    """User submits payment proof (transaction hash + optional screenshot)."""
     if not is_logged_in():
         return jsonify({"success": False, "error": "Not logged in"}), 401
 
@@ -2655,19 +2807,26 @@ def api_submit_order():
     if not order_id:
         return jsonify({"success": False, "error": "Order ID required"})
     if not tx_hash:
-        return jsonify({"success": False, "error": "Transaction hash / Order number is required"})
+        return jsonify({"success": False, "error": "Transaction hash is required"})
 
     order = DB.get("orders", {}).get(order_id)
     if not order or order["user_id"] != user["id"]:
         return jsonify({"success": False, "error": "Order not found"})
+    if order.get("status") == "verified":
+        return jsonify({
+            "success": True,
+            "verified": True,
+            "message": "Order already verified!",
+            "license_key": order.get("license_key"),
+            "redirect": "/bot/",
+        })
     if order["status"] not in ("pending", "submitted"):
         return jsonify({"success": False, "error": "Order cannot be modified (already processed)"})
 
-    # Save screenshot file
+    # Save screenshot file if provided
     screenshot_path = order.get("screenshot", "")
     if screenshot_file and screenshot_file.filename:
         allowed_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-        # Fix 9: Magic bytes signatures for allowed image types
         _magic_signatures = [
             (b"\xff\xd8\xff", ".jpg"),        # JPEG
             (b"\x89PNG\r\n\x1a\n", ".png"),   # PNG
@@ -2676,27 +2835,19 @@ def api_submit_order():
             (b"RIFF", ".webp"),                # WebP (4-byte prefix)
         ]
         ext = Path(screenshot_file.filename).suffix.lower()
-        if ext not in allowed_exts:
-            return jsonify({"success": False, "error": "Only image files allowed (JPG, PNG, GIF, WebP)"})
-        screenshot_file.seek(0, 2)
-        size = screenshot_file.tell()
-        screenshot_file.seek(0)
-        if size > 5 * 1024 * 1024:
-            return jsonify({"success": False, "error": "Screenshot too large (max 5MB)"})
-        # Fix 9: Verify actual file magic bytes match claimed type
-        header = screenshot_file.read(16)
-        screenshot_file.seek(0)
-        _magic_ok = False
-        for sig, sig_ext in _magic_signatures:
-            if header.startswith(sig):
-                _magic_ok = True
-                break
-        if not _magic_ok:
-            return jsonify({"success": False, "error": "File content does not match an image. Please upload a real screenshot."})
-        filename = f"{order_id}_{secrets.token_hex(4)}{ext}"
-        save_path = UPLOAD_DIR / filename
-        screenshot_file.save(str(save_path))
-        screenshot_path = filename
+        if ext in allowed_exts:
+            screenshot_file.seek(0, 2)
+            size = screenshot_file.tell()
+            screenshot_file.seek(0)
+            if size <= 5 * 1024 * 1024:
+                header = screenshot_file.read(16)
+                screenshot_file.seek(0)
+                _magic_ok = any(header.startswith(sig) for sig, _ in _magic_signatures)
+                if _magic_ok:
+                    filename = f"{order_id}_{secrets.token_hex(4)}{ext}"
+                    save_path = UPLOAD_DIR / filename
+                    screenshot_file.save(str(save_path))
+                    screenshot_path = filename
 
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     order["tx_hash"] = tx_hash
@@ -2705,8 +2856,78 @@ def api_submit_order():
     order["submitted_at"] = now
     save_db(DB)
 
-    logger.info("Order %s submitted by %s (tx=%s)", order_id, user["email"], tx_hash[:20])
-    return jsonify({"success": True, "message": "Payment proof submitted. Waiting for admin verification."})
+    # Automated Blockchain Verification
+    verified, note = _verify_tx_blockchain(tx_hash, float(order.get("amount", 79)))
+    if verified:
+        _, lic_key = _activate_order_and_credit_referral(order, verified_by="auto_blockchain")
+        clean_tx = tx_hash.strip().lower()
+        clean_tx_no_0x = clean_tx[2:] if clean_tx.startswith("0x") else clean_tx
+        DB.setdefault("used_txids", {})[clean_tx] = order_id
+        DB["used_txids"][clean_tx_no_0x] = order_id
+        save_db(DB)
+        logger.info("Order %s AUTO-VERIFIED on blockchain for %s: %s", order_id, user["email"], note)
+        return jsonify({
+            "success": True,
+            "verified": True,
+            "auto_verified": True,
+            "message": "Payment verified on blockchain! Your Bot has been activated.",
+            "license_key": lic_key,
+            "redirect": "/bot/",
+        })
+
+    logger.info("Order %s submitted by %s (tx=%s) - blockchain status: %s", order_id, user["email"], tx_hash[:20], note)
+    return jsonify({
+        "success": True,
+        "verified": False,
+        "message": "Payment proof submitted! Blockchain verification in progress (usually 1-2 minutes). If already confirmed on exchange, please wait a moment."
+    })
+
+
+@app.route("/api/orders/check-verification/<order_id>", methods=["POST", "GET"])
+def api_check_order_verification(order_id):
+    """Check blockchain status or re-verify order on the fly."""
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+
+    user = current_user()
+    if not user:
+        return jsonify({"success": False, "error": "User not found"}), 404
+
+    order = DB.get("orders", {}).get(order_id)
+    if not order or order["user_id"] != user["id"]:
+        return jsonify({"success": False, "error": "Order not found"}), 404
+
+    if order.get("status") == "verified":
+        return jsonify({
+            "success": True,
+            "verified": True,
+            "license_key": order.get("license_key"),
+            "redirect": "/bot/",
+        })
+
+    tx_hash = order.get("tx_hash", "").strip()
+    if tx_hash and order.get("status") == "submitted":
+        verified, note = _verify_tx_blockchain(tx_hash, float(order.get("amount", 79)))
+        if verified:
+            _, lic_key = _activate_order_and_credit_referral(order, verified_by="auto_blockchain")
+            clean_tx = tx_hash.strip().lower()
+            clean_tx_no_0x = clean_tx[2:] if clean_tx.startswith("0x") else clean_tx
+            DB.setdefault("used_txids", {})[clean_tx] = order_id
+            DB["used_txids"][clean_tx_no_0x] = order_id
+            save_db(DB)
+            logger.info("Order %s AUTO-VERIFIED on re-poll for %s: %s", order_id, user["email"], note)
+            return jsonify({
+                "success": True,
+                "verified": True,
+                "license_key": lic_key,
+                "redirect": "/bot/",
+            })
+
+    return jsonify({
+        "success": True,
+        "verified": False,
+        "status": order.get("status", "pending")
+    })
 
 
 @app.route("/api/orders/my", methods=["GET"])
@@ -2779,83 +3000,12 @@ def api_admin_verify_order():
     if order["status"] not in ("submitted", "pending"):
         return jsonify({"success": False, "error": "Order already processed"})
 
-    # Generate license key
-    days = int(custom_days) if custom_days else order["days"]
-    parts = [secrets.token_hex(2).upper() for _ in range(4)]
-    license_key = f"TRDBOT-{parts[0]}-{parts[1]}-{parts[2]}-{parts[3]}"
-
-    now = datetime.now(timezone.utc)
-    expires = now + timedelta(days=days) if days < 9999 else datetime(9999, 12, 31, tzinfo=timezone.utc)
-
-    # Create license in DB
-    lic = {
-        "key": license_key,
-        "plan": order["package_id"],
-        "days": days,
-        "note": f"Order {order_id} - {order['package_name']} - {order['user_email']}",
-        "created_at": now.isoformat().replace("+00:00", "Z"),
-        "expires_at": expires.isoformat().replace("+00:00", "Z"),
-        "used_by": order["user_id"],
-        "activated_at": now.isoformat().replace("+00:00", "Z"),
-        "active": True,
-        "revoked": False,
-    }
-    DB.setdefault("licenses", {})[license_key] = lic
-
-    # Update user subscription
-    user = DB["users"].get(order["user_id"])
-    if user:
-        user["subscription"] = {
-            "plan": order["package_id"],
-            "status": "active",
-            "started_at": now.isoformat().replace("+00:00", "Z"),
-            "expires_at": expires.isoformat().replace("+00:00", "Z"),
-        }
-        user["license_key"] = license_key
-
-        # Referral bonus credit ($10 for 1-Year, $50 for Lifetime)
-        referred_by_id = user.get("referred_by")
-        if referred_by_id and referred_by_id in DB["users"]:
-            referrer = DB["users"][referred_by_id]
-            pkg = PACKAGES.get(order["package_id"], {})
-            ref_bonus = float(pkg.get("referral_bonus") or 0.0)
-            if ref_bonus > 0:
-                referrer_history = referrer.setdefault("referral_history", [])
-                already_credited = any(h.get("order_id") == order_id for h in referrer_history)
-                if not already_credited:
-                    referrer["referral_earnings"] = float(referrer.get("referral_earnings") or 0.0) + ref_bonus
-                    referrer_history.append({
-                        "order_id": order_id,
-                        "buyer_id": user.get("id"),
-                        "buyer_email": user.get("email"),
-                        "buyer_name": user.get("name"),
-                        "package_id": order["package_id"],
-                        "package_name": order.get("package_name") or pkg.get("name", ""),
-                        "bonus_amount": ref_bonus,
-                        "currency": "USDT",
-                        "timestamp": now.isoformat().replace("+00:00", "Z"),
-                    })
-                    logger.info("Credited $%s referral bonus to referrer %s (%s) for order %s",
-                                ref_bonus, referrer.get("email"), referred_by_id, order_id)
-
-    # Update order
-    order["status"] = "verified"
-    order["verified_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    order["license_key"] = license_key
-    save_db(DB)
-
-    # Send license key via email
-    email_result = _send_license_email(order["user_email"], license_key,
-                                       order["package_name"], days)
-
-    logger.info("Order %s VERIFIED. License %s assigned to %s. Email sent: %s",
-                order_id, license_key, order["user_email"], email_result.get("success"))
+    _, license_key = _activate_order_and_credit_referral(order, custom_days=custom_days, verified_by="admin")
 
     return jsonify({
         "success": True,
         "license_key": license_key,
         "message": f"Order verified! License: {license_key}",
-        "email_sent": email_result.get("success", False),
     })
 
 
@@ -2886,20 +3036,37 @@ def api_admin_reject_order():
 
 @app.route("/api/admin/wallet", methods=["GET", "POST"])
 def api_admin_wallet():
-    """Admin: get or update the payment wallet address."""
+    """Admin: get or update the payment wallet addresses."""
     if not is_admin():
         return jsonify({"success": False, "error": "Admin access required"}), 403
 
-    global WALLET_ADDRESS, WALLET_NETWORK
+    global WALLET_ADDRESS, WALLET_NETWORK, WALLET_TRC20, WALLET_BEP20
     if request.method == "GET":
-        return jsonify({"success": True, "wallet": WALLET_ADDRESS, "network": WALLET_NETWORK})
+        return jsonify({
+            "success": True,
+            "wallet": WALLET_ADDRESS,
+            "network": WALLET_NETWORK,
+            "wallet_trc20": WALLET_TRC20,
+            "wallet_bep20": WALLET_BEP20,
+        })
 
     data = request.get_json(force=True)
+    if data.get("wallet_trc20"):
+        WALLET_TRC20 = data["wallet_trc20"].strip()
+        WALLET_ADDRESS = WALLET_TRC20
+    if data.get("wallet_bep20"):
+        WALLET_BEP20 = data["wallet_bep20"].strip()
     if data.get("wallet"):
-        WALLET_ADDRESS = data["wallet"]
+        WALLET_ADDRESS = data["wallet"].strip()
     if data.get("network"):
-        WALLET_NETWORK = data["network"]
-    return jsonify({"success": True, "wallet": WALLET_ADDRESS, "network": WALLET_NETWORK})
+        WALLET_NETWORK = data["network"].strip()
+    return jsonify({
+        "success": True,
+        "wallet": WALLET_ADDRESS,
+        "network": WALLET_NETWORK,
+        "wallet_trc20": WALLET_TRC20,
+        "wallet_bep20": WALLET_BEP20,
+    })
 
 
 # ============================================================

@@ -576,6 +576,9 @@
 
                 <!-- TAB 3: Payout Wallet & Withdrawal -->
                 <div id="refTabContentPayout" style="display:none;">
+                    <div style="background:rgba(240,185,11,0.08); border:1px solid rgba(240,185,11,0.25); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:12px; color:#eaecef; line-height:1.5;">
+                        <strong style="color:var(--gold-primary);">⚡ Payout Notice:</strong> Referral commissions are credited instantly. When you submit a withdrawal request, funds are reviewed and transferred to your USDT wallet within <strong>1 to 3 business days</strong>.
+                    </div>
                     <!-- Wallet Address Card -->
                     <div style="background:#0a0e16; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; margin-bottom:16px;">
                         <div style="font-size:13px; font-weight:700; color:var(--gold-primary); margin-bottom:6px;">💰 Enter Your USDT Payout Wallet</div>
@@ -717,7 +720,8 @@
                 html += '  </div>';
                 html += '  <div style="text-align:right;">';
                 html += '    <div style="font-weight:800; color:' + (isPaid ? 'var(--green-success)' : 'var(--gold-primary)') + '; font-size:13px;">$' + p.amount + ' USDT</div>';
-                html += '    <span style="font-size:10px; padding:2px 6px; border-radius:8px; background:' + (isPaid ? 'rgba(14,203,129,0.15);color:var(--green-success);' : 'rgba(240,185,11,0.15);color:var(--gold-primary);') + '">' + (p.status || 'pending').toUpperCase() + '</span>';
+                const statusLabel = isPaid ? 'PAID' : 'PENDING (1-3 BUSINESS DAYS)';
+                html += '    <span style="font-size:10px; padding:2px 8px; border-radius:8px; font-weight:700; background:' + (isPaid ? 'rgba(14,203,129,0.15);color:var(--green-success);' : 'rgba(240,185,11,0.15);color:var(--gold-primary);') + '">' + statusLabel + '</span>';
                 html += '  </div>';
                 html += '</div>';
             });
@@ -803,7 +807,7 @@
                 alert('You have no available referral commission to withdraw at this time.');
                 return;
             }
-            if (!confirm('Withdraw $' + _refDataCache.available_balance + ' USDT to wallet:\n' + wallet + ' ?')) return;
+            if (!confirm('Withdraw $' + _refDataCache.available_balance + ' USDT to wallet:\n' + wallet + '\n\nNote: Referral payouts are processed and sent to your wallet within 1 to 3 business days. Confirm?')) return;
 
             try {
                 let r = await fetch('/api/user/request-payout', {
