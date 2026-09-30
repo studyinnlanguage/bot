@@ -223,7 +223,7 @@
             <div class="pricing-card popular">
                 <div class="badge">Most Popular</div>
                 <div class="plan-name">1-Year License</div>
-                <div class="plan-price"><span class="currency">$</span>100</div>
+                <div class="plan-price"><span class="currency">$</span>79</div>
                 <div class="plan-period">365 days full access</div>
                 <ul class="plan-features">
                     <li><span class="check">&#10003;</span> Full EMA 8, 13, 21, 55 strategy</li>
@@ -355,7 +355,7 @@
                     const statusClass = 'status-' + (o.status || 'submitted');
                     const statusLabel = (o.status || 'submitted').charAt(0).toUpperCase() + (o.status || 'submitted').slice(1);
                     const dateStr = o.created_at ? new Date(o.created_at).toLocaleString() : 'N/A';
-                    const amountStr = o.amount !== undefined ? '$' + o.amount : (o.package === 'yearly' ? '$100' : '$500');
+                    const amountStr = o.amount !== undefined ? '$' + o.amount : (o.package === 'yearly' ? '$79' : '$500');
 
                     html += '<div class="order-card">';
                     html += '  <div class="order-header">';
@@ -440,19 +440,24 @@
                     return;
                 }
                 const earnings = typeof data.referral_earnings === 'number' ? data.referral_earnings.toFixed(2) : '0.00';
+                const available = typeof data.available_balance === 'number' ? data.available_balance.toFixed(2) : '0.00';
+                const withdrawn = typeof data.total_withdrawn === 'number' ? data.total_withdrawn.toFixed(2) : '0.00';
+                const savedWallet = data.payout_wallet || '';
+
                 let html = '<div class="order-card">';
                 html += '<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:20px;">';
                 html += '  <div style="background:#0b0e11; padding:16px; border-radius:10px; border:1px solid #2a2e36;">';
                 html += '    <div style="font-size:11px; color:#848e9c; text-transform:uppercase; font-weight:600;">Total Referral Bonus</div>';
-                html += '    <div style="font-size:28px; font-weight:800; color:#0ecb81; margin-top:4px;">$' + earnings + ' <span style="font-size:13px; font-weight:600; color:#848e9c;">USDT</span></div>';
+                html += '    <div style="font-size:26px; font-weight:800; color:#0ecb81; margin-top:4px;">$' + earnings + ' <span style="font-size:13px; font-weight:600; color:#848e9c;">USDT</span></div>';
+                html += '    <div style="font-size:11px; color:#848e9c; margin-top:4px;">Available: <strong style="color:#0ecb81;">$' + available + '</strong> | Paid: $' + withdrawn + '</div>';
                 html += '  </div>';
                 html += '  <div style="background:#0b0e11; padding:16px; border-radius:10px; border:1px solid #2a2e36;">';
                 html += '    <div style="font-size:11px; color:#848e9c; text-transform:uppercase; font-weight:600;">Total Invited Users</div>';
-                html += '    <div style="font-size:28px; font-weight:800; color:#f0b90b; margin-top:4px;">' + (data.referral_count || 0) + '</div>';
+                html += '    <div style="font-size:26px; font-weight:800; color:#f0b90b; margin-top:4px;">' + (data.referral_count || 0) + '</div>';
                 html += '  </div>';
                 html += '  <div style="background:#0b0e11; padding:16px; border-radius:10px; border:1px solid #2a2e36;">';
                 html += '    <div style="font-size:11px; color:#848e9c; text-transform:uppercase; font-weight:600;">Commission Rules</div>';
-                html += '    <div style="font-size:12px; color:#eaecef; margin-top:6px; line-height:1.5;">1-Year ($100): <strong style="color:#f0b90b;">$10 USDT</strong><br>Lifetime ($500): <strong style="color:#0ecb81;">$50 USDT</strong></div>';
+                html += '    <div style="font-size:12px; color:#eaecef; margin-top:6px; line-height:1.5;">1-Year ($79): <strong style="color:#f0b90b;">$10 USDT</strong><br>Lifetime ($500): <strong style="color:#0ecb81;">$50 USDT</strong></div>';
                 html += '  </div>';
                 html += '</div>';
 
@@ -464,13 +469,39 @@
                 html += '  </div>';
                 html += '</div>';
 
-                html += '<div style="margin-bottom:16px;">';
+                html += '<div style="margin-bottom:20px;">';
                 html += '  <div style="font-size:12px;color:#848e9c;text-transform:uppercase;margin-bottom:6px;font-weight:600;">Your Referral Code</div>';
                 html += '  <div style="display:flex;align-items:center;gap:8px;">';
                 html += '    <span class="license-key" id="refCode">' + escapeHtml(data.referral_code) + '</span>';
                 html += '    <button class="copy-btn" onclick="copyText(\'refCode\')">Copy Code</button>';
                 html += '  </div>';
                 html += '</div>';
+
+                // Payout Wallet & Withdrawal section
+                html += '<div style="background:#0b0e11; border:1px solid #2a2e36; border-radius:10px; padding:16px; margin-bottom:20px;">';
+                html += '  <div style="font-size:13px; font-weight:700; color:#f0b90b; margin-bottom:8px;">💰 Payout Wallet (Receive Referral Earnings)</div>';
+                html += '  <div style="font-size:12px; color:#848e9c; margin-bottom:10px;">Enter your USDT TRC20 or BEP20 address where you want to receive your referral bonus:</div>';
+                html += '  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">';
+                html += '    <input type="text" id="userPayoutWallet" placeholder="e.g. T... (TRC20) or 0x... (BEP20)" value="' + escapeHtml(savedWallet) + '" style="flex:1; min-width:240px; background:#1e2126; border:1px solid #2a2e36; color:#eaecef; padding:10px 12px; border-radius:8px; font-size:13px; font-family:monospace;">';
+                html += '    <button class="copy-btn" style="background:#f0b90b; color:#0b0e11; border:none; padding:10px 16px; font-weight:700;" onclick="savePayoutWallet()">Save Wallet</button>';
+                html += '  </div>';
+                html += '  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding-top:10px; border-top:1px solid #2a2e36;">';
+                html += '    <div style="font-size:12px; color:#eaecef;">Available to Withdraw: <strong style="color:#0ecb81; font-size:14px;">$' + available + ' USDT</strong></div>';
+                html += '    <button class="copy-btn" style="background:rgba(14,203,129,0.2); color:#0ecb81; border:1px solid #0ecb81; padding:8px 16px;" ' + (parseFloat(available) <= 0 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : 'onclick="requestPayout()"') + '>Request Payout</button>';
+                html += '  </div>';
+                html += '</div>';
+
+                if (data.payout_requests && data.payout_requests.length > 0) {
+                    html += '<div style="margin-top:16px; margin-bottom:10px; font-weight:700; font-size:13px; color:#f0b90b; border-top:1px solid #2a2e36; padding-top:14px;">Withdrawal Requests</div>';
+                    data.payout_requests.forEach(function(p) {
+                        const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString() : '';
+                        const isPaid = p.status === 'paid';
+                        html += '<div style="padding:8px 0; border-bottom:1px solid rgba(42,46,54,0.6); font-size:12px; display:flex; justify-content:space-between; align-items:center;">';
+                        html += '  <div><strong>' + escapeHtml(p.id) + '</strong> &bull; ' + dateStr + '<br><span style="font-family:monospace; color:#848e9c; font-size:11px;">' + escapeHtml(p.wallet_address || '') + '</span></div>';
+                        html += '  <div style="text-align:right;"><span style="font-weight:700; color:' + (isPaid ? '#0ecb81' : '#f0b90b') + ';">$' + p.amount + ' USDT</span><br><span class="order-status ' + (isPaid ? 'status-verified' : 'status-pending') + '" style="font-size:10px; padding:2px 8px;">' + (p.status || 'pending').toUpperCase() + '</span></div>';
+                        html += '</div>';
+                    });
+                }
 
                 if (data.referral_history && data.referral_history.length > 0) {
                     html += '<div style="margin-top:16px; margin-bottom:10px; font-weight:700; font-size:13px; color:#0ecb81; border-top:1px solid #2a2e36; padding-top:14px;">Bonus Credit History</div>';
@@ -484,11 +515,15 @@
                 }
 
                 if (data.referred_users && data.referred_users.length > 0) {
-                    html += '<div style="margin-top:16px; margin-bottom:8px; font-weight:700; font-size:13px; color:#848e9c; border-top:1px solid #2a2e36; padding-top:14px;">Invited Users (' + data.referred_users.length + ')</div>';
+                    html += '<div style="margin-top:16px; margin-bottom:8px; font-weight:700; font-size:13px; color:#848e9c; border-top:1px solid #2a2e36; padding-top:14px;">Invited Users Tree (' + data.referred_users.length + ')</div>';
                     data.referred_users.forEach(function(u) {
-                        html += '<div style="padding:6px 0;border-bottom:1px solid rgba(42,46,54,0.6);font-size:12px;display:flex;justify-content:space-between;">';
-                        html += '  <span>' + escapeHtml(u.email) + '</span>';
-                        html += '  <span>' + (u.has_license ? '<span style="color:#0ecb81; font-weight:600;">Active License</span>' : '<span style="color:#848e9c;">Pending Plan</span>') + '</span>';
+                        html += '<div style="padding:8px 0;border-bottom:1px solid rgba(42,46,54,0.6);font-size:12px;display:flex;justify-content:space-between;align-items:center;">';
+                        html += '  <div><strong>' + escapeHtml(u.name || u.email) + '</strong> <span style="color:#848e9c; font-size:11px;">(' + escapeHtml(u.email) + ')</span></div>';
+                        html += '  <div style="text-align:right;">' + (u.has_license ? '<span style="color:#0ecb81; font-weight:600;">Active (' + escapeHtml(u.plan || '') + ')</span>' : '<span style="color:#848e9c;">Registered</span>');
+                        if (u.bonus_earned > 0) {
+                            html += '<br><span style="color:#0ecb81; font-size:11px; font-weight:700;">Bonus: +' + u.bonus_earned + ' USDT</span>';
+                        }
+                        html += '  </div>';
                         html += '</div>';
                     });
                 }
@@ -497,6 +532,39 @@
             } catch (err) {
                 container.innerHTML = '<div class="orders-error">Failed to load referral info.</div>';
             }
+        }
+
+        async function savePayoutWallet() {
+            const input = document.getElementById('userPayoutWallet');
+            if (!input || !input.value.trim()) { alert('Please enter your USDT wallet address'); return; }
+            try {
+                const r = await fetch('/api/user/payout-wallet', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({wallet_address: input.value.trim()})
+                });
+                const res = await r.json();
+                if (res.success) { alert('Payout wallet saved!'); loadReferral(); }
+                else { alert('Failed: ' + (res.error || 'Unknown error')); }
+            } catch(e) { alert('Network error'); }
+        }
+
+        async function requestPayout() {
+            const input = document.getElementById('userPayoutWallet');
+            const wallet = input ? input.value.trim() : '';
+            if (!wallet) {
+                alert('Please enter and save your USDT payout wallet address first.');
+                return;
+            }
+            if (!confirm('Request withdrawal of your referral commission to wallet:\n' + wallet + ' ?')) return;
+            try {
+                const r = await fetch('/api/user/request-payout', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({wallet_address: wallet})
+                });
+                const res = await r.json();
+                if (res.success) { alert(res.message); loadReferral(); }
+                else { alert('Failed: ' + (res.error || 'Unknown error')); }
+            } catch(e) { alert('Network error'); }
         }
 
         function copyText(id) {

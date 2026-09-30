@@ -147,6 +147,7 @@
             <button class="tab active" onclick="switchTab('orders', event)">Payment Orders</button>
             <button class="tab" onclick="switchTab('licenses', event)">License Keys</button>
             <button class="tab" onclick="switchTab('users', event)">Users</button>
+            <button class="tab" onclick="switchTab('payouts', event)">Referral Payouts <span id="payoutsCount" style="color:#f0b90b;"></span></button>
         </div>
 
         <!-- ORDERS TAB -->
@@ -220,6 +221,16 @@
             </div>
         </div>
 
+        <!-- PAYOUTS TAB -->
+        <div id="tab-payouts" class="tab-content">
+            <div class="card">
+                <div class="card-header">Referral Commission Payout Requests</div>
+                <div id="payoutsList" style="padding: 8px 0;">
+                    <div class="empty">Loading...</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Screenshot Modal -->
         <div class="modal-overlay" id="ssModal" onclick="if(event.target===this)this.classList.remove('show')">
             <div class="modal">
@@ -238,7 +249,7 @@
             }
 
             async function loadAll() {
-                await Promise.all([loadOrders(), loadLicenses(), loadUsers(), loadWallet()]);
+                await Promise.all([loadOrders(), loadLicenses(), loadUsers(), loadWallet(), loadPayouts()]);
             }
 
             // ===== ORDERS =====
@@ -526,6 +537,71 @@
             }
 
             function copyText(text) { navigator.clipboard.writeText(text); alert('Copied: ' + text); }
+
+            // ===== PAYOUTS =====
+            async function loadPayouts() {
+                try {
+                    const r = await fetch('/api/admin/payouts');
+                    const data = await r.json();
+                    if (data.success) {
+                        renderPayouts(data.payouts || []);
+                    }
+                } catch(e) {}
+            }
+
+            function renderPayouts(payouts) {
+                const list = document.getElementById('payoutsList');
+                const pendingCount = payouts.filter(p => p.status === 'pending').length;
+                document.getElementById('payoutsCount').textContent = pendingCount > 0 ? '(' + pendingCount + ' pending)' : '';
+                if (!payouts || payouts.length === 0) {
+                    list.innerHTML = '<div class="empty">No referral withdrawal requests yet.</div>';
+                    return;
+                }
+                list.innerHTML = payouts.map(p => {
+                    const isPending = p.status === 'pending';
+                    const dateStr = p.created_at ? new Date(p.created_at).toLocaleString() : '-';
+                    const statusBadge = isPending ?
+                        '<span class="badge" style="background:rgba(240,185,11,0.15);color:#f0b90b;">pending</span>' :
+                        '<span class="badge" style="background:rgba(14,203,129,0.15);color:#0ecb81;">paid</span>';
+                    const actionBtn = isPending ?
+                        '<button class="btn-sm btn-verify" onclick="approvePayout(\'' + p.id + '\', \'' + p.amount + '\')">✓ Mark as Paid</button>' :
+                        '<span style="color:#0ecb81;font-size:11px;">Paid ' + (p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '') + '</span>';
+                    return '<div class="order-row">'
+                        + '<div class="order-top">'
+                        + '  <div>'
+                        + '    <span class="order-id">' + p.id + '</span> &bull; <strong style="color:#0ecb81; font-size:14px;">$' + p.amount + ' USDT</strong>'
+                        + '    <div class="order-user" style="margin-top:4px;">User: <strong>' + p.user_email + '</strong> (' + (p.user_name || '') + ') &bull; Requested: ' + dateStr + '</div>'
+                        + '  </div>'
+                        + '  <div>' + statusBadge + '</div>'
+                        + '</div>'
+                        + '<div style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">'
+                        + '  <span style="font-size:11px; color:#848e9c;">USDT Wallet:</span>'
+                        + '  <span class="order-tx" style="max-width:400px;">' + (p.wallet_address || '-') + '</span>'
+                        + '  <button class="btn-sm copy-btn" onclick="copyText(\'' + (p.wallet_address || '') + '\')">Copy Wallet</button>'
+                        + '</div>'
+                        + (p.tx_hash ? '<div style="font-size:11px; color:#848e9c; margin-bottom:8px;">Tx Hash: <span style="font-family:monospace; color:#0ecb81;">' + p.tx_hash + '</span></div>' : '')
+                        + '<div class="order-actions">' + actionBtn + '</div>'
+                        + '</div>';
+                }).join('');
+            }
+
+            async function approvePayout(payoutId, amount) {
+                const tx = prompt('Enter Tx Hash for payout ' + payoutId + ' ($' + amount + ' USDT):\n(Leave blank if paid directly)');
+                if (tx === null) return;
+                try {
+                    const r = await fetch('/api/admin/payouts/approve', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({payout_id: payoutId, tx_hash: tx.trim()})
+                    });
+                    const data = await r.json();
+                    if (data.success) {
+                        alert('Payout marked as paid!');
+                        loadPayouts();
+                    } else {
+                        alert('Failed: ' + (data.error || 'Unknown error'));
+                    }
+                } catch(e) { alert('Network error'); }
+            }
 
             loadAll();
         </script>

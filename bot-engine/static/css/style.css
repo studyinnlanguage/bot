@@ -1303,3 +1303,198 @@ input, select {
 
 /* Utilities */
 .hidden { display: none !important; }
+
+/* ==========================================================================
+   Account & Referral Portal Modal + Topbar Actions
+   ========================================================================== */
+.btn-account {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(240, 185, 11, 0.12);
+    border: 1px solid rgba(240, 185, 11, 0.35);
+    color: var(--gold-primary);
+    padding: 6px 14px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.btn-account:hover {
+    background: rgba(240, 185, 11, 0.22);
+    box-shadow: 0 0 16px rgba(240, 185, 11, 0.3);
+    transform: translateY(-1px);
+}
+.btn-logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(246, 70, 93, 0.1);
+    border: 1px solid rgba(246, 70, 93, 0.3);
+    color: var(--red-danger);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    text-decoration: none;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+.btn-logout:hover {
+    background: rgba(246, 70, 93, 0.25);
+    color: #fff;
+}
+.account-badge {
+    background: var(--green-success);
+    color: #080b11;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 10px;
+    margin-left: 2px;
+}
+
+/* Modal Overlay & Card */
+.ref-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    padding: 16px;
+}
+.ref-modal-overlay.active {
+    display: flex;
+}
+.ref-modal-card {
+    background: #121826;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+    width: 100%;
+    max-width: 760px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(240, 185, 11, 0.08);
+    overflow: hidden;
+    animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modalSlideUp {
+    from { opacity: 0; transform: translateY(20px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.ref-modal-header {
+    padding: 18px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(18, 24, 38, 0.95);
+}
+.ref-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.ref-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
+    color: #080b11;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 800;
+    box-shadow: 0 4px 14px rgba(240, 185, 11, 0.3);
+}
+.ref-modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+.ref-modal-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+}
+.ref-modal-tabs {
+    display: flex;
+    background: #0a0e16;
+    padding: 6px;
+    gap: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ref-tab-btn {
+    flex: 1;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.ref-tab-btn.active {
+    background: rgba(240, 185, 11, 0.15);
+    color: var(--gold-primary);
+    box-shadow: inset 0 0 0 1px rgba(240, 185, 11, 0.3);
+}
+.ref-modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+.ref-stat-box {
+    background: #0a0e16;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+}
+.ref-stat-val {
+    font-size: 24px;
+    font-weight: 800;
+    color: #fff;
+    margin-top: 4px;
+    font-family: var(--font-mono);
+}
+.ref-link-box {
+    background: #0a0e16;
+    border: 1px solid rgba(240, 185, 11, 0.25);
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.ref-tree-node {
+    background: #0a0e16;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: border-color 0.2s;
+}
+.ref-tree-node:hover {
+    border-color: rgba(240, 185, 11, 0.3);
+}
+
