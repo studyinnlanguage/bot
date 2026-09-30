@@ -95,27 +95,44 @@
         {% if admin_login_required %}
         <div class="login-card">
             <h2>Admin Login</h2>
-            <p>Enter the admin password</p>
+            <p style="color:#848e9c;font-size:13px;margin-bottom:16px;">Enter your admin secret key / password</p>
             <div id="err" style="color: #f6465d; text-align: center; margin-bottom: 12px; font-size: 13px; display: none;"></div>
-            <input type="password" id="adminPass" class="input" placeholder="Admin password">
-            <button class="btn" onclick="adminLogin()">Login as Admin</button>
+            <input type="password" id="adminPass" class="input" placeholder="Admin password" onkeydown="if(event.key==='Enter')adminLogin()" autofocus>
+            <button class="btn" id="loginBtn" onclick="adminLogin()" style="margin-top:12px;">Login as Admin</button>
         </div>
         <script>
             async function adminLogin() {
-                const pass = document.getElementById('adminPass').value;
+                const pass = document.getElementById('adminPass').value.trim();
+                const btn = document.getElementById('loginBtn');
+                const err = document.getElementById('err');
+                if (!pass) {
+                    err.textContent = 'Please enter admin password';
+                    err.style.display = 'block';
+                    return;
+                }
+                btn.disabled = true;
+                btn.textContent = 'Verifying...';
+                err.style.display = 'none';
                 try {
                     const r = await fetch('/api/admin/login', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({password: pass})
                     });
                     const data = await r.json();
-                    if (data.success) window.location.reload();
-                    else {
-                        const err = document.getElementById('err');
+                    if (data.success) {
+                        window.location.href = '/admin';
+                    } else {
                         err.textContent = data.error || 'Login failed';
                         err.style.display = 'block';
+                        btn.disabled = false;
+                        btn.textContent = 'Login as Admin';
                     }
-                } catch(e) { alert('Network error'); }
+                } catch(e) {
+                    err.textContent = 'Network or server error';
+                    err.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = 'Login as Admin';
+                }
             }
         </script>
         {% else %}
@@ -148,6 +165,7 @@
             <button class="tab" onclick="switchTab('licenses', event)">License Keys</button>
             <button class="tab" onclick="switchTab('users', event)">Users</button>
             <button class="tab" onclick="switchTab('payouts', event)">Referral Payouts <span id="payoutsCount" style="color:#f0b90b;"></span></button>
+            <button class="tab" onclick="switchTab('smtp', event)">📧 SMTP Email <span id="smtpBadgeStatus" style="font-size:10px;"></span></button>
         </div>
 
         <!-- ORDERS TAB -->
@@ -231,6 +249,71 @@
             </div>
         </div>
 
+        <!-- SMTP TAB -->
+        <div id="tab-smtp" class="tab-content">
+            <div class="card">
+                <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>📧 SMTP Email Server Configuration</span>
+                    <span id="smtpStatusPill" class="badge">Checking...</span>
+                </div>
+                <div class="card-body">
+                    <p style="color:#848e9c;font-size:12px;margin-bottom:16px;">
+                        Configure your SMTP server to send automatic license keys and order confirmation emails to users.
+                        Environment variables in your server's <code>.env</code> file (or Coolify environment) are automatically detected and used as primary configuration.
+                    </p>
+
+                    <div style="background:#0b0e11;padding:12px 16px;border-radius:8px;border:1px solid #2a2e36;margin-bottom:20px;font-size:12px;">
+                        <div style="color:#848e9c;margin-bottom:6px;">Current Active Source: <strong id="smtpActiveSource" style="color:#f0b90b;">Loading...</strong></div>
+                        <div style="color:#848e9c;">Active Sender Email: <strong id="smtpActiveUser" style="color:#eaecef;">Loading...</strong></div>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="label">SMTP Server Host</label>
+                            <input type="text" id="smtpHost" class="input-sm" placeholder="smtp.gmail.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="label">SMTP Port</label>
+                            <input type="number" id="smtpPort" class="input-sm" placeholder="587">
+                        </div>
+                        <div class="form-group">
+                            <label class="label">SMTP Email / Username</label>
+                            <input type="text" id="smtpUser" class="input-sm" placeholder="your-email@gmail.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="label">SMTP App Password</label>
+                            <input type="password" id="smtpPass" class="input-sm" placeholder="Leave blank to keep current">
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Sender Name</label>
+                            <input type="text" id="smtpSenderName" class="input-sm" placeholder="Weexionic Trading Bot">
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Sender Email (From)</label>
+                            <input type="text" id="smtpFromEmail" class="input-sm" placeholder="support@weexionic.com">
+                        </div>
+                    </div>
+                    <div style="margin-top:14px;display:flex;gap:10px;">
+                        <button class="btn-create" onclick="saveSmtpConfig()">💾 Save SMTP Configuration</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:20px;">
+                <div class="card-header">🧪 Send Live Test Email</div>
+                <div class="card-body">
+                    <p style="color:#848e9c;font-size:12px;margin-bottom:12px;">
+                        Send a test email to verify your SMTP connection credentials immediately.
+                    </p>
+                    <div style="display:flex;gap:10px;max-width:550px;">
+                        <input type="email" id="testEmailTo" class="input-sm" placeholder="Enter recipient email (e.g. your-email@gmail.com)" style="flex:1;">
+                        <button class="btn-sm btn-verify" style="padding:0 16px;white-space:nowrap;" onclick="sendTestEmail()">Send Test Email</button>
+                    </div>
+                    <div id="testEmailResult" style="margin-top:12px;font-size:12px;display:none;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Screenshot Modal -->
         <div class="modal-overlay" id="ssModal" onclick="if(event.target===this)this.classList.remove('show')">
             <div class="modal">
@@ -249,7 +332,7 @@
             }
 
             async function loadAll() {
-                await Promise.all([loadOrders(), loadLicenses(), loadUsers(), loadWallet(), loadPayouts()]);
+                await Promise.all([loadOrders(), loadLicenses(), loadUsers(), loadWallet(), loadPayouts(), loadSmtp()]);
             }
 
             // ===== ORDERS =====
@@ -332,7 +415,10 @@
                     });
                     const data = await r.json();
                     if (data.success) {
-                        alert('Verified! License: ' + data.license_key + '\nEmail sent: ' + (data.email_sent ? 'Yes' : 'No (check SMTP config)'));
+                        const emailMsg = data.email_sent 
+                            ? '✅ License email sent to user!' 
+                            : ('⚠️ Email NOT sent: ' + (data.email_error || 'SMTP not configured'));
+                        alert('Order Verified!\nLicense Key: ' + data.license_key + '\n\n' + emailMsg);
                         loadOrders(); loadLicenses();
                     } else { alert('Failed: ' + (data.error || 'Unknown error')); }
                 } catch(e) { alert('Network error'); }
@@ -601,6 +687,121 @@
                         alert('Failed: ' + (data.error || 'Unknown error'));
                     }
                 } catch(e) { alert('Network error'); }
+            }
+
+            // ===== SMTP CONFIG & TEST =====
+            async function loadSmtp() {
+                try {
+                    const r = await fetch('/api/admin/smtp');
+                    const data = await r.json();
+                    if (data.success && data.smtp) {
+                        const s = data.smtp;
+                        const pill = document.getElementById('smtpStatusPill');
+                        const badge = document.getElementById('smtpBadgeStatus');
+                        if (s.configured) {
+                            if (pill) {
+                                pill.className = 'badge badge-verified';
+                                pill.textContent = 'ACTIVE (' + (s.source || 'CONFIG').toUpperCase() + ')';
+                            }
+                            if (badge) {
+                                badge.textContent = '🟢 Active';
+                                badge.style.color = '#0ecb81';
+                            }
+                        } else {
+                            if (pill) {
+                                pill.className = 'badge badge-rejected';
+                                pill.textContent = 'NOT CONFIGURED';
+                            }
+                            if (badge) {
+                                badge.textContent = '🔴 Offline';
+                                badge.style.color = '#f6465d';
+                            }
+                        }
+
+                        const srcEl = document.getElementById('smtpActiveSource');
+                        if (srcEl) srcEl.textContent = s.source ? s.source.toUpperCase() : 'None';
+
+                        const userEl = document.getElementById('smtpActiveUser');
+                        if (userEl) userEl.textContent = s.user ? (s.user + ' via ' + s.host + ':' + s.port) : 'Not configured';
+
+                        const hostInp = document.getElementById('smtpHost');
+                        if (hostInp && !hostInp.value) hostInp.value = s.host || 'smtp.gmail.com';
+
+                        const portInp = document.getElementById('smtpPort');
+                        if (portInp && !portInp.value) portInp.value = s.port || 587;
+
+                        const userInp = document.getElementById('smtpUser');
+                        if (userInp && !userInp.value) userInp.value = s.user || '';
+
+                        const nameInp = document.getElementById('smtpSenderName');
+                        if (nameInp && !nameInp.value) nameInp.value = s.sender_name || 'Weexionic Trading Bot';
+
+                        const fromInp = document.getElementById('smtpFromEmail');
+                        if (fromInp && !fromInp.value) fromInp.value = s.from_email || '';
+                    }
+                } catch(e) { console.error('Failed to load SMTP config', e); }
+            }
+
+            async function saveSmtpConfig() {
+                const host = document.getElementById('smtpHost').value.trim();
+                const port = parseInt(document.getElementById('smtpPort').value.trim(), 10) || 587;
+                const user = document.getElementById('smtpUser').value.trim();
+                const pass = document.getElementById('smtpPass').value;
+                const sender_name = document.getElementById('smtpSenderName').value.trim();
+                const from_email = document.getElementById('smtpFromEmail').value.trim();
+
+                if (!user) {
+                    alert('Please enter your SMTP Email / Username.');
+                    return;
+                }
+
+                try {
+                    const r = await fetch('/api/admin/smtp', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ host, port, user, pass, sender_name, from_email })
+                    });
+                    const data = await r.json();
+                    if (data.success) {
+                        alert('SMTP configuration saved successfully!');
+                        document.getElementById('smtpPass').value = '';
+                        loadSmtp();
+                    } else {
+                        alert('Error saving SMTP: ' + (data.error || 'Unknown error'));
+                    }
+                } catch(e) { alert('Network error saving SMTP config'); }
+            }
+
+            async function sendTestEmail() {
+                const to = document.getElementById('testEmailTo').value.trim();
+                const resultDiv = document.getElementById('testEmailResult');
+                if (!to) {
+                    alert('Please enter a recipient email address.');
+                    return;
+                }
+
+                resultDiv.style.display = 'block';
+                resultDiv.style.color = '#f0b90b';
+                resultDiv.textContent = '⏳ Sending test email to ' + to + '...';
+
+                try {
+                    const r = await fetch('/api/admin/smtp/test', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ to_email: to })
+                    });
+                    const data = await r.json();
+                    if (data.success) {
+                        resultDiv.style.color = '#0ecb81';
+                        resultDiv.textContent = '✅ ' + (data.message || ('Test email sent successfully to ' + to + '! Check inbox / spam.'));
+                    } else {
+                        resultDiv.style.color = '#f6465d';
+                        resultDiv.textContent = '❌ Failed to send email: ' + (data.error || 'Unknown error');
+                    }
+                } catch(e) {
+                    resultDiv.style.color = '#f6465d';
+                    resultDiv.textContent = '❌ Network error sending test email';
+                }
             }
 
             loadAll();
