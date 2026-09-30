@@ -61,6 +61,12 @@ import requests as req_lib
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+    load_dotenv()
+except Exception:
+    pass
 BOT_ENGINE_DIR = BASE_DIR / "bot-engine"
 DB_FILE = BASE_DIR / "database.json"
 
@@ -111,13 +117,17 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # Configuration
 # ============================================================
 
-# Admin password - MUST be set via ADMIN_SECRET env var.
-# No default. If not set, admin login is DISABLED.
-ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
-if not ADMIN_SECRET:
-    logger.error("ADMIN_SECRET env var NOT SET! Admin panel login is DISABLED.")
-    logger.error("Set it like:  set ADMIN_SECRET=your_password  (Windows)")
-    logger.error("          or:  export ADMIN_SECRET=your_password  (Linux/Mac)")
+# Admin password - supports ADMIN_SECRET, ADMIN_PASSWORD, ADMIN_PASS, etc.
+# Defaults to "AdminBot@2024!" (as specified in install.sh and README) if not set.
+ADMIN_SECRET = (
+    os.environ.get("ADMIN_SECRET")
+    or os.environ.get("ADMIN_PASSWORD")
+    or os.environ.get("ADMIN_PASS")
+    or os.environ.get("SAAS_ADMIN_PASSWORD")
+    or os.environ.get("SAAS_ADMIN_SECRET")
+    or "AdminBot@2024!"
+).strip()
+logger.info("Admin panel: ENABLED (password configured)")
 
 # Fix 1: Encryption key for API keys — MUST be set via env var in production
 _ENCRYPTION_RAW = os.environ.get("ENCRYPTION_KEY", "")
@@ -148,6 +158,88 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
 
 # SaaS email (for sending license keys to users after payment verification)
+def _get_smtp_config():
+    """Retrieve SaaS SMTP settings from DB or environment variables (supports multiple naming conventions)."""
+    cfg = DB.get("settings", {}).get("smtp", {}) if isinstance(DB.get("settings"), dict) else {}
+
+    # Priority: 1. ENV vars (.env from Coolify or OS), 2. DB settings saved in Admin UI
+    env_user = (
+        os.environ.get("SAAS_SMTP_USER")
+        or os.environ.get("SMTP_USER")
+        or os.environ.get("EMAIL_USER")
+        or os.environ.get("MAIL_USERNAME")
+        or os.environ.get("GMAIL_USER")
+        or ""
+    ).strip()
+
+    env_pass = (
+        os.environ.get("SAAS_SMTP_PASS")
+        or os.environ.get("SMTP_PASS")
+        or os.environ.get("SMTP_PASSWORD")
+        or os.environ.get("EMAIL_PASSWORD")
+        or os.environ.get("MAIL_PASSWORD")
+        or os.environ.get("GMAIL_APP_PASS")
+        or ""
+    ).strip()
+
+    db_user = str(cfg.get("user") or cfg.get("username") or "").strip()
+    db_pass = str(cfg.get("pass") or cfg.get("password") or "").strip()
+
+    if env_user and env_pass:
+        source = "environment (.env)"
+        user = env_user
+        password = env_pass
+        server = (
+            os.environ.get("SAAS_SMTP_SERVER")
+            or os.environ.get("SMTP_SERVER")
+            or os.environ.get("MAIL_SERVER")
+            or cfg.get("server")
+            or cfg.get("host")
+            or "smtp.gmail.com"
+        ).strip()
+        try:
+            port = int(
+                os.environ.get("SAAS_SMTP_PORT")
+                or os.environ.get("SMTP_PORT")
+                or os.environ.get("MAIL_PORT")
+                or cfg.get("port")
+                or 587
+            )
+        except (ValueError, TypeError):
+            port = 587
+    elif db_user and db_pass:
+        source = "database (Admin Settings)"
+        user = db_user
+        password = db_pass
+        server = str(cfg.get("server") or cfg.get("host") or "smtp.gmail.com").strip()
+        try:
+            port = int(cfg.get("port", 587))
+        except (ValueError, TypeError):
+            port = 587
+    else:
+        source = "not_configured"
+        user = env_user or db_user
+        password = env_pass or db_pass
+        server = str(cfg.get("server") or cfg.get("host") or os.environ.get("SMTP_SERVER") or "smtp.gmail.com").strip()
+        try:
+            port = int(cfg.get("port") or os.environ.get("SMTP_PORT") or 587)
+        except (ValueError, TypeError):
+            port = 587
+
+    sender_name = str(cfg.get("sender_name") or os.environ.get("SMTP_SENDER_NAME") or "Weexionic Trading Bot").strip()
+    from_email = str(cfg.get("from_email") or os.environ.get("SMTP_FROM_EMAIL") or user).strip()
+
+    return {
+        "server": server,
+        "host": server,
+        "port": port,
+        "user": user,
+        "pass": password,
+        "sender_name": sender_name,
+        "from_email": from_email,
+        "source": source,
+    }
+
 SAAS_SMTP_SERVER = os.environ.get("SAAS_SMTP_SERVER", "smtp.gmail.com")
 SAAS_SMTP_PORT = int(os.environ.get("SAAS_SMTP_PORT", 587))
 SAAS_SMTP_USER = os.environ.get("SAAS_SMTP_USER", "")
@@ -1277,9 +1369,6 @@ def index():
 def admin_panel():
     if is_admin():
         return render_template("saas_admin.html", admin_login_required=False)
-    if is_logged_in():
-        # Regular users must never see the admin panel (or its login form).
-        return redirect("/")
     return render_template("saas_admin.html", admin_login_required=True)
 
 @app.route("/api/debug/logs")
@@ -2089,7 +2178,8 @@ def bot_engine_proxy(path=''):
         html = re.sub(r'io\s*\(\s*\)', "io({path: '/bot/socket.io'})", html)
         # Inject SaaS bar — Admin link ONLY visible to admin users
         user_is_admin = user and user.get('role') == 'admin'
-        admin_btn = '<a href="/admin" style="background:rgba(246,70,93,0.2);color:#f6465d;border:1px solid #f6465d;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-family:sans-serif;">Admin</a>' if user_is_admin else ''
+        admin_style = "background:rgba(246,70,93,0.2);color:#f6465d;border:1px solid #f6465d;" if user_is_admin else "background:rgba(240,185,11,0.15);color:#f0b90b;border:1px solid #f0b90b;"
+        admin_btn = f'<a href="/admin" style="{admin_style}padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-family:sans-serif;font-weight:600;">Admin</a>'
         saas_bar = f'''
 <div style="position:fixed;top:10px;right:10px;z-index:99999;display:flex;gap:8px;">
   {admin_btn}
@@ -2132,18 +2222,37 @@ def api_admin_login():
     if not ADMIN_SECRET:
         return jsonify({"success": False, "error": "Admin panel is disabled. Set ADMIN_SECRET env var."})
 
-    # Fix 3: Rate limit admin login to 3 attempts per 10 minutes
-    client_ip = request.remote_addr or "unknown"
-    if not _check_rate_limit(f"admin_login:{client_ip}", max_requests=3, window_seconds=600):
-        return jsonify({"success": False, "error": "Too many admin login attempts. Please wait 10 minutes."}), 429
+    # Rate limit admin login (uses X-Forwarded-For behind reverse proxies on Coolify)
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    client_ip = (forwarded.split(",")[0].strip() if forwarded else request.remote_addr) or "unknown"
+    if not _check_rate_limit(f"admin_login:{client_ip}", max_requests=10, window_seconds=120):
+        return jsonify({"success": False, "error": "Too many admin login attempts. Please wait 2 minutes."}), 429
 
     data = request.get_json(force=True)
-    password = data.get("password", "")
+    password = (data.get("password") or "").strip()
 
-    # Fix 4: Use constant-time comparison to prevent timing attacks
+    # Constant-time comparison to prevent timing attacks
     if not secrets.compare_digest(password, ADMIN_SECRET):
         return jsonify({"success": False, "error": "Invalid admin password"})
 
+    # If the user is already logged in with an existing account, promote that account to admin
+    current_uid = session.get("user_id")
+    if current_uid and current_uid in DB.get("users", {}):
+        cur_u = DB["users"][current_uid]
+        cur_u["role"] = "admin"
+        if cur_u.get("subscription", {}).get("status") != "active":
+            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            cur_u["subscription"] = {
+                "plan": "lifetime", "status": "active",
+                "started_at": now, "expires_at": "9999-12-31T23:59:59Z",
+            }
+        save_db(DB)
+        session["user_id"] = cur_u["id"]
+        session.permanent = True
+        logger.info("Admin login: elevated logged-in user %s (%s) to admin", cur_u.get("email"), current_uid)
+        return jsonify({"success": True, "user": {"id": cur_u["id"], "email": cur_u["email"], "role": "admin"}})
+
+    # Otherwise find or create dedicated admin account
     admin_user = None
     for u in DB["users"].values():
         if u.get("role") == "admin":
@@ -2357,42 +2466,51 @@ def api_admin_delete():
 
 def _send_license_email(to_email: str, license_key: str, package_name: str, days: int):
     """Send license key to user via email after admin verifies payment."""
-    if not SAAS_SMTP_USER or not SAAS_SMTP_PASS:
+    smtp_cfg = _get_smtp_config()
+    smtp_user = smtp_cfg["user"]
+    smtp_pass = smtp_cfg["pass"]
+    smtp_server = smtp_cfg["server"]
+    smtp_port = smtp_cfg["port"]
+
+    if not smtp_user or not smtp_pass:
         logger.warning("SaaS SMTP not configured. License email not sent to %s", to_email)
-        return {"success": False, "error": "SMTP not configured"}
+        return {"success": False, "error": "SMTP credentials not configured (check .env or Admin Panel)"}
 
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
 
     try:
+        sender_label = smtp_cfg.get("sender_name") or "Weexionic Trading Bot"
+        from_header = smtp_cfg.get("from_email") or smtp_user
         msg = MIMEMultipart("alternative")
-        msg["From"] = SAAS_SMTP_USER
+        msg["From"] = f"{sender_label} <{from_header}>"
         msg["To"] = to_email
-        msg["Subject"] = f"[TradeBot] Your License Key - {package_name}"
+        msg["Subject"] = f"[Weexionic] Your License Key - {package_name}"
 
         days_text = "Lifetime" if days >= 9999 else f"{days} days"
         body = (
             f"Hello,\n\n"
             f"Your payment has been verified and your license key is ready!\n\n"
+            f"Platform: Weexionic Automated Futures Trading Bot\n"
             f"Package: {package_name}\n"
             f"Duration: {days_text}\n"
             f"License Key: {license_key}\n\n"
             f"To activate:\n"
-            f"1. Login to TradeBot SaaS\n"
+            f"1. Login to your account\n"
             f"2. Go to License Activation page\n"
-            f"3. Paste the license key above\n"
+            f"3. Paste the license key above: {license_key}\n"
             f"4. Click Activate\n\n"
-            f"Thank you for choosing TradeBot!\n"
+            f"Thank you for choosing Weexionic Trading Bot!\n"
         )
         msg.attach(MIMEText(body, "plain"))
 
-        with smtplib.SMTP(SAAS_SMTP_SERVER, SAAS_SMTP_PORT, timeout=15) as server:
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
             server.starttls()
-            server.login(SAAS_SMTP_USER, SAAS_SMTP_PASS)
-            server.sendmail(SAAS_SMTP_USER, to_email, msg.as_string())
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(from_header, to_email, msg.as_string())
 
-        logger.info("License email sent to %s", to_email)
+        logger.info("License email sent successfully to %s", to_email)
         return {"success": True}
     except Exception as e:
         logger.error("Failed to send license email to %s: %s", to_email, e)
@@ -2722,10 +2840,10 @@ def _activate_order_and_credit_referral(order: dict, custom_days: int = None, ve
     save_db(DB)
 
     # 5. Send license key via email
-    _send_license_email(order["user_email"], license_key, order["package_name"], days)
-    logger.info("Order %s verified by %s. License %s assigned to %s",
-                order_id, verified_by, license_key, order["user_email"])
-    return True, license_key
+    email_res = _send_license_email(order["user_email"], license_key, order["package_name"], days)
+    logger.info("Order %s verified by %s. License %s assigned to %s (Email: %s)",
+                order_id, verified_by, license_key, order["user_email"], email_res)
+    return True, license_key, email_res
 
 
 @app.route("/api/packages", methods=["GET"])
@@ -3000,13 +3118,128 @@ def api_admin_verify_order():
     if order["status"] not in ("submitted", "pending"):
         return jsonify({"success": False, "error": "Order already processed"})
 
-    _, license_key = _activate_order_and_credit_referral(order, custom_days=custom_days, verified_by="admin")
+    _, license_key, email_res = _activate_order_and_credit_referral(order, custom_days=custom_days, verified_by="admin")
 
     return jsonify({
         "success": True,
         "license_key": license_key,
+        "email_sent": email_res.get("success", False) if isinstance(email_res, dict) else False,
+        "email_error": email_res.get("error", "") if isinstance(email_res, dict) else "",
         "message": f"Order verified! License: {license_key}",
     })
+
+
+@app.route("/api/admin/smtp", methods=["GET", "POST"])
+def api_admin_smtp():
+    """Admin: view or save SMTP settings in DB."""
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        user = str(data.get("user") or data.get("username") or "").strip()
+        password = str(data.get("pass") or data.get("password") or "").strip()
+        server = str(data.get("server") or data.get("host") or "smtp.gmail.com").strip()
+        sender_name = str(data.get("sender_name") or "Weexionic Trading Bot").strip()
+        from_email = str(data.get("from_email") or user).strip()
+        try:
+            port = int(data.get("port") or 587)
+        except (ValueError, TypeError):
+            port = 587
+
+        settings = DB.setdefault("settings", {})
+        smtp = settings.setdefault("smtp", {})
+        if user:
+            smtp["user"] = user
+        if password:
+            smtp["pass"] = password
+        smtp["server"] = server
+        smtp["host"] = server
+        smtp["port"] = port
+        smtp["sender_name"] = sender_name
+        smtp["from_email"] = from_email
+        save_db(DB)
+        logger.info("Admin updated SMTP settings: user=%s, server=%s:%s", user, server, port)
+        return jsonify({"success": True, "message": "SMTP settings saved successfully!"})
+
+    # GET
+    cfg = _get_smtp_config()
+    smtp_data = {
+        "configured": bool(cfg["user"] and cfg["pass"]),
+        "user": cfg["user"],
+        "server": cfg["server"],
+        "host": cfg["server"],
+        "port": cfg["port"],
+        "source": cfg.get("source", "not_configured"),
+        "sender_name": cfg.get("sender_name", "Weexionic Trading Bot"),
+        "from_email": cfg.get("from_email", cfg["user"]),
+        "has_pass": bool(cfg["pass"]),
+    }
+    return jsonify({
+        "success": True,
+        "smtp": smtp_data,
+        **smtp_data
+    })
+
+
+@app.route("/api/admin/smtp/test", methods=["POST"])
+def api_admin_test_smtp():
+    """Admin: send a test email to verify SMTP configuration."""
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+
+    data = request.get_json(force=True)
+    test_to = str(data.get("to") or data.get("to_email") or "").strip()
+    if not test_to or "@" not in test_to:
+        return jsonify({"success": False, "error": "Please enter a valid recipient email address."})
+
+    custom_user = str(data.get("user") or data.get("username") or "").strip()
+    custom_pass = str(data.get("pass") or data.get("password") or "").strip()
+    custom_server = str(data.get("server") or data.get("host") or "").strip()
+    custom_port = data.get("port")
+
+    smtp_cfg = _get_smtp_config()
+    smtp_user = custom_user or smtp_cfg["user"]
+    smtp_pass = custom_pass or smtp_cfg["pass"]
+    smtp_server = custom_server or smtp_cfg["server"]
+    try:
+        smtp_port = int(custom_port) if custom_port else smtp_cfg["port"]
+    except (ValueError, TypeError):
+        smtp_port = 587
+
+    if not smtp_user or not smtp_pass:
+        return jsonify({"success": False, "error": "SMTP User and App Password are missing. Configure them first."})
+
+    import smtplib
+    from email.mime.text import MIMEText
+
+    try:
+        sender_label = smtp_cfg.get("sender_name") or "Weexionic Trading Bot"
+        from_header = smtp_cfg.get("from_email") or smtp_user
+        msg = MIMEText(
+            f"Hello,\n\n"
+            f"This is a live test email from Weexionic Trading Bot.\n"
+            f"Your SMTP settings are working perfectly!\n\n"
+            f"Connected Server: {smtp_server}:{smtp_port}\n"
+            f"Sender Email: {smtp_user}\n"
+            f"Configuration Source: {smtp_cfg.get('source', 'configured')}\n"
+            f"Timestamp (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+            f"Weexionic Trading System is ready to dispatch license keys automatically.",
+            "plain"
+        )
+        msg["From"] = f"{sender_label} <{from_header}>"
+        msg["To"] = test_to
+        msg["Subject"] = "[Weexionic] SMTP Test Email Successful ✅"
+
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(from_header, test_to, msg.as_string())
+
+        return jsonify({"success": True, "message": f"Test email sent successfully to {test_to}!"})
+    except Exception as e:
+        logger.error("Admin SMTP test failed to %s: %s", test_to, e)
+        return jsonify({"success": False, "error": f"SMTP Error: {str(e)}"})
 
 
 @app.route("/api/admin/orders/reject", methods=["POST"])

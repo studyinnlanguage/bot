@@ -24,6 +24,13 @@ from bot.engine import BotEngine
 # ---------- Setup ----------
 
 BASE_DIR = Path(__file__).resolve().parent
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+    load_dotenv(BASE_DIR.parent / ".env")
+except Exception:
+    pass
+
 CONFIG_FILE = BASE_DIR / "config.json"
 LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
