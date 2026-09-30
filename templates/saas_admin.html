@@ -446,8 +446,9 @@
                     const banBadge = u.banned ? '<span class="badge badge-banned">banned</span>' : '';
                     const actions = '<button class="btn-sm ' + (u.banned ? 'btn-unban' : 'btn-ban') + '" onclick="banUser(\'' + u.id + '\', ' + !u.banned + ')">' + (u.banned ? 'Unban' : 'Ban') + '</button>'
                         + '<button class="btn-sm btn-delete" onclick="deleteUser(\'' + u.id + '\')">Delete</button>';
+                    const refInfo = 'Ref: ' + (u.referral_code || '-') + ' (' + (u.referral_count || 0) + ' users, $' + (u.referral_earnings || 0) + ')' + (u.referred_by_name ? ' | Invited by: ' + u.referred_by_name : '');
                     return '<div class="user-row">'
-                        + '<div><div style="font-weight:600;">' + u.email + '</div><div style="color:#848e9c;font-size:11px;">' + u.name + ' | License: ' + (u.license_key || 'none') + '</div></div>'
+                        + '<div><div style="font-weight:600;">' + u.email + '</div><div style="color:#848e9c;font-size:11px;">' + u.name + ' | License: ' + (u.license_key || 'none') + ' | ' + refInfo + '</div></div>'
                         + '<div>' + subBadge + '</div>'
                         + '<div>' + botBadge + '</div>'
                         + '<div>' + banBadge + '</div>'
