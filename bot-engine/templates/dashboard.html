@@ -492,7 +492,7 @@
                     <div class="ref-avatar" id="modalUserAvatar">👤</div>
                     <div>
                         <div style="font-size:16px; font-weight:700; color:#fff;" id="modalUserName">My Account</div>
-                        <div style="font-size:12px; color:var(--text-secondary);" id="modalUserEmail">user@example.com</div>
+                        <div style="font-size:12px; color:var(--text-secondary);" id="modalUserEmail">Loading account details...</div>
                     </div>
                 </div>
                 <div style="display:flex; align-items:center; gap:12px;">
@@ -609,7 +609,10 @@
 
         async function fetchReferralInfo() {
             try {
-                const r = await fetch('/api/user/referral');
+                let r = await fetch('/api/user/referral');
+                if (!r.ok) {
+                    r = await fetch('/bot/api/user/referral');
+                }
                 if (!r.ok) return;
                 const data = await r.json();
                 if (!data.success) return;
@@ -773,10 +776,16 @@
             const wallet = input ? input.value.trim() : '';
             if (!wallet || wallet.length < 10) { alert('Please enter a valid USDT wallet address'); return; }
             try {
-                const r = await fetch('/api/user/payout-wallet', {
+                let r = await fetch('/api/user/payout-wallet', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({wallet_address: wallet})
                 });
+                if (!r.ok) {
+                    r = await fetch('/bot/api/user/payout-wallet', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({wallet_address: wallet})
+                    });
+                }
                 const res = await r.json();
                 if (res.success) { alert('Payout wallet saved successfully!'); fetchReferralInfo(); }
                 else { alert('Failed: ' + (res.error || 'Unknown error')); }
@@ -797,10 +806,16 @@
             if (!confirm('Withdraw $' + _refDataCache.available_balance + ' USDT to wallet:\n' + wallet + ' ?')) return;
 
             try {
-                const r = await fetch('/api/user/request-payout', {
+                let r = await fetch('/api/user/request-payout', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({wallet_address: wallet})
                 });
+                if (!r.ok) {
+                    r = await fetch('/bot/api/user/request-payout', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({wallet_address: wallet})
+                    });
+                }
                 const res = await r.json();
                 if (res.success) { alert(res.message); fetchReferralInfo(); }
                 else { alert('Failed: ' + (res.error || 'Unknown error')); }
