@@ -155,11 +155,10 @@ SAAS_SMTP_PASS = os.environ.get("SAAS_SMTP_PASS", "")
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Package definitions
+# Package definitions (Monthly removed; 1-Year = $100 [$10 ref bonus]; Lifetime = $500 [$50 ref bonus])
 PACKAGES = {
-    "monthly": {"name": "Monthly", "price": 29, "days": 30, "currency": "USDT", "popular": False},
-    "yearly": {"name": "Yearly", "price": 79, "days": 365, "currency": "USDT", "popular": True},
-    "lifetime": {"name": "Lifetime", "price": 499, "days": 9999, "currency": "USDT", "popular": False},
+    "yearly": {"name": "1-Year", "price": 100, "days": 365, "currency": "USDT", "popular": True, "referral_bonus": 10},
+    "lifetime": {"name": "Lifetime", "price": 500, "days": 9999, "currency": "USDT", "popular": False, "referral_bonus": 50},
 }
 
 logger.info("=" * 60)
@@ -262,6 +261,8 @@ def _pg_init():
                         license_key VARCHAR(50),
                         referral_code VARCHAR(50),
                         referred_by VARCHAR(36),
+                        referral_earnings NUMERIC DEFAULT 0,
+                        referral_history JSONB DEFAULT '[]'::jsonb,
                         bot_config JSONB DEFAULT '{}'::jsonb
                     )
                 """)
@@ -314,6 +315,8 @@ def _pg_init():
                     "license_key": "VARCHAR(50)",
                     "referral_code": "VARCHAR(50)",
                     "referred_by": "VARCHAR(36)",
+                    "referral_earnings": "NUMERIC DEFAULT 0",
+                    "referral_history": "JSONB DEFAULT '[]'::jsonb",
                     "bot_config": "JSONB DEFAULT '{}'::jsonb"
                 }
                 licenses_cols = {
@@ -391,7 +394,7 @@ def _load_pg_db() -> dict:
     try:
         with conn.cursor() as cur:
             # Load users
-            cur.execute("SELECT id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config FROM users")
+            cur.execute("SELECT id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history FROM users")
             user_rows = cur.fetchall()
             for r in user_rows:
                 db["users"][r[0]] = {
@@ -406,7 +409,9 @@ def _load_pg_db() -> dict:
                     "license_key": r[8],
                     "referral_code": r[9],
                     "referred_by": r[10],
-                    "bot_config": _parse_json_column(r[11])
+                    "bot_config": _parse_json_column(r[11]),
+                    "referral_earnings": float(r[12] or 0),
+                    "referral_history": _parse_json_column(r[13]) if len(r) > 13 else [],
                 }
 
             # Load licenses
@@ -494,8 +499,8 @@ def save_db(db: dict):
                         for uid, u in (db.get("users") or {}).items():
                             user_ids.append(uid)
                             cur.execute("""
-                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (id) DO UPDATE SET
                                     email = EXCLUDED.email,
                                     name = EXCLUDED.name,
@@ -507,7 +512,9 @@ def save_db(db: dict):
                                     license_key = EXCLUDED.license_key,
                                     referral_code = EXCLUDED.referral_code,
                                     referred_by = EXCLUDED.referred_by,
-                                    bot_config = EXCLUDED.bot_config
+                                    bot_config = EXCLUDED.bot_config,
+                                    referral_earnings = EXCLUDED.referral_earnings,
+                                    referral_history = EXCLUDED.referral_history
                             """, (
                                 u.get("id"),
                                 u.get("email"),
@@ -520,7 +527,9 @@ def save_db(db: dict):
                                 u.get("license_key"),
                                 u.get("referral_code"),
                                 u.get("referred_by"),
-                                _Json(u.get("bot_config", {}))
+                                _Json(u.get("bot_config", {})),
+                                float(u.get("referral_earnings", 0.0) or 0.0),
+                                _Json(u.get("referral_history", []))
                             ))
                         if user_ids:
                             cur.execute("DELETE FROM users WHERE id NOT IN %s", (tuple(user_ids),))
@@ -1214,14 +1223,19 @@ def proxy_to_bot(user_id: str, method: str, path: str, body=None) -> dict:
 # ============================================================
 
 @app.route("/")
+@app.route("/login")
 def index():
     if request.args.get('logout') == '1':
         session.clear()
         return render_template("saas_login.html")
 
+    ref_code = request.args.get('ref', '').strip().upper()
+    if ref_code:
+        session['referral_code'] = ref_code
+
     if not is_logged_in():
-        ref_code = request.args.get('ref', '')
-        return render_template("saas_login.html", ref_code=ref_code)
+        active_ref = ref_code or session.get('referral_code', '')
+        return render_template("saas_login.html", ref_code=active_ref)
 
     user = current_user()
     if not user:
@@ -1316,7 +1330,7 @@ def api_signup():
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     # Handle referral
-    ref_by_code = (data.get("referral_code") or "").strip().upper()
+    ref_by_code = (data.get("referral_code") or session.get("referral_code") or "").strip().upper()
     referred_by = None
     if ref_by_code:
         for u in DB["users"].values():
@@ -1346,6 +1360,8 @@ def api_signup():
         "license_key": None,
         "referral_code": referral_code,
         "referred_by": referred_by,
+        "referral_earnings": 0.0,
+        "referral_history": [],
         "bot_config": {
             "exchange": "binance",
             "testnet": True,
@@ -1533,7 +1549,8 @@ def api_user_referral():
     ref_code = user.get("referral_code", "")
     # Build referral link from the current request's host
     host = request.host
-    referral_link = f"http://{host}/?ref={ref_code}" if ref_code else ""
+    proto = request.headers.get("X-Forwarded-Proto", "https" if request.is_secure else "http")
+    referral_link = f"{proto}://{host}/?ref={ref_code}" if ref_code else ""
 
     # Count how many users this person referred
     referral_count = sum(
@@ -1564,7 +1581,13 @@ def api_user_referral():
         "referral_code": ref_code,
         "referral_link": referral_link,
         "referral_count": referral_count,
+        "referral_earnings": float(user.get("referral_earnings", 0.0) or 0.0),
+        "referral_history": user.get("referral_history", []),
         "referred_users": referred_users,
+        "bonus_rates": {
+            "yearly": PACKAGES.get("yearly", {}).get("referral_bonus", 10),
+            "lifetime": PACKAGES.get("lifetime", {}).get("referral_bonus", 50),
+        },
     })
 
 # ============================================================
@@ -2039,6 +2062,7 @@ def api_admin_users():
             "license_key": u.get("license_key"),
             "referral_code": u.get("referral_code", ""),
             "referral_count": referral_count,
+            "referral_earnings": float(u.get("referral_earnings", 0.0) or 0.0),
             "referred_by_name": referrer_name,
             "bot_running": bot_status.get("running", False),
             "exchange": u.get("bot_config", {}).get("exchange", "none"),
@@ -2311,6 +2335,16 @@ def google_callback():
             # Auto-create account via Google
             user_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            referral_code = user_id[:8].upper()
+
+            ref_by_code = (session.get("referral_code") or "").strip().upper()
+            referred_by = None
+            if ref_by_code:
+                for u in DB["users"].values():
+                    if u.get("referral_code") == ref_by_code:
+                        referred_by = u["id"]
+                        break
+
             user = {
                 "id": user_id,
                 "email": google_email,
@@ -2326,6 +2360,10 @@ def google_callback():
                     "started_at": now, "expires_at": None,
                 },
                 "license_key": None,
+                "referral_code": referral_code,
+                "referred_by": referred_by,
+                "referral_earnings": 0.0,
+                "referral_history": [],
                 "bot_config": {
                     "exchange": "binance", "testnet": True, "symbols_list": [],
                     "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
@@ -2336,7 +2374,8 @@ def google_callback():
             }
             DB["users"][user_id] = user
             save_db(DB)
-            logger.info("New Google signup: %s (id=%s)", google_email, user_id)
+            logger.info("New Google signup: %s (id=%s, ref_code=%s, referred_by=%s)",
+                        google_email, user_id, referral_code, referred_by)
 
         if user.get("banned"):
             return redirect("/?error=account_suspended")
@@ -2629,6 +2668,31 @@ def api_admin_verify_order():
             "expires_at": expires.isoformat().replace("+00:00", "Z"),
         }
         user["license_key"] = license_key
+
+        # Referral bonus credit ($10 for 1-Year, $50 for Lifetime)
+        referred_by_id = user.get("referred_by")
+        if referred_by_id and referred_by_id in DB["users"]:
+            referrer = DB["users"][referred_by_id]
+            pkg = PACKAGES.get(order["package_id"], {})
+            ref_bonus = float(pkg.get("referral_bonus") or 0.0)
+            if ref_bonus > 0:
+                referrer_history = referrer.setdefault("referral_history", [])
+                already_credited = any(h.get("order_id") == order_id for h in referrer_history)
+                if not already_credited:
+                    referrer["referral_earnings"] = float(referrer.get("referral_earnings") or 0.0) + ref_bonus
+                    referrer_history.append({
+                        "order_id": order_id,
+                        "buyer_id": user.get("id"),
+                        "buyer_email": user.get("email"),
+                        "buyer_name": user.get("name"),
+                        "package_id": order["package_id"],
+                        "package_name": order.get("package_name") or pkg.get("name", ""),
+                        "bonus_amount": ref_bonus,
+                        "currency": "USDT",
+                        "timestamp": now.isoformat().replace("+00:00", "Z"),
+                    })
+                    logger.info("Credited $%s referral bonus to referrer %s (%s) for order %s",
+                                ref_bonus, referrer.get("email"), referred_by_id, order_id)
 
     # Update order
     order["status"] = "verified"

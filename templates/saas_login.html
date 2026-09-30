@@ -129,11 +129,30 @@
     <script>
         function switchTab(tab, event) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            } else {
+                const idx = tab === 'login' ? 0 : 1;
+                const tabs = document.querySelectorAll('.tab');
+                if (tabs[idx]) tabs[idx].classList.add('active');
+            }
             document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
             document.getElementById('signupForm').style.display = tab === 'signup' ? 'block' : 'none';
             document.getElementById('errorMsg').classList.remove('show');
         }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const refInput = document.getElementById('signupReferral');
+            const urlParams = new URLSearchParams(window.location.search);
+            const refParam = urlParams.get('ref');
+            if (refParam && refInput && !refInput.value) {
+                refInput.value = refParam.toUpperCase();
+            }
+            if ((refInput && refInput.value.trim()) || refParam) {
+                switchTab('signup');
+            }
+        });
+
         function showError(msg) {
             const el = document.getElementById('errorMsg');
             el.textContent = msg; el.classList.add('show');
