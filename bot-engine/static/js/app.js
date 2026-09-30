@@ -1465,18 +1465,11 @@ function initMobileNav() {
     items.forEach(item => {
         item.addEventListener('click', () => {
             const tab = item.dataset.tab;
-            document.body.dataset.mobTab = tab;
-            items.forEach(i => i.classList.toggle('active', i === item));
-            // Trigger chart resize if switching to terminal tab
-            if (tab === 'terminal' && chart && $('chart')) {
-                setTimeout(() => {
-                    const c = $('chart');
-                    chart.applyOptions({
-                        width: c.clientWidth,
-                        height: c.clientHeight || 360
-                    });
-                    if (chart.timeScale) chart.timeScale().fitContent();
-                }, 80);
+            if (typeof window.switchWorkspaceTab === 'function') {
+                window.switchWorkspaceTab(tab);
+            } else {
+                document.body.dataset.mobTab = tab;
+                items.forEach(i => i.classList.toggle('active', i === item));
             }
         });
     });
