@@ -23,19 +23,23 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # Try to import a Binance futures client.
-# Preferred: `binance-futures-connector` (official, v1.5.0+).
+# Preferred: `binance-futures-connector` (official, v1.5.0+ or v4.x UMFutures).
 # Fallback: `python-binance`.
 try:
-    from binance.futures import Futures as FuturesClient  # noqa: F401
+    from binance.um_futures import UMFutures as FuturesClient  # binance-futures-connector v4+
     _CONNECTOR = "binance-futures-connector"
 except Exception:  # pragma: no cover
     try:
-        from binance.client import Client as _BClient  # python-binance
-        FuturesClient = None
-        _CONNECTOR = "python-binance"
+        from binance.futures import Futures as FuturesClient  # binance-futures-connector v1+
+        _CONNECTOR = "binance-futures-connector"
     except Exception:
-        FuturesClient = None
-        _CONNECTOR = "none"
+        try:
+            from binance.client import Client as _BClient  # python-binance
+            FuturesClient = None
+            _CONNECTOR = "python-binance"
+        except Exception:
+            FuturesClient = None
+            _CONNECTOR = "none"
 
 
 @dataclass
@@ -396,20 +400,22 @@ class BinanceFuturesTrader:
             else:
                 info = self.client.futures_exchange_info()
 
+            # Cache all symbols from this single exchange_info call
             for s in info.get("symbols", []):
-                if s.get("symbol") == symbol:
-                    filters = {f["filterType"]: f for f in s.get("filters", [])}
-                    lot = filters.get("LOT_SIZE", {})
-                    price = filters.get("PRICE_FILTER", {})
-                    result = {
-                        "step_size": float(lot.get("stepSize", 0.001)),
-                        "min_qty": float(lot.get("minQty", 0.001)),
-                        "max_qty": float(lot.get("maxQty", 1e9)),
-                        "tick_size": float(price.get("tickSize", 0.01)),
-                    }
-                    self._exchange_info_cache[symbol] = result
-                    logger.info("Symbol filters for %s: %s", symbol, result)
-                    return result
+                sym_name = s.get("symbol", "").upper()
+                filters = {f["filterType"]: f for f in s.get("filters", [])}
+                lot = filters.get("LOT_SIZE", {})
+                price = filters.get("PRICE_FILTER", {})
+                self._exchange_info_cache[sym_name] = {
+                    "step_size": float(lot.get("stepSize", 0.001)),
+                    "min_qty": float(lot.get("minQty", 0.001)),
+                    "max_qty": float(lot.get("maxQty", 1e9)),
+                    "tick_size": float(price.get("tickSize", 0.01)),
+                }
+
+            if symbol in self._exchange_info_cache:
+                return self._exchange_info_cache[symbol]
+
             # Symbol not found in exchange info - use defaults
             self._exchange_info_cache[symbol] = defaults
             return defaults

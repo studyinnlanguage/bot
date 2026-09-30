@@ -130,7 +130,13 @@
 
                     <!-- Multi-Coin Selector -->
                     <div class="form-group">
-                        <label>Coins (Multi-Coin) <button type="button" id="loadAllCoinsBtn" class="btn btn-sm" style="padding:2px 8px;font-size:10px;margin-left:6px">Load All Coins</button></label>
+                        <label style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
+                            <span>Coins (Watchlist)</span>
+                            <span style="display:inline-flex;gap:4px">
+                                <button type="button" id="loadTopCoinsBtn" class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(14,203,129,0.18);color:#0ecb81;border:1px solid rgba(14,203,129,0.4);font-weight:600">+ Top 10</button>
+                                <button type="button" id="loadAllCoinsBtn" class="btn btn-sm" style="padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.06);color:#eaecef;border:1px solid rgba(255,255,255,0.15)">Load All Coins</button>
+                            </span>
+                        </label>
                         <div class="coin-input-row">
                             <input type="text" id="coinInput" placeholder="BTCUSDT" list="coinSuggestions">
                             <button id="addCoinBtn" class="btn btn-sm btn-primary">+ Add</button>

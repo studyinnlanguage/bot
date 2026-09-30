@@ -1566,7 +1566,8 @@ class BotEngine:
                             pass
                     else:
                         err = str(r.get("error", ""))
-                        if "-2015" in err or "Invalid API-key" in err or "-1044" in err or "401" in err:
+                        is_binance = self.config.get("exchange", "binance").lower() == "binance"
+                        if is_binance and ("-2015" in err or "Invalid API-key" in err or "401" in err):
                             self._emit("log", {
                                 "level": "error",
                                 "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): Your API Key is REJECTED by Binance! 1) Check 'Enable Futures'. 2) If IP restricted, whitelist your VPS IP. 3) Ensure it's a Futures key, not Spot!"
@@ -1576,6 +1577,11 @@ class BotEngine:
                             for w in self.workers.values():
                                 w.stop_event.set()
                             return
+                        elif not is_binance and ("-1044" in err or "401" in err or "signature" in err.lower()):
+                            self._emit("log", {
+                                "level": "warn",
+                                "msg": f"[{sym}] ⚠️ WEEX leverage notice: {err[:80]}. Continuing with effective leverage."
+                            })
                         elif "-4141" in err or "Symbol is closed" in err or "band" in err:
                             self._emit("log", {
                                 "level": "warn",

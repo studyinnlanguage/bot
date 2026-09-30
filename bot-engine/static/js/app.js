@@ -586,19 +586,18 @@ function renderCoinTabs() {
 }
 
 function selectSymbol(sym) {
+    if (!sym) return;
     activeSymbol = sym;
     if ($('chartTitle')) $('chartTitle').textContent = `Price Chart - ${sym}`;
     if ($('statSymbol')) $('statSymbol').textContent = sym;
     renderCoinChips();
     renderCoinTabs();
-    // Tell backend which coin is active (so it only sends chart data for this coin)
-    if (isRunning && sym) {
-        fetch('/api/active_symbol', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbol: sym })
-        }).catch(() => {});
-    }
+    // Tell backend which coin is active (updates monitor thread + streaming)
+    fetch('/api/active_symbol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym })
+    }).catch(() => {});
     // Render cached data immediately
     if (indicatorsBySymbol[sym]) {
         const data = indicatorsBySymbol[sym];
@@ -646,27 +645,26 @@ function selectSymbol(sym) {
     }
 }
 
-function addCoin() {
+function addCoin(customSym = null) {
     const input = $('coinInput');
-    if (!input) return;
-    const sym = input.value.trim().toUpperCase();
+    const sym = (customSym || input?.value || '').trim().toUpperCase();
     if (!sym) return;
     if (!/^[A-Z0-9]+USDT$/.test(sym)) {
-        log('warn', `${sym} valid nahi. Format: BTCUSDT, ETHUSDT, etc.`);
+        log('warn', `${sym} valid nahi. Format: BTCUSDT, ETHUSDT, BTCSUSDT etc.`);
         return;
     }
     if (coins.includes(sym)) {
         log('info', `${sym} pehle se added hai.`);
-        input.value = '';
+        if (input) input.value = '';
         return;
     }
     coins.push(sym);
-    input.value = '';
+    if (input) input.value = '';
     renderCoinChips();
     renderCoinTabs();
-    if (!activeSymbol) selectSymbol(sym);
+    if (!activeSymbol || coins.length === 1) selectSymbol(sym);
     if ($('statCoins')) $('statCoins').textContent = coins.length;
-    log('info', `${sym} added.`);
+    log('success', `+ ${sym} watchlist mein add ho gaya.`);
     // Auto-save coins to config
     saveSettings();
 }
@@ -817,11 +815,22 @@ function setExchange(exchange) {
     // Binance coins even after switching to WEEX, causing invalid-coin errors.
     if (prevExchange && prevExchange !== exchange) {
         log('info', `Exchange switched: ${prevExchange} -> ${exchange}. Refreshing coin list...`);
-        refreshCoinDropdown(exchange);
-        // Warn user about existing coin selections
-        if (coins.length > 0) {
-            log('warn', `⚠️ You have ${coins.length} coins selected. Some may not exist on ${exchange.toUpperCase()}. Verify before starting.`);
+        // Adapt existing coins for new exchange
+        if (exchange === 'weex' && testnet) {
+            coins = coins.map(c => (c.endsWith('USDT') && !c.endsWith('SUSDT')) ? c.replace('USDT', 'SUSDT') : c);
+        } else {
+            coins = coins.map(c => c.endsWith('SUSDT') ? c.replace('SUSDT', 'USDT') : c);
         }
+        if (coins.length === 0) {
+            coins = exchange === 'weex' && testnet ? ['BTCSUSDT'] : ['BTCUSDT'];
+        }
+        activeSymbol = coins[0];
+        renderCoinChips();
+        renderCoinTabs();
+        selectSymbol(activeSymbol);
+        if ($('statCoins')) $('statCoins').textContent = coins.length;
+        refreshCoinDropdown(exchange);
+        saveSettings();
     }
 }
 
@@ -1231,20 +1240,51 @@ function attachListeners() {
         coinInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); addCoin(); }
         });
+        coinInput.addEventListener('change', () => {
+            // Trigger add when user clicks/selects an option from datalist
+            if (coinInput.value.trim()) addCoin();
+        });
     }
 
-    // Load All Coins - populate dropdown ONLY (NOT active tabs)
+    // Top 10 Coins Quick Loader
+    const loadTopBtn = $('loadTopCoinsBtn');
+    if (loadTopBtn) {
+        loadTopBtn.addEventListener('click', () => {
+            const ex = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
+            const testnet = $('testnet') ? $('testnet').value === 'true' : true;
+            let topCoins = [];
+            if (ex === 'weex') {
+                if (testnet) {
+                    topCoins = ["BTCSUSDT", "ETHSUSDT", "SOLSUSDT", "BNBSUSDT", "XRPSUSDT", "DOGESUSDT", "ADASUSDT", "AVAXSUSDT", "LINKSUSDT", "SUISUSDT"];
+                } else {
+                    topCoins = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT"];
+                }
+            } else {
+                topCoins = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT"];
+            }
+            coins = [...topCoins];
+            if (!coins.includes(activeSymbol)) activeSymbol = coins[0];
+            renderCoinChips();
+            renderCoinTabs();
+            selectSymbol(activeSymbol);
+            if ($('statCoins')) $('statCoins').textContent = coins.length;
+            log('success', `✅ Top 10 coins active watchlist mein add ho gaye! (${topCoins.slice(0, 5).join(', ')}...)`);
+            saveSettings();
+        });
+    }
+
+    // Load Market Coins / All Coins
     const loadAllBtn = $('loadAllCoinsBtn');
     if (loadAllBtn) {
         loadAllBtn.addEventListener('click', async () => {
-            log('info', 'Saare coins dropdown mein load ho rahe hain...');
+            log('info', 'Market se coins load ho rahe hain...');
             loadAllBtn.disabled = true;
             loadAllBtn.textContent = 'Loading...';
             try {
                 const r = await fetch('/api/symbols');
                 const data = await r.json();
                 if (data.success && data.symbols && data.symbols.length > 0) {
-                    // Populate ONLY the datalist (autocomplete dropdown)
+                    // Populate datalist (autocomplete dropdown)
                     const datalist = $('coinSuggestions');
                     if (datalist) {
                         datalist.innerHTML = '';
@@ -1254,7 +1294,20 @@ function attachListeners() {
                             datalist.appendChild(opt);
                         });
                     }
-                    log('success', `${data.symbols.length} coins dropdown mein available. Type karein aur "+ Add" dabayein.`);
+                    // If watchlist has only 1 coin, load top 10 from API into active watchlist directly
+                    if (coins.length <= 1) {
+                        const topToAdd = data.symbols.slice(0, 10);
+                        coins = [...topToAdd];
+                        if (!coins.includes(activeSymbol)) activeSymbol = coins[0];
+                        renderCoinChips();
+                        renderCoinTabs();
+                        selectSymbol(activeSymbol);
+                        if ($('statCoins')) $('statCoins').textContent = coins.length;
+                        log('success', `✅ ${data.symbols.length} coins load hue. Top ${topToAdd.length} coins active watchlist mein add ho gaye!`);
+                        saveSettings();
+                    } else {
+                        log('success', `✅ ${data.symbols.length} coins available. Dropdown se coin select karein ya '+ Top 10' dabayein.`);
+                    }
                 } else {
                     log('error', `Coins load fail: ${data.error || 'unknown'}`);
                 }
