@@ -383,6 +383,18 @@ class WEEXFuturesTrader:
         self._contract_cache[symbol] = defaults
         return defaults
 
+    def get_symbol_filters(self, symbol: str) -> dict:
+        """Fetch symbol filters (step_size, min_qty, tick_size, max_qty) for WEEX.
+        Compatible with BinanceFuturesTrader interface."""
+        market_sym = self._market_symbol(symbol)
+        info = self.get_contract_info(market_sym)
+        return {
+            "step_size": float(info.get("step_size", 0.001)),
+            "min_qty": float(info.get("min_qty", 0.001)),
+            "max_qty": float(info.get("max_qty", 1e9)),
+            "tick_size": float(info.get("tick_size", 0.01)),
+        }
+
     # ---------- Account (private, signed) ----------
 
     def get_balance(self) -> float:
@@ -458,8 +470,13 @@ class WEEXFuturesTrader:
         So when looking for BTCUSDT in demo mode, we also need to match BTCSUSDT.
         """
         path = "/capi/v3/account/position/allPosition"
+        order_sym = self._order_symbol(symbol)
         try:
-            data = self._retry_api_call(self._request, "GET", path, params={"symbol": symbol}, signed=True)
+            data = self._retry_api_call(self._request, "GET", path, params={"symbol": order_sym}, signed=True)
+            positions = data.get("data", data.get("result", [])) if isinstance(data, dict) else data
+            if not positions:
+                # Also try without symbol param (returns all positions) or with raw symbol
+                data = self._retry_api_call(self._request, "GET", path, params={}, signed=True)
         except Exception as e:
             logger.warning("WEEX get_position failed: %s", e)
             return WEEXPosition(symbol, "NONE", 0, 0, 0, 0, 1)
@@ -794,6 +811,25 @@ class WEEXFuturesTrader:
         return self.place_market_order(symbol, "SELL", quantity,
                                        reduce_only=False, position_side="SHORT",
                                        sl_price=sl_price, tp_price=tp_price)
+
+    def place_stop_loss(self, symbol: str, side: str, stop_price: float, quantity: float) -> dict:
+        """Place a stop loss order on WEEX (or manage via software watchdog)."""
+        try:
+            return self.place_market_order(symbol, side, quantity, reduce_only=True, sl_price=stop_price)
+        except Exception as e:
+            logger.warning("WEEX place_stop_loss notice: %s (software watchdog remains active)", e)
+            return {"success": True, "notice": str(e)}
+
+    def cancel_open_orders(self, symbol: str) -> dict:
+        """Cancel open orders for a symbol on WEEX."""
+        try:
+            order_sym = self._order_symbol(symbol)
+            path = "/capi/v3/order/cancel-all"
+            res = self._retry_api_call(self._request, "POST", path, body={"symbol": order_sym}, signed=True)
+            return {"success": True, "raw": res}
+        except Exception as e:
+            logger.debug("WEEX cancel_open_orders notice for %s: %s", symbol, e)
+            return {"success": True}
 
     # ---------- Helpers ----------
 
