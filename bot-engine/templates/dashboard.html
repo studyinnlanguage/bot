@@ -38,6 +38,12 @@
                 <span class="dot"></span>
                 <span id="botStatusText">STOPPED</span>
             </div>
+            <button id="userAccountBtn" class="btn-account" onclick="openProfileModal()" title="My Account & Referral Portal">
+                <span class="account-icon">👤</span>
+                <span id="accountBtnText">Account & Referral</span>
+                <span id="accountBonusBadge" class="account-badge" style="display:none;">$0</span>
+            </button>
+            <a href="/?logout=1" class="btn-logout" title="Logout from bot">⏻</a>
         </div>
     </header>
 
@@ -48,7 +54,8 @@
             <span class="mob-quick-price" id="mobPrice">$--</span>
         </div>
         <div class="mob-quick-pnl pnl-zero" id="mobPnl">$0.00 (0.00%)</div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center;">
+            <button onclick="openProfileModal()" class="btn btn-sm" style="background:rgba(240,185,11,0.15);color:#f0b90b;border:1px solid rgba(240,185,11,0.4);padding:4px 8px;font-size:11px;font-weight:700;" title="Account & Referral">👤 Ref</button>
             <button id="mobQuickStartBtn" class="btn btn-sm btn-success">▶ Start</button>
             <button id="mobQuickStopBtn" class="btn btn-sm btn-danger" disabled>■ Stop</button>
         </div>
@@ -470,8 +477,347 @@
             <span class="mob-nav-icon">📋</span>
             <span class="mob-nav-text">Logs</span>
         </button>
+        <button type="button" class="mob-nav-item" onclick="openProfileModal()">
+            <span class="mob-nav-icon">👤</span>
+            <span class="mob-nav-text">Account</span>
+        </button>
     </nav>
 
+    <!-- Account & Referral Portal Modal -->
+    <div class="ref-modal-overlay" id="profileReferralModal" onclick="if(event.target===this)closeProfileModal()">
+        <div class="ref-modal-card">
+            <!-- Header -->
+            <div class="ref-modal-header">
+                <div class="ref-modal-title">
+                    <div class="ref-avatar" id="modalUserAvatar">👤</div>
+                    <div>
+                        <div style="font-size:16px; font-weight:700; color:#fff;" id="modalUserName">My Account</div>
+                        <div style="font-size:12px; color:var(--text-secondary);" id="modalUserEmail">user@example.com</div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <span id="modalPlanBadge" style="background:rgba(14,203,129,0.15); color:var(--green-success); border:1px solid rgba(14,203,129,0.3); font-size:11px; font-weight:700; padding:4px 10px; border-radius:12px;">Active</span>
+                    <button class="ref-modal-close" onclick="closeProfileModal()">&times;</button>
+                </div>
+            </div>
+
+            <!-- Tab Buttons -->
+            <div class="ref-modal-tabs">
+                <button class="ref-tab-btn active" id="tabBtnRefLink" onclick="switchRefTab('link')">🔗 Referral Link</button>
+                <button class="ref-tab-btn" id="tabBtnRefTree" onclick="switchRefTab('tree')">👥 Referral Tree (<span id="tabCountInvited">0</span>)</button>
+                <button class="ref-tab-btn" id="tabBtnRefPayout" onclick="switchRefTab('payout')">💰 Payout &amp; Wallet</button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="ref-modal-body">
+                <!-- TAB 1: Link & Code -->
+                <div id="refTabContentLink">
+                    <!-- Quick Stats -->
+                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-bottom:20px;">
+                        <div class="ref-stat-box">
+                            <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600;">Total Invited</div>
+                            <div class="ref-stat-val" id="statRefUsers" style="color:var(--gold-primary);">0</div>
+                        </div>
+                        <div class="ref-stat-box">
+                            <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600;">Total Earned</div>
+                            <div class="ref-stat-val" id="statRefEarned" style="color:var(--green-success);">$0.00</div>
+                        </div>
+                        <div class="ref-stat-box">
+                            <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600;">Available</div>
+                            <div class="ref-stat-val" id="statRefAvailable" style="color:#2196f3;">$0.00</div>
+                        </div>
+                    </div>
+
+                    <!-- Referral Link -->
+                    <div style="margin-bottom:16px;">
+                        <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px; font-weight:700;">Your Shareable Referral Link</label>
+                        <div class="ref-link-box">
+                            <input type="text" id="modalRefLink" readonly style="flex:1; background:transparent; border:none; color:#fff; font-size:12px; font-family:var(--font-mono); outline:none;">
+                            <button class="btn btn-sm btn-success" id="btnCopyLink" onclick="copyModalText('modalRefLink', 'btnCopyLink')">📋 Copy Link</button>
+                        </div>
+                    </div>
+
+                    <!-- Referral Code & Share -->
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px;">
+                        <div style="flex:1; min-width:200px;">
+                            <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px; font-weight:700;">Your Referral Code</label>
+                            <div class="ref-link-box" style="justify-content:space-between;">
+                                <strong id="modalRefCode" style="font-family:var(--font-mono); color:var(--gold-primary); font-size:16px; letter-spacing:1px;">--</strong>
+                                <button class="btn btn-sm" id="btnCopyCode" onclick="copyDirectText(document.getElementById('modalRefCode').textContent, 'btnCopyCode')">Copy</button>
+                            </div>
+                        </div>
+                        <div style="flex:1; min-width:200px;">
+                            <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px; font-weight:700;">Quick Share</label>
+                            <div style="display:flex; gap:8px;">
+                                <button onclick="shareViaWhatsApp()" class="btn btn-sm" style="flex:1; background:#25D366; color:#080b11; font-weight:700;">💬 WhatsApp</button>
+                                <button onclick="shareViaTelegram()" class="btn btn-sm" style="flex:1; background:#0088cc; color:#fff; font-weight:700;">✈️ Telegram</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Commission Structure -->
+                    <div style="background:rgba(240,185,11,0.06); border:1px dashed rgba(240,185,11,0.3); border-radius:12px; padding:16px; font-size:12px; line-height:1.6;">
+                        <div style="font-weight:700; color:var(--gold-primary); margin-bottom:6px; font-size:13px;">🎁 Instant Commission Structure</div>
+                        <div>&bull; <strong>1-Year License ($79):</strong> Jab bhi aapka refer kiya hua dost 1-Year plan activate karega, aapko direct <strong>$10 USDT</strong> milega.</div>
+                        <div>&bull; <strong>Lifetime License ($500):</strong> Jab koi Lifetime plan activate karega, aapko direct <strong>$50 USDT</strong> milega.</div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: Tree & Invited Users -->
+                <div id="refTabContentTree" style="display:none;">
+                    <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+                        <span>Your Referral Network</span>
+                        <span style="font-size:11px; color:var(--text-secondary);">Direct Referral Tree</span>
+                    </div>
+                    <div id="refUsersList">
+                        <div style="text-align:center; padding:32px; color:var(--text-secondary); font-size:13px;">Loading referral tree...</div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: Payout Wallet & Withdrawal -->
+                <div id="refTabContentPayout" style="display:none;">
+                    <!-- Wallet Address Card -->
+                    <div style="background:#0a0e16; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; margin-bottom:16px;">
+                        <div style="font-size:13px; font-weight:700; color:var(--gold-primary); margin-bottom:6px;">💰 Enter Your USDT Payout Wallet</div>
+                        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Referral commission receive karne ke liye apna USDT (TRC20 ya BEP20) wallet address yahan save karein:</div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+                            <input type="text" id="modalPayoutWalletInput" placeholder="T... (TRC20) ya 0x... (BEP20)" style="flex:1; min-width:240px; background:#121826; border:1px solid rgba(255,255,255,0.12); color:#fff; padding:10px 14px; border-radius:8px; font-size:13px; font-family:var(--font-mono); outline:none;">
+                            <button class="btn btn-sm btn-success" onclick="saveModalPayoutWallet()">💾 Save Wallet</button>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
+                            <div style="font-size:12px; color:var(--text-secondary);">
+                                Available Balance: <strong id="modalAvailBalanceText" style="color:var(--green-success); font-size:14px;">$0.00 USDT</strong>
+                            </div>
+                            <button id="btnRequestWithdrawal" class="btn btn-sm" style="background:var(--gold-gradient); color:#080b11; font-weight:800; padding:8px 18px;" onclick="requestModalPayout()">⚡ Request Withdrawal</button>
+                        </div>
+                    </div>
+
+                    <!-- Withdrawal History -->
+                    <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:10px;">Withdrawal &amp; Payout History</div>
+                    <div id="modalPayoutHistoryList">
+                        <div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:12px;">No withdrawal requests yet.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        // ---- Account & Referral Portal Logic ----
+        let _refDataCache = null;
+
+        async function fetchReferralInfo() {
+            try {
+                const r = await fetch('/api/user/referral');
+                if (!r.ok) return;
+                const data = await r.json();
+                if (!data.success) return;
+                _refDataCache = data;
+
+                // Update topbar
+                const badge = document.getElementById('accountBonusBadge');
+                if (badge && data.referral_earnings > 0) {
+                    badge.textContent = '$' + data.referral_earnings.toFixed(0);
+                    badge.style.display = 'inline-block';
+                }
+                const btnText = document.getElementById('accountBtnText');
+                if (btnText && data.user_name) {
+                    btnText.textContent = data.user_name;
+                }
+
+                // Populate modal
+                if (document.getElementById('modalUserName')) {
+                    document.getElementById('modalUserName').textContent = data.user_name || 'My Account';
+                    document.getElementById('modalUserEmail').textContent = data.user_email || '';
+                    document.getElementById('modalUserAvatar').textContent = (data.user_name || data.user_email || 'U').charAt(0).toUpperCase();
+
+                    const sub = data.subscription || {};
+                    const planText = sub.plan ? (sub.plan.toUpperCase() + (sub.status === 'active' ? ' (ACTIVE)' : '')) : 'Active';
+                    document.getElementById('modalPlanBadge').textContent = planText;
+
+                    document.getElementById('modalRefLink').value = data.referral_link || '';
+                    document.getElementById('modalRefCode').textContent = data.referral_code || '--';
+
+                    document.getElementById('statRefUsers').textContent = data.referral_count || 0;
+                    document.getElementById('tabCountInvited').textContent = data.referral_count || 0;
+                    document.getElementById('statRefEarned').textContent = '$' + (data.referral_earnings || 0).toFixed(2);
+                    document.getElementById('statRefAvailable').textContent = '$' + (data.available_balance || 0).toFixed(2);
+                    document.getElementById('modalAvailBalanceText').textContent = '$' + (data.available_balance || 0).toFixed(2) + ' USDT';
+
+                    const walletInput = document.getElementById('modalPayoutWalletInput');
+                    if (walletInput && data.payout_wallet) {
+                        walletInput.value = data.payout_wallet;
+                    }
+
+                    // Render tree list
+                    renderReferralTree(data.referred_users || []);
+
+                    // Render payout history
+                    renderPayoutHistory(data.payout_requests || []);
+                }
+            } catch(e) {}
+        }
+
+        function renderReferralTree(users) {
+            const container = document.getElementById('refUsersList');
+            if (!container) return;
+            if (!users || users.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:32px; color:var(--text-secondary); font-size:13px;">No invited users yet. Share your link above to invite friends and earn commissions!</div>';
+                return;
+            }
+            let html = '';
+            users.forEach(function(u) {
+                const dateStr = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
+                const isActive = u.has_license;
+                html += '<div class="ref-tree-node">';
+                html += '  <div style="display:flex; align-items:center; gap:10px;">';
+                html += '    <div style="width:36px; height:36px; border-radius:10px; background:rgba(240,185,11,0.15); color:var(--gold-primary); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px;">' + escapeRefHtml((u.name || u.email).charAt(0).toUpperCase()) + '</div>';
+                html += '    <div>';
+                html += '      <div style="font-weight:700; color:#fff; font-size:13px;">' + escapeRefHtml(u.name || u.email) + '</div>';
+                html += '      <div style="font-size:11px; color:var(--text-secondary);">' + escapeRefHtml(u.email) + ' &bull; Joined ' + dateStr + '</div>';
+                html += '    </div>';
+                html += '  </div>';
+                html += '  <div style="text-align:right;">';
+                if (isActive) {
+                    html += '    <span style="background:rgba(14,203,129,0.15); color:var(--green-success); border:1px solid rgba(14,203,129,0.3); font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px;">🟢 Bot Active</span>';
+                } else {
+                    html += '    <span style="background:rgba(255,255,255,0.06); color:var(--text-secondary); font-size:11px; padding:2px 8px; border-radius:10px;">Registered</span>';
+                }
+                if (u.bonus_earned > 0) {
+                    html += '    <div style="color:var(--green-success); font-size:11px; font-weight:800; margin-top:3px;">+' + u.bonus_earned + ' USDT</div>';
+                }
+                html += '  </div>';
+                html += '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        function renderPayoutHistory(payouts) {
+            const container = document.getElementById('modalPayoutHistoryList');
+            if (!container) return;
+            if (!payouts || payouts.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:12px;">No withdrawal requests yet.</div>';
+                return;
+            }
+            let html = '';
+            payouts.forEach(function(p) {
+                const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString() : '';
+                const isPaid = p.status === 'paid';
+                html += '<div class="ref-tree-node">';
+                html += '  <div>';
+                html += '    <div style="font-weight:700; font-size:12px; color:#fff;">' + escapeRefHtml(p.id) + ' &bull; ' + dateStr + '</div>';
+                html += '    <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary);">' + escapeRefHtml(p.wallet_address || '') + '</div>';
+                if (p.tx_hash) {
+                    html += '    <div style="font-size:10px; color:var(--green-success);">Tx: ' + escapeRefHtml(p.tx_hash) + '</div>';
+                }
+                html += '  </div>';
+                html += '  <div style="text-align:right;">';
+                html += '    <div style="font-weight:800; color:' + (isPaid ? 'var(--green-success)' : 'var(--gold-primary)') + '; font-size:13px;">$' + p.amount + ' USDT</div>';
+                html += '    <span style="font-size:10px; padding:2px 6px; border-radius:8px; background:' + (isPaid ? 'rgba(14,203,129,0.15);color:var(--green-success);' : 'rgba(240,185,11,0.15);color:var(--gold-primary);') + '">' + (p.status || 'pending').toUpperCase() + '</span>';
+                html += '  </div>';
+                html += '</div>';
+            });
+            container.innerHTML = html;
+        }
+
+        function openProfileModal() {
+            document.getElementById('profileReferralModal').classList.add('active');
+            fetchReferralInfo();
+        }
+
+        function closeProfileModal() {
+            document.getElementById('profileReferralModal').classList.remove('active');
+        }
+
+        function switchRefTab(tab) {
+            document.getElementById('refTabContentLink').style.display = tab === 'link' ? 'block' : 'none';
+            document.getElementById('refTabContentTree').style.display = tab === 'tree' ? 'block' : 'none';
+            document.getElementById('refTabContentPayout').style.display = tab === 'payout' ? 'block' : 'none';
+
+            document.getElementById('tabBtnRefLink').classList.toggle('active', tab === 'link');
+            document.getElementById('tabBtnRefTree').classList.toggle('active', tab === 'tree');
+            document.getElementById('tabBtnRefPayout').classList.toggle('active', tab === 'payout');
+        }
+
+        function copyModalText(inputId, btnId) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            navigator.clipboard.writeText(input.value).then(() => {
+                const btn = document.getElementById(btnId);
+                if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); }
+            });
+        }
+
+        function copyDirectText(text, btnId) {
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById(btnId);
+                if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); }
+            });
+        }
+
+        function shareViaWhatsApp() {
+            const link = document.getElementById('modalRefLink').value;
+            const text = encodeURIComponent('Join me on Binance Futures Automated Bot! Use my referral link to get started: ' + link);
+            window.open('https://api.whatsapp.com/send?text=' + text, '_blank');
+        }
+
+        function shareViaTelegram() {
+            const link = document.getElementById('modalRefLink').value;
+            const text = encodeURIComponent('Join me on Binance Futures Automated Bot! Use my referral link:');
+            window.open('https://t.me/share/url?url=' + encodeURIComponent(link) + '&text=' + text, '_blank');
+        }
+
+        async function saveModalPayoutWallet() {
+            const input = document.getElementById('modalPayoutWalletInput');
+            const wallet = input ? input.value.trim() : '';
+            if (!wallet || wallet.length < 10) { alert('Please enter a valid USDT wallet address'); return; }
+            try {
+                const r = await fetch('/api/user/payout-wallet', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({wallet_address: wallet})
+                });
+                const res = await r.json();
+                if (res.success) { alert('Payout wallet saved successfully!'); fetchReferralInfo(); }
+                else { alert('Failed: ' + (res.error || 'Unknown error')); }
+            } catch(e) { alert('Network error'); }
+        }
+
+        async function requestModalPayout() {
+            const input = document.getElementById('modalPayoutWalletInput');
+            const wallet = input ? input.value.trim() : '';
+            if (!wallet) {
+                alert('Please enter and save your USDT payout wallet address first.');
+                return;
+            }
+            if (!_refDataCache || _refDataCache.available_balance <= 0) {
+                alert('You have no available referral commission to withdraw at this time.');
+                return;
+            }
+            if (!confirm('Withdraw $' + _refDataCache.available_balance + ' USDT to wallet:\n' + wallet + ' ?')) return;
+
+            try {
+                const r = await fetch('/api/user/request-payout', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({wallet_address: wallet})
+                });
+                const res = await r.json();
+                if (res.success) { alert(res.message); fetchReferralInfo(); }
+                else { alert('Failed: ' + (res.error || 'Unknown error')); }
+            } catch(e) { alert('Network error'); }
+        }
+
+        function escapeRefHtml(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        // Initialize referral info on load
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchReferralInfo();
+        });
+    </script>
 </body>
 </html>

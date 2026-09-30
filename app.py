@@ -155,9 +155,9 @@ SAAS_SMTP_PASS = os.environ.get("SAAS_SMTP_PASS", "")
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Package definitions (Monthly removed; 1-Year = $100 [$10 ref bonus]; Lifetime = $500 [$50 ref bonus])
+# Package definitions (Monthly removed; 1-Year = $79 [$10 ref bonus]; Lifetime = $500 [$50 ref bonus])
 PACKAGES = {
-    "yearly": {"name": "1-Year", "price": 100, "days": 365, "currency": "USDT", "popular": True, "referral_bonus": 10},
+    "yearly": {"name": "1-Year", "price": 79, "days": 365, "currency": "USDT", "popular": True, "referral_bonus": 10},
     "lifetime": {"name": "Lifetime", "price": 500, "days": 9999, "currency": "USDT", "popular": False, "referral_bonus": 50},
 }
 
@@ -263,6 +263,8 @@ def _pg_init():
                         referred_by VARCHAR(36),
                         referral_earnings NUMERIC DEFAULT 0,
                         referral_history JSONB DEFAULT '[]'::jsonb,
+                        payout_wallet VARCHAR(255) DEFAULT '',
+                        payout_requests JSONB DEFAULT '[]'::jsonb,
                         bot_config JSONB DEFAULT '{}'::jsonb
                     )
                 """)
@@ -317,6 +319,8 @@ def _pg_init():
                     "referred_by": "VARCHAR(36)",
                     "referral_earnings": "NUMERIC DEFAULT 0",
                     "referral_history": "JSONB DEFAULT '[]'::jsonb",
+                    "payout_wallet": "VARCHAR(255) DEFAULT ''",
+                    "payout_requests": "JSONB DEFAULT '[]'::jsonb",
                     "bot_config": "JSONB DEFAULT '{}'::jsonb"
                 }
                 licenses_cols = {
@@ -394,7 +398,7 @@ def _load_pg_db() -> dict:
     try:
         with conn.cursor() as cur:
             # Load users
-            cur.execute("SELECT id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history FROM users")
+            cur.execute("SELECT id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests FROM users")
             user_rows = cur.fetchall()
             for r in user_rows:
                 db["users"][r[0]] = {
@@ -412,6 +416,8 @@ def _load_pg_db() -> dict:
                     "bot_config": _parse_json_column(r[11]),
                     "referral_earnings": float(r[12] or 0),
                     "referral_history": _parse_json_column(r[13]) if len(r) > 13 else [],
+                    "payout_wallet": r[14] if len(r) > 14 and r[14] else "",
+                    "payout_requests": _parse_json_column(r[15]) if len(r) > 15 else [],
                 }
 
             # Load licenses
@@ -499,8 +505,8 @@ def save_db(db: dict):
                         for uid, u in (db.get("users") or {}).items():
                             user_ids.append(uid)
                             cur.execute("""
-                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (id) DO UPDATE SET
                                     email = EXCLUDED.email,
                                     name = EXCLUDED.name,
@@ -514,7 +520,9 @@ def save_db(db: dict):
                                     referred_by = EXCLUDED.referred_by,
                                     bot_config = EXCLUDED.bot_config,
                                     referral_earnings = EXCLUDED.referral_earnings,
-                                    referral_history = EXCLUDED.referral_history
+                                    referral_history = EXCLUDED.referral_history,
+                                    payout_wallet = EXCLUDED.payout_wallet,
+                                    payout_requests = EXCLUDED.payout_requests
                             """, (
                                 u.get("id"),
                                 u.get("email"),
@@ -529,7 +537,9 @@ def save_db(db: dict):
                                 u.get("referred_by"),
                                 _Json(u.get("bot_config", {})),
                                 float(u.get("referral_earnings", 0.0) or 0.0),
-                                _Json(u.get("referral_history", []))
+                                _Json(u.get("referral_history", [])),
+                                u.get("payout_wallet", "") or "",
+                                _Json(u.get("payout_requests", []))
                             ))
                         if user_ids:
                             cur.execute("DELETE FROM users WHERE id NOT IN %s", (tuple(user_ids),))
@@ -1558,36 +1568,135 @@ def api_user_referral():
         if u.get("referred_by") == user["id"]
     )
 
-    # Get referred users list
+    # Get referred users list with detailed tree info
     referred_users = []
+    referral_history = user.get("referral_history", [])
     for u in DB["users"].values():
         if u.get("referred_by") == user["id"]:
-            # Fix 7: Mask email to prevent PII leakage
             _raw_email = u.get("email", "")
             _at_pos = _raw_email.find("@")
             if _at_pos > 2:
                 _masked = _raw_email[:2] + "***" + _raw_email[_at_pos:]
             else:
                 _masked = "***@***"
+
+            u_sub = u.get("subscription", {})
+            is_active = (u_sub.get("status") == "active") or bool(u.get("license_key"))
+            
+            # Check bonus earned from this specific user
+            earned_from_user = sum(
+                float(h.get("bonus_amount", 0.0))
+                for h in referral_history
+                if h.get("buyer_id") == u["id"] or h.get("buyer_email") == u.get("email")
+            )
+
             referred_users.append({
+                "id": u["id"][:8],
                 "email": _masked,
-                "name": u.get("name", ""),
+                "name": u.get("name", "") or _masked.split("@")[0],
                 "created_at": u.get("created_at", ""),
-                "has_license": bool(u.get("license_key")),
+                "has_license": is_active,
+                "plan": u_sub.get("plan", "none") if is_active else "none",
+                "bonus_earned": earned_from_user,
             })
+
+    total_earnings = float(user.get("referral_earnings", 0.0) or 0.0)
+    payout_requests = user.get("payout_requests", [])
+    total_withdrawn = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "paid")
+    pending_payout = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "pending")
+    available_balance = max(0.0, round(total_earnings - total_withdrawn - pending_payout, 2))
 
     return jsonify({
         "success": True,
+        "user_name": user.get("name", "") or user.get("email", "").split("@")[0],
+        "user_email": user.get("email", ""),
+        "license_key": user.get("license_key", ""),
+        "subscription": user.get("subscription", {}),
         "referral_code": ref_code,
         "referral_link": referral_link,
         "referral_count": referral_count,
-        "referral_earnings": float(user.get("referral_earnings", 0.0) or 0.0),
-        "referral_history": user.get("referral_history", []),
+        "referral_earnings": total_earnings,
+        "available_balance": available_balance,
+        "total_withdrawn": total_withdrawn,
+        "pending_payout": pending_payout,
+        "payout_wallet": user.get("payout_wallet", ""),
+        "payout_requests": payout_requests,
+        "referral_history": referral_history,
         "referred_users": referred_users,
         "bonus_rates": {
             "yearly": PACKAGES.get("yearly", {}).get("referral_bonus", 10),
             "lifetime": PACKAGES.get("lifetime", {}).get("referral_bonus", 50),
         },
+    })
+
+
+@app.route("/api/user/payout-wallet", methods=["POST"])
+def api_user_save_payout_wallet():
+    """Save or update user's USDT payout wallet address."""
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+
+    user = current_user()
+    if not user:
+        return jsonify({"success": False, "error": "User not found"}), 404
+
+    data = request.get_json(force=True)
+    wallet = (data.get("wallet_address") or "").strip()
+    if not wallet or len(wallet) < 10:
+        return jsonify({"success": False, "error": "Please enter a valid USDT wallet address (TRC20 or BEP20)"})
+
+    user["payout_wallet"] = wallet
+    save_db(DB)
+    logger.info("User %s updated payout wallet: %s", user["email"], wallet)
+    return jsonify({"success": True, "message": "Payout wallet saved successfully!", "wallet": wallet})
+
+
+@app.route("/api/user/request-payout", methods=["POST"])
+def api_user_request_payout():
+    """User submits a withdrawal request for their referral commission."""
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+
+    user = current_user()
+    if not user:
+        return jsonify({"success": False, "error": "User not found"}), 404
+
+    data = request.get_json(force=True)
+    wallet = (data.get("wallet_address") or user.get("payout_wallet") or "").strip()
+    if not wallet:
+        return jsonify({"success": False, "error": "Please provide a USDT payout wallet address"})
+
+    total_earnings = float(user.get("referral_earnings", 0.0) or 0.0)
+    payout_requests = user.setdefault("payout_requests", [])
+    total_withdrawn = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "paid")
+    pending_payout = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "pending")
+    available_balance = max(0.0, round(total_earnings - total_withdrawn - pending_payout, 2))
+
+    if available_balance <= 0:
+        return jsonify({"success": False, "error": "No available referral commission to withdraw"})
+
+    req_id = "PAY-" + secrets.token_hex(4).upper()
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    payout_entry = {
+        "id": req_id,
+        "amount": available_balance,
+        "currency": "USDT",
+        "wallet_address": wallet,
+        "status": "pending",
+        "created_at": now,
+        "paid_at": None,
+        "tx_hash": "",
+    }
+    user["payout_wallet"] = wallet
+    payout_requests.append(payout_entry)
+    save_db(DB)
+
+    logger.info("User %s requested payout %s for $%s USDT to %s",
+                user["email"], req_id, available_balance, wallet)
+    return jsonify({
+        "success": True,
+        "message": f"Payout request for ${available_balance} USDT submitted! Admin will transfer to your wallet.",
+        "payout": payout_entry,
     })
 
 # ============================================================
@@ -2756,6 +2865,63 @@ def api_admin_wallet():
     if data.get("network"):
         WALLET_NETWORK = data["network"]
     return jsonify({"success": True, "wallet": WALLET_ADDRESS, "network": WALLET_NETWORK})
+
+
+# ============================================================
+# Admin Referral Payout Management
+# ============================================================
+
+@app.route("/api/admin/payouts", methods=["GET"])
+def api_admin_payouts():
+    """Admin: list all referral withdrawal/payout requests."""
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+
+    payouts = []
+    for u in DB.get("users", {}).values():
+        for p in u.get("payout_requests", []):
+            item = dict(p)
+            item["user_id"] = u["id"]
+            item["user_email"] = u.get("email", "")
+            item["user_name"] = u.get("name", "")
+            payouts.append(item)
+
+    payouts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return jsonify({"success": True, "payouts": payouts})
+
+
+@app.route("/api/admin/payouts/approve", methods=["POST"])
+def api_admin_approve_payout():
+    """Admin: mark a referral payout as completed/paid."""
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+
+    data = request.get_json(force=True)
+    payout_id = data.get("payout_id", "").strip()
+    tx_hash = data.get("tx_hash", "").strip()
+
+    if not payout_id:
+        return jsonify({"success": False, "error": "Payout ID required"})
+
+    found = False
+    for u in DB.get("users", {}).values():
+        for p in u.get("payout_requests", []):
+            if p.get("id") == payout_id:
+                p["status"] = "paid"
+                p["paid_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                if tx_hash:
+                    p["tx_hash"] = tx_hash
+                found = True
+                break
+        if found:
+            break
+
+    if not found:
+        return jsonify({"success": False, "error": "Payout request not found"})
+
+    save_db(DB)
+    logger.info("Admin approved referral payout %s (tx=%s)", payout_id, tx_hash)
+    return jsonify({"success": True, "message": f"Payout {payout_id} marked as paid!"})
 
 # ============================================================
 # Fix 11: Security Headers Middleware
