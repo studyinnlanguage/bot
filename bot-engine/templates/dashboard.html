@@ -27,8 +27,7 @@
                 <img src="{{ url_for('static', filename='img/weexionic-logo.png') }}" class="brand-logo-img" alt="Weexionic">
             </div>
             <div class="brand-text">
-                <h1>WEEXIONIC <span class="brand-subtext">TRADING BOT</span> <span class="pro-badge">PRO v2</span></h1>
-                <span class="subtitle">EMA Quad-Trend Strategy (8, 13, 21, 55) • Multi-Coin Dynamic Trailing Engine</span>
+                <h1>WEEXIONIC</h1>
             </div>
         </div>
         <div class="topbar-actions">
@@ -45,9 +44,8 @@
             <button id="userAccountBtn" class="btn-account" onclick="openProfileModal()" title="My Account & Referral Portal">
                 <span class="account-icon">👤</span>
                 <span id="accountBtnText">Account & Referral</span>
-                <span id="accountBonusBadge" class="account-badge" style="display:none;">$0</span>
             </button>
-            <a href="/?logout=1" class="btn-logout" title="Logout from bot">⏻</a>
+            <a href="/?logout=1" class="btn-logout" title="Logout from bot" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>window.location.href='/?logout=1');return false;">⏻</a>
         </div>
     </header>
 
@@ -57,6 +55,10 @@
             <button type="button" class="ws-tab-btn active" data-tab="terminal">
                 <span class="ws-tab-icon">📈</span>
                 <span class="ws-tab-label">Live Terminal</span>
+            </button>
+            <button type="button" class="ws-tab-btn" data-tab="position">
+                <span class="ws-tab-icon">🎯</span>
+                <span class="ws-tab-label">Open Position</span>
             </button>
             <button type="button" class="ws-tab-btn" data-tab="config">
                 <span class="ws-tab-icon">⚙️</span>
@@ -269,6 +271,122 @@
                     </div>
 
                 </section>
+            </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- TAB: LIVE OPEN POSITIONS & RISK MONITOR                         -->
+        <!-- ============================================================== -->
+        <div class="ws-tab-pane" data-ws-tab="position">
+            <div class="config-view-header">
+                <div>
+                    <h2>🎯 Live Open Positions &amp; Risk Monitor</h2>
+                    <p class="section-desc">Real-time futures positions, dynamic trailing targets, unrealized PnL, and manual risk controls.</p>
+                </div>
+                <div class="config-actions">
+                    <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
+                    <button type="button" class="btn btn-primary" onclick="if(window.fetchPositions)fetchPositions();">🔄 Refresh Positions</button>
+                    <button type="button" class="btn btn-warning" onclick="if(window.closePosition)closePosition();">✕ Close Position (<span id="posBtnSymbol">Selected</span>)</button>
+                </div>
+            </div>
+
+            <!-- Position Overview Highlights -->
+            <div class="pos-tab-metrics-grid">
+                <div class="pos-metric-card">
+                    <div class="pos-metric-label">Active Symbol</div>
+                    <div class="pos-metric-value" id="posTabActiveSym">--</div>
+                    <div class="pos-metric-sub" id="posTabExchange">BINANCE FUTURES</div>
+                </div>
+                <div class="pos-metric-card">
+                    <div class="pos-metric-label">Position Side</div>
+                    <div class="pos-metric-value" id="posTabSide">NONE</div>
+                    <div class="pos-metric-sub" id="posTabLeverage">10x Leverage</div>
+                </div>
+                <div class="pos-metric-card">
+                    <div class="pos-metric-label">Unrealized PnL</div>
+                    <div class="pos-metric-value pnl-zero" id="posTabPnl">$0.00</div>
+                    <div class="pos-metric-sub" id="posTabRoe">ROE: 0.00%</div>
+                </div>
+                <div class="pos-metric-card">
+                    <div class="pos-metric-label">Trailing TP Stage</div>
+                    <div class="pos-metric-value" id="posTabStage">Stage 0</div>
+                    <div class="pos-metric-sub" id="posTabTpTarget">Target: --</div>
+                </div>
+            </div>
+
+            <!-- Detailed Grid: Focus Position Card + Monitored Positions Table -->
+            <div class="pos-tab-main-grid">
+                <!-- Left: Full Active Position Specs -->
+                <div class="card position-focus-card">
+                    <div class="card-header">
+                        <h2><span class="card-icon">🎯</span> Active Position Specs &bull; <span id="posFocusSymbol">--</span></h2>
+                        <span id="posFocusBadge" class="pos-badge-none">NO POSITION</span>
+                    </div>
+                    <div class="card-body position-grid">
+                        <div class="pos-row">
+                            <span>Trade Direction</span><strong id="posFocusSide">NONE</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Contract Size</span><strong id="posFocusSize">0.0000</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Entry Price</span><strong id="posFocusEntry">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Mark / Index Price</span><strong id="posFocusMark">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Unrealized PnL ($)</span><strong id="posFocusPnl" class="pnl-zero">$0.00</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Estimated ROE (%)</span><strong id="posFocusRoe">0.00%</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Dynamic Trailing Target</span><strong id="posFocusTrailingTp" style="color:var(--green-success)">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Current Stop Loss</span><strong id="posFocusCurrentSl" style="color:var(--red-danger)">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Configured Leverage</span><strong id="posFocusLeverage">{{ config.leverage | default(10) }}x</strong>
+                        </div>
+                    </div>
+                    <div class="card-footer" style="padding:14px 20px; border-top:1px solid var(--border-subtle); display:flex; justify-content:flex-end; gap:10px;">
+                        <button type="button" class="btn btn-warning" onclick="if(window.closePosition)closePosition();" style="width:100%;">✕ Close This Position</button>
+                    </div>
+                </div>
+
+                <!-- Right: All Watchlist Open Positions Table -->
+                <div class="card positions-table-card">
+                    <div class="card-header">
+                        <h2><span class="card-icon">📊</span> Multi-Coin Watchlist Positions</h2>
+                        <span class="badge-live-stream" id="posCountBadge">0 Active</span>
+                    </div>
+                    <div class="card-body" style="padding:0; overflow-x:auto;">
+                        <table class="pos-table" id="allPositionsTable">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Size</th>
+                                    <th>Entry</th>
+                                    <th>Mark</th>
+                                    <th>Unrealized PnL</th>
+                                    <th>Trailing TP</th>
+                                    <th>Stop Loss</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positionsTableBody">
+                                <tr>
+                                    <td colspan="9" style="text-align:center; padding:32px; color:var(--text-secondary);">
+                                        Checking open positions...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -787,6 +905,11 @@
                 const dst = document.getElementById('logsFullscreenClone');
                 if (src && dst) dst.innerHTML = src.innerHTML;
             }
+
+            // Refresh live positions if position tab
+            if (tab === 'position' && typeof window.fetchPositions === 'function') {
+                window.fetchPositions();
+            }
         }
 
         // Attach workspace top tabs click listeners
@@ -820,11 +943,11 @@
                 if (!data.success) return;
                 _refDataCache = data;
 
-                // Update topbar
+                // Update topbar - show user name ONLY (no amount)
                 const badge = document.getElementById('accountBonusBadge');
-                if (badge && data.referral_earnings > 0) {
-                    badge.textContent = '$' + data.referral_earnings.toFixed(0);
-                    badge.style.display = 'inline-block';
+                if (badge) {
+                    badge.style.display = 'none';
+                    badge.textContent = '';
                 }
                 const btnText = document.getElementById('accountBtnText');
                 if (btnText && data.user_name) {

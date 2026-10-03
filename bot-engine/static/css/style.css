@@ -1807,3 +1807,115 @@ input, select {
     border-color: rgba(240, 185, 11, 0.3);
 }
 
+/* ==========================================================================
+   Tab: Live Open Positions & Risk Monitor Styling
+   ========================================================================== */
+.pos-tab-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+.pos-metric-card {
+    background: rgba(14, 20, 31, 0.7);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 16px 20px;
+    box-shadow: var(--shadow-card);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.pos-metric-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.pos-metric-value {
+    font-size: 22px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: #fff;
+}
+.pos-metric-sub {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.pos-tab-main-grid {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.pos-badge-long {
+    background: rgba(14, 203, 129, 0.15);
+    color: var(--green-success);
+    border: 1px solid rgba(14, 203, 129, 0.4);
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+}
+.pos-badge-short {
+    background: rgba(246, 70, 93, 0.15);
+    color: var(--red-danger);
+    border: 1px solid rgba(246, 70, 93, 0.4);
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+}
+.pos-badge-none {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.pos-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    text-align: left;
+}
+.pos-table th {
+    background: rgba(10, 14, 22, 0.85);
+    color: var(--text-secondary);
+    padding: 12px 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
+}
+.pos-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    white-space: nowrap;
+}
+.pos-table tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+.pos-table tr.table-row-selected {
+    background: rgba(240, 185, 11, 0.07);
+    border-left: 3px solid var(--gold-primary);
+}
+
+@media (max-width: 1100px) {
+    .pos-tab-main-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+

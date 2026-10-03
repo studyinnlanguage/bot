@@ -542,6 +542,154 @@ function updatePositionUI(data) {
             mobPnl.className = 'mob-quick-pnl pnl-zero';
         }
     }
+
+    // Position Tab synchronization
+    if ($('posTabActiveSym')) $('posTabActiveSym').textContent = data.symbol || activeSymbol || '--';
+    if ($('posFocusSymbol')) $('posFocusSymbol').textContent = data.symbol || activeSymbol || '--';
+    if ($('posBtnSymbol')) $('posBtnSymbol').textContent = data.symbol || activeSymbol || 'Selected';
+
+    const posFocusBadge = $('posFocusBadge');
+    if (posFocusBadge) {
+        posFocusBadge.className = '';
+        if (data.side === 'LONG') {
+            posFocusBadge.textContent = 'LONG ACTIVE';
+            posFocusBadge.className = 'pos-badge-long';
+        } else if (data.side === 'SHORT') {
+            posFocusBadge.textContent = 'SHORT ACTIVE';
+            posFocusBadge.className = 'pos-badge-short';
+        } else {
+            posFocusBadge.textContent = 'NO POSITION';
+            posFocusBadge.className = 'pos-badge-none';
+        }
+    }
+
+    if ($('posTabSide')) {
+        $('posTabSide').textContent = data.side || 'NONE';
+        $('posTabSide').style.color = data.side === 'LONG' ? 'var(--green-success)' : (data.side === 'SHORT' ? 'var(--red-danger)' : 'var(--text-secondary)');
+    }
+    if ($('posFocusSide')) {
+        $('posFocusSide').textContent = data.side || 'NONE';
+        $('posFocusSide').style.color = data.side === 'LONG' ? 'var(--green-success)' : (data.side === 'SHORT' ? 'var(--red-danger)' : 'var(--text-secondary)');
+    }
+    if ($('posTabLeverage')) $('posTabLeverage').textContent = `${lev}x Leverage`;
+    if ($('posFocusLeverage')) $('posFocusLeverage').textContent = `${lev}x`;
+    if ($('posFocusSize')) $('posFocusSize').textContent = Math.abs(data.size || 0).toFixed(4);
+    if ($('posFocusEntry')) $('posFocusEntry').textContent = data.entry_price ? `$${fmt(data.entry_price)}` : '--';
+    if ($('posFocusMark')) $('posFocusMark').textContent = data.mark_price ? `$${fmt(data.mark_price)}` : '--';
+
+    const pnlFormatted = `$${pnl.toFixed(2)}`;
+    if ($('posTabPnl')) {
+        $('posTabPnl').textContent = pnlFormatted;
+        $('posTabPnl').className = 'pos-metric-value ' + (pnl > 0 ? 'pnl-positive' : pnl < 0 ? 'pnl-negative' : 'pnl-zero');
+    }
+    if ($('posFocusPnl')) {
+        $('posFocusPnl').textContent = pnlFormatted;
+        $('posFocusPnl').className = (pnl > 0 ? 'pnl-positive' : pnl < 0 ? 'pnl-negative' : 'pnl-zero');
+    }
+
+    // ROE calculation
+    let roeEstimated = 0;
+    if (data.side && data.side !== 'NONE' && data.entry_price && data.mark_price) {
+        if (data.side === 'LONG') {
+            roeEstimated = ((data.mark_price - data.entry_price) / data.entry_price) * lev * 100;
+        } else if (data.side === 'SHORT') {
+            roeEstimated = ((data.entry_price - data.mark_price) / data.entry_price) * lev * 100;
+        }
+    }
+    const roeSign = roeEstimated > 0 ? '+' : '';
+    const roeText = `ROE: ${roeSign}${roeEstimated.toFixed(2)}%`;
+    if ($('posTabRoe')) $('posTabRoe').textContent = roeText;
+    if ($('posFocusRoe')) {
+        $('posFocusRoe').textContent = `${roeSign}${roeEstimated.toFixed(2)}%`;
+        $('posFocusRoe').style.color = roeEstimated > 0 ? 'var(--green-success)' : (roeEstimated < 0 ? 'var(--red-danger)' : 'inherit');
+    }
+
+    if ($('posFocusTrailingTp')) $('posFocusTrailingTp').textContent = trailingEl ? trailingEl.textContent : '--';
+    if ($('posFocusCurrentSl')) $('posFocusCurrentSl').textContent = slEl ? slEl.textContent : '--';
+    if ($('posTabStage')) $('posTabStage').textContent = data.side && data.side !== 'NONE' ? `Stage ${data.tp_stage || 1}` : 'Stage 0';
+    if ($('posTabTpTarget')) $('posTabTpTarget').textContent = data.tp_price ? `TP: $${fmt(data.tp_price)}` : 'Target: --';
+
+    // Update positions table
+    renderPositionsTable();
+}
+
+window.fetchPositions = async function() {
+    try {
+        const r = await fetch('/api/positions' + (activeSymbol ? `?symbol=${activeSymbol}` : ''));
+        const d = await r.json();
+        if (d.success && d.positions) {
+            d.positions.forEach(p => {
+                if (p.symbol) positionsBySymbol[p.symbol] = p;
+            });
+            if (activeSymbol && positionsBySymbol[activeSymbol]) {
+                updatePositionUI(positionsBySymbol[activeSymbol]);
+            }
+            renderPositionsTable();
+        }
+    } catch (e) {
+        console.warn('fetchPositions error:', e);
+    }
+};
+
+function renderPositionsTable() {
+    const tbody = $('positionsTableBody');
+    if (!tbody) return;
+
+    const symList = coins.length > 0 ? coins : Object.keys(positionsBySymbol);
+    if (symList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:32px; color:var(--text-secondary);">No monitored coins in watchlist yet. Add coins in Bot Strategy &amp; Settings.</td></tr>`;
+        if ($('posCountBadge')) $('posCountBadge').textContent = '0 Active';
+        return;
+    }
+
+    let activeCount = 0;
+    let html = '';
+    symList.forEach(sym => {
+        const p = positionsBySymbol[sym] || { symbol: sym, side: 'NONE', size: 0, entry_price: 0, mark_price: 0, unrealized_pnl: 0 };
+        const hasPos = p.side && p.side !== 'NONE';
+        if (hasPos) activeCount++;
+        const pnl = p.unrealized_pnl || 0;
+        const pnlClass = pnl > 0 ? 'pnl-positive' : (pnl < 0 ? 'pnl-negative' : 'pnl-zero');
+        const sideBadge = p.side === 'LONG' ? '<span class="pos-badge-long">LONG</span>' : (p.side === 'SHORT' ? '<span class="pos-badge-short">SHORT</span>' : '<span class="pos-badge-none">FLAT</span>');
+
+        html += `
+        <tr class="${sym === activeSymbol ? 'table-row-selected' : ''}" onclick="selectSymbol('${sym}')" style="cursor:pointer;">
+            <td><strong style="color:var(--gold-primary);">${sym}</strong></td>
+            <td>${sideBadge}</td>
+            <td style="font-family:var(--font-mono);">${Math.abs(p.size || 0).toFixed(4)}</td>
+            <td style="font-family:var(--font-mono);">${p.entry_price ? '$' + fmt(p.entry_price) : '--'}</td>
+            <td style="font-family:var(--font-mono);">${p.mark_price ? '$' + fmt(p.mark_price) : '--'}</td>
+            <td class="${pnlClass}" style="font-weight:700; font-family:var(--font-mono);">$${pnl.toFixed(2)}</td>
+            <td style="color:var(--green-success); font-family:var(--font-mono);">${p.tp_price ? '$' + fmt(p.tp_price) : '--'}</td>
+            <td style="color:var(--red-danger); font-family:var(--font-mono);">${p.sl_price ? '$' + fmt(p.sl_price) : '--'}</td>
+            <td>
+                ${hasPos ? `<button type="button" class="btn btn-xs btn-warning" onclick="event.stopPropagation(); closePositionForSymbol('${sym}');">✕ Close</button>` : `<button type="button" class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); selectSymbol('${sym}'); switchWorkspaceTab('terminal');">View</button>`}
+            </td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+    if ($('posCountBadge')) $('posCountBadge').textContent = `${activeCount} Active`;
+}
+
+window.closePositionForSymbol = async function(symbol) {
+    if (!confirm(`Are you sure you want to market close position for ${symbol}?`)) return;
+    try {
+        const r = await fetch('/api/close', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol: symbol })
+        });
+        const d = await r.json();
+        if (d.success) {
+            log('success', `[${symbol}] Position closed successfully!`);
+            window.fetchPositions();
+        } else {
+            log('error', `[${symbol}] Close failed: ${d.error}`);
+        }
+    } catch (e) {
+        log('error', `[${symbol}] Close error: ${e.message}`);
+    }
 }
 
 // ===== Multi-Coin Management =====
@@ -1497,6 +1645,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try { initSocket(); } catch (e) { console.error(e); }
     try { loadSettings(); } catch (e) { console.error(e); }
     try { refreshStatus(); } catch (e) { console.error(e); }
+    try { window.fetchPositions(); } catch (e) { console.error(e); }
 
     log('info', 'Welcome! Coins add karein, settings set karein, aur START dabayein.');
     log('info', 'Strategy: EMA 8,13,21,55 crossover (55 at bottom = LONG, 55 at top = SHORT)');
@@ -1510,6 +1659,11 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshCoinDropdown(exchange);
     }, 800);
 
-    setInterval(refreshStatus, 3000);
+    setInterval(() => {
+        refreshStatus();
+        if (document.body.dataset.activeTab === 'position' || document.body.dataset.mobTab === 'position') {
+            window.fetchPositions();
+        }
+    }, 3000);
     setInterval(refreshBalance, 10000);
 });
