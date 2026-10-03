@@ -2176,17 +2176,6 @@ def bot_engine_proxy(path=''):
         import re
         html = re.sub(r'io\s*\(\s*\{', "io({path: '/bot/socket.io', ", html)
         html = re.sub(r'io\s*\(\s*\)', "io({path: '/bot/socket.io'})", html)
-        # Inject SaaS bar — Admin link ONLY visible to admin users
-        user_is_admin = user and user.get('role') == 'admin'
-        admin_style = "background:rgba(246,70,93,0.2);color:#f6465d;border:1px solid #f6465d;" if user_is_admin else "background:rgba(240,185,11,0.15);color:#f0b90b;border:1px solid #f0b90b;"
-        admin_btn = f'<a href="/admin" style="{admin_style}padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-family:sans-serif;font-weight:600;">Admin</a>'
-        saas_bar = f'''
-<div style="position:fixed;top:10px;right:10px;z-index:99999;display:flex;gap:8px;">
-  {admin_btn}
-  <button onclick="fetch('/api/auth/logout',{{method:'POST'}}).then(()=>window.location.href='/?logout=1')" style="background:#f6465d;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-family:sans-serif;">Logout</button>
-</div>
-'''
-        html = html.replace('</body>', saas_bar + '</body>')
         return Response(html.encode('utf-8'), status=resp.status_code, headers=response_headers)
 
     elif 'javascript' in content_type:

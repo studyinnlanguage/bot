@@ -353,6 +353,51 @@ def status():
     return jsonify(ENGINE.status())
 
 
+@app.route("/api/positions", methods=["GET"])
+@app.route("/api/position", methods=["GET"])
+def get_positions():
+    trader = ENGINE.trader or getattr(ENGINE, "monitor_trader", None)
+    if not trader:
+        return jsonify({"success": False, "error": "Bot trader not connected", "positions": []})
+    req_sym = request.args.get("symbol", "").strip().upper()
+    symbols = [req_sym] if req_sym else (ENGINE.symbols or [CONFIG.get("symbol", "BTCUSDT")])
+    if not symbols:
+        symbols = ["BTCUSDT"]
+
+    positions = []
+    for sym in symbols:
+        try:
+            pos = trader.get_position(sym)
+            worker = ENGINE.workers.get(sym)
+            tp_stage = worker.tp_stage if (worker and pos.side != "NONE") else 0
+            tp_price = worker.tp_price if (worker and pos.side != "NONE" and worker.tp_price) else 0.0
+            sl_price = worker.sl_price if (worker and pos.side != "NONE" and worker.sl_price) else 0.0
+            tp_mode = worker.tp_mode if worker else (CONFIG.get("tp_mode") or "trailing")
+            target_roe = getattr(worker, "target_roe_pct", 80.0) if worker else float(CONFIG.get("trailing_roe_pct", 80.0))
+            positions.append({
+                "symbol": sym,
+                "side": pos.side,
+                "size": pos.size,
+                "entry_price": pos.entry_price,
+                "mark_price": pos.mark_price,
+                "unrealized_pnl": pos.unrealized_pnl,
+                "leverage": pos.leverage,
+                "tp_stage": tp_stage,
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+                "target_roe": target_roe,
+                "tp_mode": tp_mode,
+            })
+        except Exception as e:
+            logger.warning("Failed to fetch position for %s: %s", sym, e)
+
+    return jsonify({
+        "success": True,
+        "positions": positions,
+        "position": positions[0] if positions else None
+    })
+
+
 @app.route("/api/close", methods=["POST"])
 def close_position():
     if not ENGINE.trader:
