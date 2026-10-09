@@ -404,9 +404,78 @@ def close_position():
         return jsonify({"success": False, "error": "Bot not connected"})
     data = request.get_json(silent=True) or {}
     symbol = data.get("symbol") or CONFIG.get("symbol", "BTCUSDT")
+
+    # 1. Fetch current open position before closing to get accurate entry, size & mark price
+    pos = None
+    try:
+        pos = ENGINE.trader.get_position(symbol)
+    except Exception as pe:
+        logger.warning("Could not fetch position before close: %s", pe)
+
+    # 2. Close position via trader
     result = ENGINE.trader.close_position(symbol)
+
+    # 3. If closed successfully, record in Trade History & reset worker state
+    if result.get("success") and pos and pos.side != "NONE" and pos.size != 0:
+        entry = pos.entry_price or 0.0
+        mark = pos.mark_price or entry
+        size = abs(pos.size)
+        side = pos.side
+        lev = pos.leverage if (pos.leverage and pos.leverage > 1) else 1
+        margin = (entry * size) / lev if (lev > 0 and entry > 0 and size > 0) else 0.0
+        pnl = (mark - entry) * size if side == "LONG" else (entry - mark) * size
+        roe_pct = (pnl / margin * 100.0) if margin > 0 else 0.0
+        fees = (entry + mark) * size * 0.0006
+
+        try:
+            if hasattr(ENGINE, "history"):
+                ENGINE.history.record_close(
+                    symbol=symbol,
+                    exit_price=mark,
+                    reason="👤 Manual Close (Bot Dashboard)",
+                    pnl=pnl,
+                    roe_pct=roe_pct,
+                    fee_est=fees,
+                )
+                socketio.emit("trades_updated", {
+                    "trades": ENGINE.history.get_trades(limit=50),
+                    "stats": ENGINE.history.get_stats(),
+                })
+        except Exception as he:
+            logger.error("Failed to record manual close in history: %s", he)
+
+        # Sync worker state
+        worker = ENGINE.workers.get(symbol)
+        if worker:
+            worker.expected_pos_side = None
+            worker.waiting_for_new_cross = True
+            worker.strategy.reset_cross_state()
+            worker.sl_price = None
+            worker.tp_price = None
+            worker.tp_stage = 0
+
     socketio.emit("log", {"level": "info", "msg": f"Manual close requested for {symbol}: {result}"})
     return jsonify(result)
+
+
+@app.route("/api/trades", methods=["GET"])
+def get_trades():
+    if not hasattr(ENGINE, "history"):
+        return jsonify({"success": True, "trades": [], "stats": {}})
+    limit = int(request.args.get("limit", 100))
+    symbol = request.args.get("symbol")
+    trades = ENGINE.history.get_trades(limit=limit, symbol=symbol)
+    stats = ENGINE.history.get_stats()
+    return jsonify({"success": True, "trades": trades, "stats": stats})
+
+
+@app.route("/api/trades/clear", methods=["POST"])
+def clear_trades():
+    if not hasattr(ENGINE, "history"):
+        return jsonify({"success": True})
+    ENGINE.history.clear_history()
+    socketio.emit("trades_updated", {"trades": [], "stats": ENGINE.history.get_stats()})
+    return jsonify({"success": True})
 
 
 @app.route("/api/price", methods=["GET"])

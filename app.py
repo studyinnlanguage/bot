@@ -983,7 +983,7 @@ def write_user_bot_config(user_id: str) -> str:
     for item in BOT_ENGINE_DIR.iterdir():
         if item.name in ('logs', '__pycache__', 'config.json', 'config.json.bak',
                        '.local_activation.dat', '.admin_password.txt',
-                       'licenses.json', 'crash.log', 'user_configs'):
+                       'licenses.json', 'crash.log', 'user_configs', 'data', 'trade_history.json'):
             continue
         dest = user_bot_dir / item.name
         if item.is_dir():

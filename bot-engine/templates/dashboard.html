@@ -60,6 +60,10 @@
                 <span class="ws-tab-icon">🎯</span>
                 <span class="ws-tab-label">Open Position</span>
             </button>
+            <button type="button" class="ws-tab-btn" data-tab="history">
+                <span class="ws-tab-icon">📜</span>
+                <span class="ws-tab-label">Trade History</span>
+            </button>
             <button type="button" class="ws-tab-btn" data-tab="config">
                 <span class="ws-tab-icon">⚙️</span>
                 <span class="ws-tab-label">Bot Strategy &amp; Settings</span>
@@ -448,6 +452,123 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- Recent Closed Trades Quick Summary Card -->
+                <div class="card positions-table-card" style="margin-top:20px; grid-column:1 / -1;">
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <h2><span class="card-icon">📜</span> Recent Closed Trades</h2>
+                        <button type="button" class="btn btn-xs btn-outline-config" onclick="switchWorkspaceTab('history')">View Full History →</button>
+                    </div>
+                    <div class="card-body" style="padding:0; overflow-x:auto;">
+                        <table class="pos-table" id="recentTradesTable">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Entry ➔ Exit</th>
+                                    <th>Realized PnL</th>
+                                    <th>Exit Reason</th>
+                                    <th>Est Fees</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentTradesTableBody">
+                                <tr>
+                                    <td colspan="7" style="text-align:center; padding:24px; color:var(--text-secondary);">
+                                        No closed trades yet.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- TAB: TRADE HISTORY & REALIZED PNL                              -->
+        <!-- ============================================================== -->
+        <div class="ws-tab-pane" data-ws-tab="history">
+            <div class="history-view-header">
+                <div>
+                    <h2><span class="card-icon">📜</span> Bot Trade History &amp; Performance</h2>
+                    <p class="section-desc">Complete record of every trade executed by the bot (including Trailing SL hits, Initial SL, Manual Bot UI closes, and Manual Exchange closes on Binance / WEEX).</p>
+                </div>
+                <div class="history-header-actions">
+                    <button type="button" class="btn btn-secondary" onclick="if(window.fetchTradeHistory)window.fetchTradeHistory(true)" id="refreshHistoryBtn">🔄 Refresh</button>
+                    <button type="button" class="btn btn-outline-danger" onclick="if(window.clearTradeHistory)window.clearTradeHistory()" id="clearHistoryBtn">🗑️ Clear History</button>
+                </div>
+            </div>
+
+            <!-- Trade History KPI Stats Row -->
+            <div class="history-stats-grid">
+                <div class="history-stat-card">
+                    <div class="h-stat-label">Total Trades</div>
+                    <div class="h-stat-val" id="hStatTotalTrades">0</div>
+                    <div class="h-stat-sub" id="hStatWinLoss">0 Wins &bull; 0 Losses</div>
+                </div>
+                <div class="history-stat-card">
+                    <div class="h-stat-label">Win Rate</div>
+                    <div class="h-stat-val h-stat-winrate" id="hStatWinRate">0.0%</div>
+                    <div class="h-stat-sub">Based on realized PnL</div>
+                </div>
+                <div class="history-stat-card">
+                    <div class="h-stat-label">Net Realized PnL</div>
+                    <div class="h-stat-val" id="hStatNetPnl">$0.00</div>
+                    <div class="h-stat-sub" id="hStatGrossPnl">Gross: $0.00</div>
+                </div>
+                <div class="history-stat-card">
+                    <div class="h-stat-label">Estimated Fees</div>
+                    <div class="h-stat-val" id="hStatTotalFees" style="color:var(--text-secondary);">$0.00</div>
+                    <div class="h-stat-sub">Round-trip commission</div>
+                </div>
+                <div class="history-stat-card">
+                    <div class="h-stat-label">Best / Worst Trade</div>
+                    <div class="h-stat-val" id="hStatBestWorst" style="font-size:15px;">+$0.00 / -$0.00</div>
+                    <div class="h-stat-sub" id="hStatAvgPnl">Avg: $0.00 / trade</div>
+                </div>
+            </div>
+
+            <!-- Filters & Trade History Table Card -->
+            <div class="card history-table-card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <h2><span class="card-icon">📋</span> Executed Trades Log</h2>
+                    <div class="history-filter-controls">
+                        <select id="historyFilterSymbol" class="history-select" onchange="if(window.renderTradeHistoryTable)window.renderTradeHistoryTable()">
+                            <option value="ALL">All Symbols</option>
+                        </select>
+                        <select id="historyFilterStatus" class="history-select" onchange="if(window.renderTradeHistoryTable)window.renderTradeHistoryTable()">
+                            <option value="ALL">All Statuses</option>
+                            <option value="CLOSED" selected>Closed Trades</option>
+                            <option value="OPEN">Open Positions</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body" style="padding:0; overflow-x:auto;">
+                    <table class="pos-table history-table" id="tradeHistoryTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Type</th>
+                                <th>Size / Lev</th>
+                                <th>Entry Price</th>
+                                <th>Exit Price</th>
+                                <th>Realized PnL</th>
+                                <th>Exit Reason</th>
+                                <th>Est Fees</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeHistoryTableBody">
+                            <tr>
+                                <td colspan="10" style="text-align:center; padding:36px; color:var(--text-secondary);">
+                                    No closed trades yet.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -787,6 +908,10 @@
             <span class="mob-nav-icon">🎯</span>
             <span class="mob-nav-text">Position</span>
         </button>
+        <button type="button" class="mob-nav-item" data-tab="history">
+            <span class="mob-nav-icon">📜</span>
+            <span class="mob-nav-text">History</span>
+        </button>
         <button type="button" class="mob-nav-item" data-tab="config">
             <span class="mob-nav-icon">⚙️</span>
             <span class="mob-nav-text">Settings</span>
@@ -967,9 +1092,12 @@
                 if (src && dst) dst.innerHTML = src.innerHTML;
             }
 
-            // Refresh live positions if position tab
-            if (tab === 'position' && typeof window.fetchPositions === 'function') {
+            // Refresh live positions & history if position or history tab
+            if ((tab === 'position' || tab === 'history') && typeof window.fetchPositions === 'function') {
                 window.fetchPositions();
+            }
+            if ((tab === 'history' || tab === 'position') && typeof window.fetchTradeHistory === 'function') {
+                window.fetchTradeHistory();
             }
         }
 

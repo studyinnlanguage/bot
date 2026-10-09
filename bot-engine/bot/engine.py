@@ -20,6 +20,7 @@ from typing import Optional
 from .strategy import EMAQuadStrategy, Signal, StrategyResult
 from .trader import BinanceFuturesTrader
 from .notifier import Notifier
+from .history import TradeHistoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +383,32 @@ class SymbolWorker(threading.Thread):
                 self._log_order(close, f"[{symbol}] {reason}")
                 if close.get("success"):
                     self.trades_today += 1
+                    # Record close in Trade History!
+                    try:
+                        trade_qty = abs(pos.size) if (pos and pos.size) else 0.0
+                        trade_lev = pos.leverage if (pos and pos.leverage and pos.leverage > 1) else self._get_effective_leverage(symbol)
+                        trade_margin = (entry * trade_qty) / trade_lev if (trade_lev > 0 and entry > 0 and trade_qty > 0) else 0.0
+                        if close_side_label == "LONG":
+                            calc_pnl = (pos.mark_price - entry) * trade_qty
+                        else:
+                            calc_pnl = (entry - pos.mark_price) * trade_qty
+                        calc_roe = (calc_pnl / trade_margin * 100.0) if trade_margin > 0 else 0.0
+                        calc_fees = (entry + pos.mark_price) * trade_qty * 0.0006
+                        self.engine.history.record_close(
+                            symbol=symbol,
+                            exit_price=pos.mark_price,
+                            reason=reason,
+                            pnl=calc_pnl,
+                            roe_pct=calc_roe,
+                            fee_est=calc_fees,
+                        )
+                        self.engine._emit("trades_updated", {
+                            "trades": self.engine.history.get_trades(limit=50),
+                            "stats": self.engine.history.get_stats(),
+                        })
+                    except Exception as he:
+                        logger.error("Failed to record trade close in history: %s", he)
+
                     # Cancel any open orders on exchange
                     try:
                         if hasattr(self.engine.trader, "cancel_open_orders"):
@@ -453,11 +480,30 @@ class SymbolWorker(threading.Thread):
         if actual_side != self.expected_pos_side:
             if self.expected_pos_side is not None and actual_side == "NONE":
                 # Bot expected a position but it's gone now (user closed or SL/TP hit on exchange)
+                mp = self.entry_price or 0.0
+                try:
+                    mp = self.engine.trader.get_mark_price(symbol)
+                except Exception:
+                    pass
+
+                try:
+                    self.engine.history.record_close(
+                        symbol=symbol,
+                        exit_price=mp,
+                        reason="👤 Manual Close (Exchange / SL-TP Hit)",
+                    )
+                    self.engine._emit("trades_updated", {
+                        "trades": self.engine.history.get_trades(limit=50),
+                        "stats": self.engine.history.get_stats(),
+                    })
+                except Exception as he:
+                    logger.error("Failed to record external close in history: %s", he)
+
                 self.engine._emit("log", {
                     "level": "warn",
                     "msg": (f"[{symbol}] ⚠️ Position closed (SL/TP hit on exchange or manual close). "
                             f"Bot expected {self.expected_pos_side} but found NONE. "
-                            f"Waiting for NEW cross before next trade.")
+                            f"Saved in Trade History. Waiting for NEW cross before next trade.")
                 })
                 self.expected_pos_side = None
                 self.waiting_for_new_cross = True  # Strict mode: must wait for fresh cross
@@ -794,6 +840,27 @@ class SymbolWorker(threading.Thread):
                 self._set_software_sl_tp(symbol, "LONG", actual_entry, sl_pct, tp_pct,
                                          tp_mode=tp_mode, entry_signal=Signal.BUY,
                                          actual_leverage=lev)
+
+                # Record in trade history!
+                try:
+                    target_tp = actual_entry + (self.target_roe_pct / lev / 100.0 * actual_entry) if (self.target_roe_pct and lev) else None
+                    self.engine.history.record_open(
+                        symbol=symbol,
+                        side="LONG",
+                        entry_price=actual_entry,
+                        qty=actual_qty,
+                        leverage=lev,
+                        initial_sl=sl_price_long,
+                        initial_tp=target_tp,
+                        order_type=order_type_cfg,
+                    )
+                    self.engine._emit("trades_updated", {
+                        "trades": self.engine.history.get_trades(limit=50),
+                        "stats": self.engine.history.get_stats(),
+                    })
+                except Exception as he:
+                    logger.error("Failed to record trade open in history: %s", he)
+
                 # Log exchange SL status
                 if order.get("sl_price"):
                     self.engine._emit("log", {
@@ -850,6 +917,27 @@ class SymbolWorker(threading.Thread):
                 self._set_software_sl_tp(symbol, "SHORT", actual_entry, sl_pct, tp_pct,
                                          tp_mode=tp_mode, entry_signal=Signal.SELL,
                                          actual_leverage=lev)
+
+                # Record in trade history!
+                try:
+                    target_tp = actual_entry - (self.target_roe_pct / lev / 100.0 * actual_entry) if (self.target_roe_pct and lev) else None
+                    self.engine.history.record_open(
+                        symbol=symbol,
+                        side="SHORT",
+                        entry_price=actual_entry,
+                        qty=actual_qty,
+                        leverage=lev,
+                        initial_sl=sl_price_short,
+                        initial_tp=target_tp,
+                        order_type=order_type_cfg,
+                    )
+                    self.engine._emit("trades_updated", {
+                        "trades": self.engine.history.get_trades(limit=50),
+                        "stats": self.engine.history.get_stats(),
+                    })
+                except Exception as he:
+                    logger.error("Failed to record trade open in history: %s", he)
+
                 # Log exchange SL status
                 if order.get("sl_price"):
                     self.engine._emit("log", {
@@ -1008,47 +1096,48 @@ class SymbolWorker(threading.Thread):
         if sl_hit:
             if self.tp_mode == "trailing":
                 if self.tp_stage == 1:
-                    reason = f"⚡ SL HIT (price {mark:.4f} <= initial SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
-                elif self.tp_stage == 2:
-                    reason = f"🛡️ BREAK-EVEN SL HIT (price {mark:.4f} reached Entry {self.sl_price:.4f}, 0 LOSS PROTECTED! Live ROE={cur_roe:+.1f}%)"
+                    reason = f"⚡ INITIAL SL HIT (price {mark:.4f} <= initial SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
                 else:
-                    locked_stage = self.tp_stage - 2
-                    reason = f"💰 TRAILING SL HIT (TP{locked_stage} locked profit secured @ {mark:.4f}, Live ROE={cur_roe:+.1f}%)"
+                    reached_st = self.tp_stage - 1
+                    locked_mult = reached_st - 0.5
+                    locked_pct = int(locked_mult * 100)
+                    locked_roe = locked_mult * self.target_roe_pct
+                    reason = f"💰 TRAILING SL HIT (price {mark:.4f}, +{locked_pct}% locked profit secured @ {self.sl_price:.4f}, +{locked_roe:.0f}% ROE, Live ROE={cur_roe:+.1f}%)"
             else:
                 reason = f"⚡ SL HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
             return (True, False, reason)
 
         # ---------- 2) DYNAMIC TRAILING TP CHECK (Option A: 80% ROE Profit) ----------
         if self.tp_mode == "trailing" and self.tp_price is not None and self.r_distance > 0:
-            # STRICT RULE: Do not shift TP or move SL to Break-even until target is hit (mark reached tp_price / ROE >= target_roe)
+            # STRICT RULE: Do not shift TP or move SL until target is hit (mark reached tp_price / ROE >= target_roe)
             while (side == "LONG" and mark >= self.tp_price) or (side == "SHORT" and mark <= self.tp_price):
                 reached_stage = self.tp_stage  # e.g. 1
                 reached_roe = reached_stage * self.target_roe_pct
                 self.tp_stage += 1             # now 2
                 next_roe = self.tp_stage * self.target_roe_pct
 
-                BE_FEE_BUFFER_PCT = 0.12  # 0.12% buffer covers round-trip taker/maker fees + slippage
+                # Trailing rule requested:
+                # Stage 1 reached (TP1 hit) -> SL moves to +50% (0.5R) instead of 0% break-even
+                # Stage 2 reached (TP2 hit) -> SL moves to +150% (1.5R = TP1 + 50%)
+                # Stage k reached (TPk hit) -> SL moves to (k - 0.5) * R
+                locked_r_multiplier = reached_stage - 0.5
+                locked_roe = locked_r_multiplier * self.target_roe_pct
+                locked_pct = int(locked_r_multiplier * 100)
 
                 if side == "LONG":
                     self.tp_price = self.entry_price + (self.tp_stage * self.r_distance)
-                    if self.tp_stage == 2:
-                        # Stage 1 reached (+80% ROE hit!) -> Move SL to Break-even with Fee Buffer (0.12%)
-                        self.sl_price = self.entry_price * (1.0 + (BE_FEE_BUFFER_PCT / 100.0))
-                        sl_desc = f"BREAK-EVEN with Fee Buffer (${self.sl_price:.4f}, +{BE_FEE_BUFFER_PCT}% fee protected) 🛡️ [+{reached_roe:.0f}% ROE reached]"
-                    else:
-                        # Stage n reached (n >= 2) -> Lock in profit from previous stage
-                        locked_stage = self.tp_stage - 2
-                        self.sl_price = self.entry_price + (locked_stage * self.r_distance)
-                        sl_desc = f"TP{locked_stage} level (+{locked_stage * self.target_roe_pct:.0f}% ROE = ${self.sl_price:.4f}) 💰"
+                    self.sl_price = self.entry_price + (locked_r_multiplier * self.r_distance)
+                    sl_desc = f"+{locked_pct}% Locked Profit (${self.sl_price:.4f}, +{locked_roe:.0f}% ROE guaranteed) 💰 [+{reached_roe:.0f}% ROE reached]"
                 else:  # SHORT
                     self.tp_price = self.entry_price - (self.tp_stage * self.r_distance)
-                    if self.tp_stage == 2:
-                        self.sl_price = self.entry_price * (1.0 - (BE_FEE_BUFFER_PCT / 100.0))
-                        sl_desc = f"BREAK-EVEN with Fee Buffer (${self.sl_price:.4f}, -{BE_FEE_BUFFER_PCT}% fee protected) 🛡️ [+{reached_roe:.0f}% ROE reached]"
-                    else:
-                        locked_stage = self.tp_stage - 2
-                        self.sl_price = self.entry_price - (locked_stage * self.r_distance)
-                        sl_desc = f"TP{locked_stage} level (+{locked_stage * self.target_roe_pct:.0f}% ROE = ${self.sl_price:.4f}) 💰"
+                    self.sl_price = self.entry_price - (locked_r_multiplier * self.r_distance)
+                    sl_desc = f"+{locked_pct}% Locked Profit (${self.sl_price:.4f}, +{locked_roe:.0f}% ROE guaranteed) 💰 [+{reached_roe:.0f}% ROE reached]"
+
+                # Update active trade progress in history
+                try:
+                    self.engine.history.update_stage(self.symbol, reached_stage, reached_roe)
+                except Exception as he:
+                    logger.debug("Failed to update history stage: %s", he)
 
                 self.engine._emit("log", {
                     "level": "success",
@@ -1372,6 +1461,7 @@ class BotEngine:
         self.trader: Optional[BinanceFuturesTrader] = None
         self.strategy = EMAQuadStrategy()
         self.notifier = Notifier(config)
+        self.history = TradeHistoryManager()
         self.workers: dict[str, SymbolWorker] = {}
         self.lock = threading.Lock()
         self.is_running = False
