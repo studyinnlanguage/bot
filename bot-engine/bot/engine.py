@@ -738,6 +738,20 @@ class SymbolWorker(threading.Thread):
                 return "TP=EMA55-REVERSAL (no fixed TP)"
             return f"TP=DYNAMIC TRAILING (TP1 1:1 / +{target_roe_val:.0f}% ROE)"
 
+        # Fee safety check: TP distance must be >= MIN_FEE_BUFFER_PCT (0.15% price move)
+        # to ensure profit is greater than 2x taker fees + slippage (~0.15%)
+        MIN_FEE_BUFFER_PCT = 0.15
+        tp_dist_pct = (r_dist / mark_price) * 100.0 if mark_price > 0 else 0.0
+        if tp_dist_pct < MIN_FEE_BUFFER_PCT:
+            self.engine._emit("log", {
+                "level": "warn",
+                "msg": (f"[{symbol}] ⚠️ Fee safety check: TP distance ({tp_dist_pct:.3f}%) < "
+                        f"{MIN_FEE_BUFFER_PCT}% (2x taker fees + slippage buffer). Trade skipped to protect net profit.")
+            })
+            return
+
+        order_type_cfg = cfg.get("order_type", "maker").lower()
+
         if signal == Signal.BUY:
             # Open LONG
             # Calculate SL price (always sent to exchange — capital protection)
@@ -748,20 +762,26 @@ class SymbolWorker(threading.Thread):
             tp_price_long = None
             self.engine._emit("log", {
                 "level": "info",
-                "msg": (f"[{symbol}] 🟢 FRESH BUY cross -> opening LONG qty={trade_size:.6f} @ ~{mark_price:.4f} | "
+                "msg": (f"[{symbol}] 🟢 FRESH BUY cross -> opening LONG ({order_type_cfg.upper()}) qty={trade_size:.6f} @ ~{mark_price:.4f} | "
                         f"SL={sl_price_long:.4f} | {_tp_log_label()} | "
                         f"EMA8={e8:.4f} EMA13={e13:.4f} EMA21={e21:.4f} EMA55={e55:.4f} | Lev={lev}x")
             })
-            # Pass SL price to open_long — Binance/WEEX attaches protective SL
+            # Pass SL price and order_type to open_long
             try:
                 order = self.engine.trader.open_long(symbol, trade_size,
                                                      sl_price=sl_price_long,
-                                                     tp_price=tp_price_long)
+                                                     tp_price=tp_price_long,
+                                                     order_type=order_type_cfg,
+                                                     price=mark_price)
             except TypeError:
-                # Fallback for old trader signature (no sl_price/tp_price params)
-                order = self.engine.trader.open_long(symbol, trade_size)
+                try:
+                    order = self.engine.trader.open_long(symbol, trade_size,
+                                                         sl_price=sl_price_long,
+                                                         tp_price=tp_price_long)
+                except TypeError:
+                    order = self.engine.trader.open_long(symbol, trade_size)
             actual_qty = order.get("quantity", trade_size)
-            self._log_order(order, f"[{symbol}] OPEN LONG qty={actual_qty:.6f}")
+            self._log_order(order, f"[{symbol}] OPEN LONG ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
             if order.get("success"):
                 self.trades_today += 1
                 self.last_signal = Signal.BUY
@@ -800,18 +820,25 @@ class SymbolWorker(threading.Thread):
             tp_price_short = None
             self.engine._emit("log", {
                 "level": "info",
-                "msg": (f"[{symbol}] 🔴 FRESH SELL cross -> opening SHORT qty={trade_size:.6f} @ ~{mark_price:.4f} | "
+                "msg": (f"[{symbol}] 🔴 FRESH SELL cross -> opening SHORT ({order_type_cfg.upper()}) qty={trade_size:.6f} @ ~{mark_price:.4f} | "
                         f"SL={sl_price_short:.4f} | {_tp_log_label()} | "
                         f"EMA8={e8:.4f} EMA13={e13:.4f} EMA21={e21:.4f} EMA55={e55:.4f} | Lev={lev}x")
             })
             try:
                 order = self.engine.trader.open_short(symbol, trade_size,
                                                       sl_price=sl_price_short,
-                                                      tp_price=tp_price_short)
+                                                      tp_price=tp_price_short,
+                                                      order_type=order_type_cfg,
+                                                      price=mark_price)
             except TypeError:
-                order = self.engine.trader.open_short(symbol, trade_size)
+                try:
+                    order = self.engine.trader.open_short(symbol, trade_size,
+                                                          sl_price=sl_price_short,
+                                                          tp_price=tp_price_short)
+                except TypeError:
+                    order = self.engine.trader.open_short(symbol, trade_size)
             actual_qty = order.get("quantity", trade_size)
-            self._log_order(order, f"[{symbol}] OPEN SHORT qty={actual_qty:.6f}")
+            self._log_order(order, f"[{symbol}] OPEN SHORT ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
             if order.get("success"):
                 self.trades_today += 1
                 self.last_signal = Signal.SELL
@@ -1000,12 +1027,14 @@ class SymbolWorker(threading.Thread):
                 self.tp_stage += 1             # now 2
                 next_roe = self.tp_stage * self.target_roe_pct
 
+                BE_FEE_BUFFER_PCT = 0.12  # 0.12% buffer covers round-trip taker/maker fees + slippage
+
                 if side == "LONG":
                     self.tp_price = self.entry_price + (self.tp_stage * self.r_distance)
                     if self.tp_stage == 2:
-                        # Stage 1 reached (+80% ROE hit!) -> Move SL to Break-even (entry_price)
-                        self.sl_price = self.entry_price
-                        sl_desc = f"BREAK-EVEN (${self.entry_price:.4f}) 🛡️ [0 Loss Protected! +{reached_roe:.0f}% ROE reached]"
+                        # Stage 1 reached (+80% ROE hit!) -> Move SL to Break-even with Fee Buffer (0.12%)
+                        self.sl_price = self.entry_price * (1.0 + (BE_FEE_BUFFER_PCT / 100.0))
+                        sl_desc = f"BREAK-EVEN with Fee Buffer (${self.sl_price:.4f}, +{BE_FEE_BUFFER_PCT}% fee protected) 🛡️ [+{reached_roe:.0f}% ROE reached]"
                     else:
                         # Stage n reached (n >= 2) -> Lock in profit from previous stage
                         locked_stage = self.tp_stage - 2
@@ -1014,8 +1043,8 @@ class SymbolWorker(threading.Thread):
                 else:  # SHORT
                     self.tp_price = self.entry_price - (self.tp_stage * self.r_distance)
                     if self.tp_stage == 2:
-                        self.sl_price = self.entry_price
-                        sl_desc = f"BREAK-EVEN (${self.entry_price:.4f}) 🛡️ [0 Loss Protected! +{reached_roe:.0f}% ROE reached]"
+                        self.sl_price = self.entry_price * (1.0 - (BE_FEE_BUFFER_PCT / 100.0))
+                        sl_desc = f"BREAK-EVEN with Fee Buffer (${self.sl_price:.4f}, -{BE_FEE_BUFFER_PCT}% fee protected) 🛡️ [+{reached_roe:.0f}% ROE reached]"
                     else:
                         locked_stage = self.tp_stage - 2
                         self.sl_price = self.entry_price - (locked_stage * self.r_distance)

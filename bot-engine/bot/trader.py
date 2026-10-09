@@ -494,6 +494,64 @@ class BinanceFuturesTrader:
             logger.error("Order failed: %s", e)
             return {"success": False, "error": str(e), "quantity": quantity}
 
+    def place_limit_order(self, symbol: str, side: str, quantity: float,
+                          price: float, post_only: bool = True,
+                          reduce_only: bool = False) -> dict:
+        """
+        Place a LIMIT / MAKER order.
+        post_only=True enforces Maker order (saves fees: ~0.02% maker vs ~0.06% taker).
+        """
+        side = side.upper()
+        if side not in ("BUY", "SELL"):
+            return {"success": False, "error": f"Invalid side: {side}"}
+        if quantity <= 0:
+            return {"success": False, "error": "Quantity must be > 0"}
+        if price <= 0:
+            return {"success": False, "error": "Price must be > 0"}
+
+        try:
+            filters = self.get_symbol_filters(symbol)
+            step = filters["step_size"]
+            tick = filters["tick_size"]
+            min_qty = filters["min_qty"]
+            quantity = self._round_to_step(quantity, step)
+            price = self._round_to_step(price, tick)
+            if quantity < min_qty:
+                return {"success": False,
+                        "error": f"Quantity {quantity} below min_qty {min_qty} for {symbol}"}
+        except Exception as e:
+            logger.warning("Could not apply step/tick size for %s: %s", symbol, e)
+            quantity = round(quantity, 6)
+
+        try:
+            time_in_force = "GTX" if post_only else "GTC"
+            if _CONNECTOR == "binance-futures-connector":
+                kwargs = {
+                    "symbol": symbol,
+                    "side": side,
+                    "type": "LIMIT",
+                    "quantity": quantity,
+                    "price": price,
+                    "timeInForce": time_in_force,
+                }
+                if reduce_only:
+                    kwargs["reduceOnly"] = "true"
+                resp = self.client.new_order(**kwargs)
+            else:
+                resp = self.client.futures_create_order(
+                    symbol=symbol, side=side, type="LIMIT",
+                    quantity=quantity, price=price, timeInForce=time_in_force,
+                    reduceOnly=reduce_only,
+                )
+
+            oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
+            logger.info("Limit/Maker order placed: %s %s qty=%s price=%s TIF=%s -> orderId=%s",
+                        side, symbol, quantity, price, time_in_force, oid)
+            return {"success": True, "order": resp, "quantity": quantity, "price": price}
+        except Exception as e:
+            logger.warning("Limit/Maker order failed (%s): %s", side, e)
+            return {"success": False, "error": str(e), "quantity": quantity, "price": price}
+
     def close_position(self, symbol: str) -> dict:
         """Close the current position for the symbol using reduceOnly market order."""
         pos = self.get_position(symbol)
@@ -508,17 +566,18 @@ class BinanceFuturesTrader:
         )
 
     def open_long(self, symbol: str, quantity: float,
-                  sl_price: float = None, tp_price: float = None) -> dict:
-        """Open a LONG position (or add to one).
+                  sl_price: float = None, tp_price: float = None,
+                  order_type: str = "maker", price: float = None) -> dict:
+        """Open a LONG position (maker limit order with market fallback)."""
+        result = None
+        if order_type in ("maker", "limit") and price and price > 0:
+            result = self.place_limit_order(symbol, "BUY", quantity, price, post_only=(order_type == "maker"))
+            if not result.get("success"):
+                logger.info("[%s] Maker entry rejected/unfilled -> falling back to MARKET order", symbol)
+                result = None
+        if not result:
+            result = self.place_market_order(symbol, "BUY", quantity, reduce_only=False)
 
-        Known limitation: SL/TP is placed AFTER the entry order fills via
-        separate STOP_MARKET / TAKE_PROFIT_MARKET orders (Binance does not
-        support attaching SL/TP to the entry order itself). If the SL/TP
-        order placement fails, the software watchdog in engine.py provides
-        backup protection by monitoring positions and closing them at the
-        configured SL/TP levels.
-        """
-        result = self.place_market_order(symbol, "BUY", quantity, reduce_only=False)
         # SL/TP placed after entry (see docstring for watchdog backup details)
         if result.get("success") and (sl_price or tp_price):
             if sl_price and sl_price > 0:
@@ -532,17 +591,18 @@ class BinanceFuturesTrader:
         return result
 
     def open_short(self, symbol: str, quantity: float,
-                   sl_price: float = None, tp_price: float = None) -> dict:
-        """Open a SHORT position (or add to one).
+                   sl_price: float = None, tp_price: float = None,
+                   order_type: str = "maker", price: float = None) -> dict:
+        """Open a SHORT position (maker limit order with market fallback)."""
+        result = None
+        if order_type in ("maker", "limit") and price and price > 0:
+            result = self.place_limit_order(symbol, "SELL", quantity, price, post_only=(order_type == "maker"))
+            if not result.get("success"):
+                logger.info("[%s] Maker entry rejected/unfilled -> falling back to MARKET order", symbol)
+                result = None
+        if not result:
+            result = self.place_market_order(symbol, "SELL", quantity, reduce_only=False)
 
-        Known limitation: SL/TP is placed AFTER the entry order fills via
-        separate STOP_MARKET / TAKE_PROFIT_MARKET orders (Binance does not
-        support attaching SL/TP to the entry order itself). If the SL/TP
-        order placement fails, the software watchdog in engine.py provides
-        backup protection by monitoring positions and closing them at the
-        configured SL/TP levels.
-        """
-        result = self.place_market_order(symbol, "SELL", quantity, reduce_only=False)
         # SL/TP placed after entry (see docstring for watchdog backup details)
         if result.get("success") and (sl_price or tp_price):
             if sl_price and sl_price > 0:

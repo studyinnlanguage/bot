@@ -791,23 +791,17 @@ class WEEXFuturesTrader:
         )
 
     def open_long(self, symbol: str, quantity: float,
-                  sl_price: float = None, tp_price: float = None) -> dict:
-        """Open a LONG position with optional SL/TP attached.
-
-        SL price should be BELOW entry price (e.g., entry*0.98 for 2% SL).
-        TP price should be ABOVE entry price (e.g., entry*1.06 for 6% TP).
-        """
+                  sl_price: float = None, tp_price: float = None,
+                  order_type: str = "maker", price: float = None) -> dict:
+        """Open a LONG position with optional SL/TP attached."""
         return self.place_market_order(symbol, "BUY", quantity,
                                        reduce_only=False, position_side="LONG",
                                        sl_price=sl_price, tp_price=tp_price)
 
     def open_short(self, symbol: str, quantity: float,
-                   sl_price: float = None, tp_price: float = None) -> dict:
-        """Open a SHORT position with optional SL/TP attached.
-
-        SL price should be ABOVE entry price (e.g., entry*1.02 for 2% SL).
-        TP price should be BELOW entry price (e.g., entry*0.94 for 6% TP).
-        """
+                   sl_price: float = None, tp_price: float = None,
+                   order_type: str = "maker", price: float = None) -> dict:
+        """Open a SHORT position with optional SL/TP attached."""
         return self.place_market_order(symbol, "SELL", quantity,
                                        reduce_only=False, position_side="SHORT",
                                        sl_price=sl_price, tp_price=tp_price)
