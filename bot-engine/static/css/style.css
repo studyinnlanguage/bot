@@ -2067,5 +2067,166 @@ input, select {
     background: var(--red-hover);
 }
 
+/* ---------- Trade History & Performance Analytics Styles ---------- */
+.history-view-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+.history-view-header h2 {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+.history-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.btn-outline-danger {
+    background: transparent;
+    color: var(--red-danger);
+    border: 1px solid rgba(246, 70, 93, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.btn-outline-danger:hover {
+    background: rgba(246, 70, 93, 0.15);
+    border-color: var(--red-danger);
+    transform: translateY(-1px);
+}
+
+.history-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+.history-stat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    box-shadow: var(--shadow-card);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.history-stat-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-hover);
+}
+.h-stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+.h-stat-val {
+    font-size: 22px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: #fff;
+    margin-bottom: 4px;
+}
+.h-stat-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.h-stat-winrate {
+    color: var(--gold-primary);
+}
+
+.history-filter-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.history-select {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.history-select:hover, .history-select:focus {
+    border-color: var(--gold-primary);
+}
+
+.history-table th {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(13, 17, 27, 0.5);
+    white-space: nowrap;
+}
+.history-table td {
+    padding: 12px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.history-table tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.badge-reason {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+}
+.badge-reason-trailing {
+    background: rgba(14, 203, 129, 0.12);
+    color: var(--green-success);
+    border-color: rgba(14, 203, 129, 0.3);
+}
+.badge-reason-sl {
+    background: rgba(246, 70, 93, 0.12);
+    color: var(--red-danger);
+    border-color: rgba(246, 70, 93, 0.3);
+}
+.badge-reason-manual {
+    background: rgba(240, 185, 11, 0.12);
+    color: var(--gold-primary);
+    border-color: rgba(240, 185, 11, 0.3);
+}
+
+.badge-order-type {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+}
+
 
 

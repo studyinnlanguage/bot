@@ -974,6 +974,17 @@ function initSocket() {
             }
         });
 
+        // Real-time Trade History update event
+        socket.on('trades_updated', (data) => {
+            if (data) {
+                if (data.trades) window.tradeHistoryData = data.trades;
+                if (data.stats) window.tradeHistoryStats = data.stats;
+                if (typeof window.renderTradeHistoryUI === 'function') {
+                    window.renderTradeHistoryUI();
+                }
+            }
+        });
+
         return true;
     } catch (e) {
         console.error('Socket init failed:', e);
@@ -1254,6 +1265,7 @@ window.closePositionForSymbol = async function(symbol) {
         if (d.success) {
             log('success', `[${symbol}] Position closed successfully!`);
             window.fetchPositions();
+            if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         } else {
             log('error', `[${symbol}] Close failed: ${d.error}`);
         }
@@ -1261,6 +1273,202 @@ window.closePositionForSymbol = async function(symbol) {
         log('error', `[${symbol}] Close error: ${e.message}`);
     }
 }
+
+// ===== Trade History & Realized PnL Management =====
+window.tradeHistoryData = [];
+window.tradeHistoryStats = {};
+
+window.fetchTradeHistory = async function(force = false) {
+    try {
+        const r = await fetch('/api/trades?limit=100');
+        const d = await r.json();
+        if (d.success) {
+            window.tradeHistoryData = d.trades || [];
+            window.tradeHistoryStats = d.stats || {};
+            window.renderTradeHistoryUI();
+        }
+    } catch (e) {
+        console.warn('fetchTradeHistory error:', e);
+    }
+};
+
+window.renderTradeHistoryUI = function() {
+    const stats = window.tradeHistoryStats || {};
+    const trades = window.tradeHistoryData || [];
+
+    // 1. Update KPI stats
+    if ($('hStatTotalTrades')) $('hStatTotalTrades').textContent = stats.total_trades || 0;
+    if ($('hStatWinLoss')) {
+        $('hStatWinLoss').textContent = `${stats.wins || 0} Wins • ${stats.losses || 0} Losses`;
+    }
+    if ($('hStatWinRate')) {
+        const wr = stats.win_rate_pct || 0;
+        $('hStatWinRate').textContent = `${wr.toFixed(1)}%`;
+        $('hStatWinRate').style.color = wr >= 50 ? 'var(--green-success)' : (wr > 0 ? 'var(--gold-primary)' : 'var(--text-secondary)');
+    }
+    if ($('hStatNetPnl')) {
+        const net = stats.net_pnl || 0;
+        $('hStatNetPnl').textContent = `${net >= 0 ? '+' : ''}$${net.toFixed(2)}`;
+        $('hStatNetPnl').style.color = net > 0 ? 'var(--green-success)' : (net < 0 ? 'var(--red-danger)' : '#fff');
+    }
+    if ($('hStatGrossPnl')) {
+        const gross = stats.total_pnl || 0;
+        $('hStatGrossPnl').textContent = `Gross: ${gross >= 0 ? '+' : ''}$${gross.toFixed(2)}`;
+    }
+    if ($('hStatTotalFees')) {
+        const fees = stats.total_fees || 0;
+        $('hStatTotalFees').textContent = `$${fees.toFixed(2)}`;
+    }
+    if ($('hStatBestWorst')) {
+        const best = stats.best_pnl || 0;
+        const worst = stats.worst_pnl || 0;
+        $('hStatBestWorst').textContent = `+$${best.toFixed(2)} / -$${Math.abs(worst).toFixed(2)}`;
+    }
+    if ($('hStatAvgPnl')) {
+        const avg = stats.avg_trade_pnl || 0;
+        $('hStatAvgPnl').textContent = `Avg: ${avg >= 0 ? '+' : ''}$${avg.toFixed(2)} / trade`;
+    }
+
+    // 2. Update Symbol Filter Dropdown Options
+    const symSelect = $('historyFilterSymbol');
+    if (symSelect) {
+        const currentVal = symSelect.value || 'ALL';
+        const uniqueSymbols = Array.from(new Set(trades.map(t => t.symbol).filter(Boolean))).sort();
+        let symOpts = '<option value="ALL">All Symbols</option>';
+        uniqueSymbols.forEach(s => {
+            symOpts += `<option value="${s}" ${s === currentVal ? 'selected' : ''}>${s}</option>`;
+        });
+        symSelect.innerHTML = symOpts;
+    }
+
+    // 3. Render Full Table
+    window.renderTradeHistoryTable();
+
+    // 4. Render Quick Summary Table on Position Tab
+    window.renderRecentTradesQuickTable();
+};
+
+window.renderTradeHistoryTable = function() {
+    const tbody = $('tradeHistoryTableBody');
+    if (!tbody) return;
+
+    const trades = window.tradeHistoryData || [];
+    const symFilter = $('historyFilterSymbol') ? $('historyFilterSymbol').value : 'ALL';
+    const statusFilter = $('historyFilterStatus') ? $('historyFilterStatus').value : 'ALL';
+
+    let filtered = trades.filter(t => {
+        if (symFilter !== 'ALL' && t.symbol !== symFilter) return false;
+        if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:36px; color:var(--text-secondary);">No trades found matching current filter.</td></tr>`;
+        return;
+    }
+
+    let html = '';
+    filtered.forEach(t => {
+        const isClosed = t.status === 'CLOSED';
+        const pnl = Number(t.pnl || 0);
+        const roe = Number(t.roe_pct || 0);
+        const pnlColor = pnl > 0 ? 'var(--green-success)' : (pnl < 0 ? 'var(--red-danger)' : 'var(--text-secondary)');
+        const pnlSign = pnl > 0 ? '+' : '';
+        const pnlStr = isClosed ? `<span style="color:${pnlColor}; font-weight:700; font-family:var(--font-mono);">${pnlSign}$${pnl.toFixed(2)} (${pnlSign}${roe.toFixed(1)}%)</span>` : '<span style="color:var(--gold-primary);">LIVE</span>';
+
+        const sideClass = t.side === 'LONG' ? 'pos-badge-long' : (t.side === 'SHORT' ? 'pos-badge-short' : 'pos-badge-none');
+        const sideBadge = `<span class="${sideClass}">${t.side}</span>`;
+        const orderTypeBadge = `<span class="badge-order-type">${(t.order_type || 'maker').toUpperCase()}</span>`;
+
+        // Format dates
+        const openDate = t.opened_at ? new Date(t.opened_at) : null;
+        const closeDate = t.closed_at ? new Date(t.closed_at) : null;
+        const timeDisplay = closeDate ?
+            `<div style="font-size:12px; font-weight:600;">${closeDate.toLocaleTimeString()}</div><div style="font-size:10px; color:var(--text-muted);">${closeDate.toLocaleDateString()}</div>` :
+            (openDate ? `<div style="font-size:12px;">${openDate.toLocaleTimeString()}</div>` : '--');
+
+        // Reason badge
+        let reasonBadge = `<span class="badge-reason">${t.close_reason || (isClosed ? 'Closed' : 'Active')}</span>`;
+        if (t.close_reason) {
+            if (t.close_reason.includes('Trailing') || t.close_reason.includes('TP')) {
+                reasonBadge = `<span class="badge-reason badge-reason-trailing">🎯 ${t.close_reason}</span>`;
+            } else if (t.close_reason.includes('SL')) {
+                reasonBadge = `<span class="badge-reason badge-reason-sl">⚡ ${t.close_reason}</span>`;
+            } else if (t.close_reason.includes('Manual')) {
+                reasonBadge = `<span class="badge-reason badge-reason-manual">👤 ${t.close_reason}</span>`;
+            }
+        }
+
+        const feeEst = Number(t.fee_est || 0).toFixed(3);
+
+        html += `
+        <tr>
+            <td style="font-family:var(--font-mono);">${timeDisplay}</td>
+            <td><strong style="color:var(--gold-primary);">${t.symbol}</strong></td>
+            <td>${sideBadge}</td>
+            <td>${orderTypeBadge}</td>
+            <td style="font-family:var(--font-mono);">${t.qty ? t.qty : '--'} <span style="color:var(--text-muted); font-size:11px;">(${t.leverage}x)</span></td>
+            <td style="font-family:var(--font-mono);">$${t.entry_price ? fmt(t.entry_price) : '--'}</td>
+            <td style="font-family:var(--font-mono);">${t.exit_price ? '$' + fmt(t.exit_price) : (isClosed ? '--' : '<span style="color:var(--gold-primary);">Open</span>')}</td>
+            <td>${pnlStr}</td>
+            <td>${reasonBadge}</td>
+            <td style="font-family:var(--font-mono); color:var(--gold-primary);">$${feeEst}</td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+};
+
+window.renderRecentTradesQuickTable = function() {
+    const tbody = $('recentTradesTableBody');
+    if (!tbody) return;
+
+    const trades = (window.tradeHistoryData || []).filter(t => t.status === 'CLOSED').slice(0, 5);
+    if (trades.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-secondary);">No closed trades yet.</td></tr>`;
+        return;
+    }
+
+    let html = '';
+    trades.forEach(t => {
+        const pnl = Number(t.pnl || 0);
+        const roe = Number(t.roe_pct || 0);
+        const pnlColor = pnl > 0 ? 'var(--green-success)' : (pnl < 0 ? 'var(--red-danger)' : 'var(--text-secondary)');
+        const pnlSign = pnl > 0 ? '+' : '';
+        const sideClass = t.side === 'LONG' ? 'pos-badge-long' : (t.side === 'SHORT' ? 'pos-badge-short' : 'pos-badge-none');
+        const closeDate = t.closed_at ? new Date(t.closed_at) : null;
+        const timeStr = closeDate ? `${closeDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : '--';
+
+        html += `
+        <tr>
+            <td style="font-family:var(--font-mono); font-size:12px;">${timeStr}</td>
+            <td><strong style="color:var(--gold-primary);">${t.symbol}</strong></td>
+            <td><span class="${sideClass}">${t.side}</span></td>
+            <td style="font-family:var(--font-mono); font-size:12px;">$${t.entry_price ? fmt(t.entry_price) : '--'} ➔ $${t.exit_price ? fmt(t.exit_price) : '--'}</td>
+            <td style="color:${pnlColor}; font-weight:700; font-family:var(--font-mono);">${pnlSign}$${pnl.toFixed(2)} (${pnlSign}${roe.toFixed(1)}%)</td>
+            <td style="font-size:11px;">${t.close_reason || 'Closed'}</td>
+            <td style="font-family:var(--font-mono); color:var(--gold-primary); font-size:12px;">$${Number(t.fee_est || 0).toFixed(3)}</td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+};
+
+window.clearTradeHistory = async function() {
+    if (!confirm('Are you sure you want to clear all closed trade history records? Active open positions will not be affected.')) return;
+    try {
+        const r = await fetch('/api/trades/clear', { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            log('info', '🧹 Trade history cleared successfully.');
+            window.tradeHistoryData = (window.tradeHistoryData || []).filter(t => t.status === 'OPEN');
+            window.tradeHistoryStats = { total_trades: 0, wins: 0, losses: 0, win_rate_pct: 0, total_pnl: 0, total_fees: 0, net_pnl: 0 };
+            window.renderTradeHistoryUI();
+        }
+    } catch (e) {
+        log('error', `Clear history error: ${e.message}`);
+    }
+};
 
 // ===== Multi-Coin Management =====
 function renderCoinChips() {
@@ -1758,6 +1966,8 @@ async function closePosition() {
         const data = await r.json();
         if (data.success) {
             log('success', `[${activeSymbol}] Position close request accepted`);
+            window.fetchPositions();
+            if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         } else {
             log('error', `[${activeSymbol}] Close failed: ${data.error}`);
         }
@@ -2225,6 +2435,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try { loadSettings(); } catch (e) { console.error(e); }
     try { refreshStatus(); } catch (e) { console.error(e); }
     try { window.fetchPositions(); } catch (e) { console.error(e); }
+    try { if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory(); } catch (e) { console.error(e); }
 
     log('info', 'Welcome! Coins add karein, settings set karein, aur START dabayein.');
     log('info', 'Strategy: EMA 8,13,21,55 crossover (55 at bottom = LONG, 55 at top = SHORT)');
@@ -2240,8 +2451,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setInterval(() => {
         refreshStatus();
-        if (document.body.dataset.activeTab === 'position' || document.body.dataset.mobTab === 'position') {
+        const curTab = document.body.dataset.activeTab || '';
+        const mobTab = document.body.dataset.mobTab || '';
+        if (curTab === 'position' || mobTab === 'position' || curTab === 'history' || mobTab === 'history') {
             window.fetchPositions();
+            if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         }
     }, 3000);
     setInterval(refreshBalance, 10000);

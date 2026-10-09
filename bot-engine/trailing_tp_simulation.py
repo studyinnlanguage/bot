@@ -26,19 +26,16 @@ def simulate(entry, leverage, target_roe_pct=80.0, stages=5):
         move_pct = (tp_price - entry) / entry * 100
         roe = move_pct * leverage
 
-        if stage == 1:
-            next_sl = entry
-            sl_note = f"Break-even (${next_sl:,.2f})"
-            locked_roe = 0
-        else:
-            locked_stage = stage - 1
-            next_sl = entry + (locked_stage * r_distance)
-            sl_note = f"TP{locked_stage} (${next_sl:,.2f})"
-            locked_roe = locked_stage * target_roe_pct
+        locked_mult = stage - 0.5
+        next_sl = entry + (locked_mult * r_distance)
+        locked_roe = locked_mult * target_roe_pct
+        locked_pct = int(locked_mult * 100)
+        sl_note = f"+{locked_pct}% Locked (${next_sl:,.2f})"
 
         print(f"  TP{stage:<6} 1:{stage:<6} ${tp_price:<13.2f} +{move_pct:<10.3f}% +{roe:<8.0f}% {sl_note:<28} +{locked_roe:.0f}% ROE")
 
     print(f"\n  Risk:Reward at TP1 is EXACTLY 1:1 (Risk = ${r_distance:,.2f}, Reward = ${r_distance:,.2f})")
+    print(f"  Guaranteed profit at TP1 = +50% (+{0.5 * target_roe_pct:.0f}% ROE) | At TP2 = +150% (+{1.5 * target_roe_pct:.0f}% ROE)")
     print()
 
 def simulate_short(entry, leverage, qty=0.2631, target_roe_pct=100.0, stages=5):
@@ -70,19 +67,17 @@ def simulate_short(entry, leverage, qty=0.2631, target_roe_pct=100.0, stages=5):
         roe = drop_pct * leverage
         profit = (entry - tp_price) * qty
 
-        if stage == 1:
-            next_sl = entry
-            sl_note = f"Break-even (${next_sl:,.2f})"
-            locked_profit = "$0.00 (0 Loss)"
-        else:
-            locked_stage = stage - 1
-            next_sl = entry - (locked_stage * r_distance)
-            sl_note = f"TP{locked_stage} (${next_sl:,.2f})"
-            locked_profit = f"+${(entry - next_sl) * qty:.2f} USDT"
+        locked_mult = stage - 0.5
+        next_sl = entry - (locked_mult * r_distance)
+        locked_roe = locked_mult * target_roe_pct
+        locked_pct = int(locked_mult * 100)
+        sl_note = f"+{locked_pct}% Locked (${next_sl:,.2f})"
+        locked_profit = f"+${(entry - next_sl) * qty:.2f} USDT (+{locked_roe:.0f}% ROE)"
 
         print(f"  TP{stage:<4} 1:{stage:<4} ${tp_price:<13.2f} -{drop_pct:<10.3f}% +{roe:<6.0f}% +${profit:<11.2f} {sl_note:<26} {locked_profit:<14}")
 
     print(f"\n  Risk:Reward at TP1 is EXACT 1:1 (Margin = ${margin:.2f}, Reward = +${(entry - tp1) * qty:.2f})")
+    print(f"  Guaranteed profit at TP1 = +50% (+${margin * 0.5:.2f} USDT) | At TP2 = +150% (+${margin * 1.5:.2f} USDT)")
     print()
 
 if __name__ == "__main__":
