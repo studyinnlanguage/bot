@@ -1400,6 +1400,7 @@ window.renderTradeHistoryTable = function() {
         }
 
         const feeEst = Number(t.fee_est || 0).toFixed(3);
+        const activeLev = (t.leverage && Number(t.leverage) > 1) ? t.leverage : (parseInt($('leverage')?.value) || 50);
 
         html += `
         <tr>
@@ -1407,7 +1408,7 @@ window.renderTradeHistoryTable = function() {
             <td><strong style="color:var(--gold-primary);">${t.symbol}</strong></td>
             <td>${sideBadge}</td>
             <td>${orderTypeBadge}</td>
-            <td style="font-family:var(--font-mono);">${t.qty ? t.qty : '--'} <span style="color:var(--text-muted); font-size:11px;">(${t.leverage}x)</span></td>
+            <td style="font-family:var(--font-mono);">${t.qty ? t.qty : '--'} <span style="color:var(--text-muted); font-size:11px;">(${activeLev}x)</span></td>
             <td style="font-family:var(--font-mono);">$${t.entry_price ? fmt(t.entry_price) : '--'}</td>
             <td style="font-family:var(--font-mono);">${t.exit_price ? '$' + fmt(t.exit_price) : (isClosed ? '--' : '<span style="color:var(--gold-primary);">Open</span>')}</td>
             <td>${pnlStr}</td>

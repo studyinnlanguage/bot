@@ -420,8 +420,9 @@ def close_position():
         entry = pos.entry_price or 0.0
         mark = pos.mark_price or entry
         size = abs(pos.size)
-        side = pos.side
-        lev = pos.leverage if (pos.leverage and pos.leverage > 1) else 1
+        worker = ENGINE.workers.get(symbol)
+        cfg_lev = int(CONFIG.get("leverage", 50))
+        lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else (worker._get_effective_leverage(symbol) if worker else cfg_lev)
         margin = (entry * size) / lev if (lev > 0 and entry > 0 and size > 0) else 0.0
         pnl = (mark - entry) * size if side == "LONG" else (entry - mark) * size
         roe_pct = (pnl / margin * 100.0) if margin > 0 else 0.0
@@ -436,6 +437,8 @@ def close_position():
                     pnl=pnl,
                     roe_pct=roe_pct,
                     fee_est=fees,
+                    leverage=lev,
+                    qty=size,
                 )
                 socketio.emit("trades_updated", {
                     "trades": ENGINE.history.get_trades(limit=50),
@@ -445,8 +448,8 @@ def close_position():
             logger.error("Failed to record manual close in history: %s", he)
 
         # Sync worker state
-        worker = ENGINE.workers.get(symbol)
         if worker:
+            worker._last_close_timestamp = time.time()
             worker.expected_pos_side = None
             worker.waiting_for_new_cross = True
             worker.strategy.reset_cross_state()
