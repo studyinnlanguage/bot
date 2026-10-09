@@ -181,6 +181,10 @@
                             <div class="pos-row">
                                 <span>Leverage</span><strong id="posLeverage">{{ config.leverage | default(10) }}x</strong>
                             </div>
+                            <div class="pos-row">
+                                <span>Est. Fees</span>
+                                <strong id="posFees" style="color:var(--gold-primary)">--</strong>
+                            </div>
                         </div>
                     </section>
 
@@ -196,7 +200,7 @@
                         </div>
                     </div>
 
-                    <!-- Interactive Price Chart Card -->
+                    <!-- Interactive Price Chart Card with TradingView-style Drawing Tools -->
                     <div class="card chart-card" data-tab-section="terminal">
                         <div class="card-header chart-header-row">
                             <h2 id="chartTitle"><span class="card-icon">📈</span> Price Chart - Select a coin</h2>
@@ -207,8 +211,46 @@
                                 <span class="legend-item"><span class="legend-color" style="background:#f44336"></span>EMA 55</span>
                             </div>
                         </div>
+
+                        <!-- TradingView Drawing Tools Strip -->
+                        <div class="chart-tools-strip" id="chartToolsStrip">
+                            <div class="draw-tools-group">
+                                <button type="button" class="draw-btn active" data-tool="cursor" title="Pointer (Pan & Zoom chart)">
+                                    <span>🖱️</span> <span>Pointer</span>
+                                </button>
+                                <button type="button" class="draw-btn" data-tool="trendline" title="Trendline (Click point 1, drag/click point 2)">
+                                    <span>📏</span> <span>Trendline</span>
+                                </button>
+                                <button type="button" class="draw-btn" data-tool="horizontal" title="Horizontal Line (Click on level)">
+                                    <span>➖</span> <span>Horiz Line</span>
+                                </button>
+                                <button type="button" class="draw-btn" data-tool="rectangle" title="Rectangle (Range / Zone)">
+                                    <span>🔲</span> <span>Rectangle</span>
+                                </button>
+                                <button type="button" class="draw-btn" data-tool="text" title="Text Note (Click to place)">
+                                    <span>📝</span> <span>Text</span>
+                                </button>
+                            </div>
+                            <div class="draw-actions-group">
+                                <div class="draw-color-wrap" title="Drawing Color">
+                                    <input type="color" id="drawColorInput" value="#f0b90b" class="draw-color-inp">
+                                </div>
+                                <button type="button" class="draw-btn btn-danger-soft" id="clearDrawingsBtn" title="Clear all drawings on this chart">
+                                    <span>🗑️</span> <span>Clear</span>
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="card-body chart-body-box">
-                            <div id="chart"></div>
+                            <div class="chart-canvas-container" id="chartCanvasContainer" style="position:relative; width:100%; height:100%;">
+                                <div id="chart"></div>
+                                <canvas id="drawingCanvas" class="drawing-overlay-canvas"></canvas>
+                                <div id="drawingContextMenu" class="drawing-delete-popover" style="display:none;">
+                                    <button type="button" id="btnDeleteSelectedDrawing" class="btn-del-item">
+                                        <span>🗑️ Delete</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -242,6 +284,22 @@
                                 <div class="indicator">
                                     <div class="ind-label">Signal</div>
                                     <div class="ind-value" id="indSignal">--</div>
+                                </div>
+                                <div class="indicator" style="border-left-color:#00bcd4">
+                                    <div class="ind-label" style="color:#00bcd4">ADX (14)</div>
+                                    <div class="ind-value" id="indAdx">--</div>
+                                </div>
+                                <div class="indicator" style="border-left-color:#e91e63">
+                                    <div class="ind-label" style="color:#e91e63">EMA21 Slope</div>
+                                    <div class="ind-value" id="indSlope">--</div>
+                                </div>
+                                <div class="indicator" style="border-left-color:#ffeb3b">
+                                    <div class="ind-label" style="color:#ffeb3b">EMA Sep %</div>
+                                    <div class="ind-value" id="indSep">--</div>
+                                </div>
+                                <div class="indicator" style="border-left-color:#4caf50">
+                                    <div class="ind-label" style="color:#4caf50">Chop Guard</div>
+                                    <div class="ind-value" id="indChop" style="font-size:12px; font-weight:700; color:#4caf50">PASS</div>
                                 </div>
                             </div>
 
@@ -349,6 +407,9 @@
                         </div>
                         <div class="pos-row">
                             <span>Configured Leverage</span><strong id="posFocusLeverage">{{ config.leverage | default(10) }}x</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Est. Round-Trip Fees</span><strong id="posFocusFees" style="color:var(--gold-primary)">--</strong>
                         </div>
                     </div>
                     <div class="card-footer" style="padding:14px 20px; border-top:1px solid var(--border-subtle); display:flex; justify-content:flex-end; gap:10px;">

@@ -141,6 +141,538 @@ async function fetchChartData(symbol) {
     }
 }
 
+// ===== TradingView-style Drawing Canvas Overlay System =====
+let currentDrawingTool = 'cursor'; // 'cursor' | 'trendline' | 'horizontal' | 'rectangle' | 'text'
+let activeDrawingColor = '#f0b90b';
+let drawings = [];
+let isDrawing = false;
+let drawStartPoint = null;
+let drawCurrentPoint = null;
+let selectedDrawingId = null;
+let drawingCanvas = null;
+let drawingCtx = null;
+
+function hexToRgba(hex, alpha) {
+    let c = (hex || '#f0b90b').replace('#', '');
+    if (c.length === 3) c = c.split('').map(x => x + x).join('');
+    const num = parseInt(c, 16);
+    return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+}
+
+function getDrawingsStorageKey() {
+    const sym = activeSymbol || 'DEFAULT';
+    const tf = $('timeframe')?.value || '1m';
+    const user = window._currentUserId || localStorage.getItem('current_user') || 'user';
+    return `tv_drawings_${user}_${sym}_${tf}`;
+}
+
+function saveDrawingsForActiveSymbol() {
+    try {
+        const key = getDrawingsStorageKey();
+        localStorage.setItem(key, JSON.stringify(drawings));
+    } catch (e) {
+        console.warn('saveDrawings error:', e);
+    }
+}
+
+function loadDrawingsForActiveSymbol() {
+    try {
+        const key = getDrawingsStorageKey();
+        const raw = localStorage.getItem(key);
+        drawings = raw ? JSON.parse(raw) : [];
+        selectedDrawingId = null;
+        hideDeletePopover();
+    } catch (e) {
+        drawings = [];
+    }
+    redrawCanvas();
+}
+
+function chartPointToPixel(point) {
+    if (!chart || !candleSeries || !point) return null;
+    let x = null;
+    if (point.time != null && chart.timeScale()) {
+        try { x = chart.timeScale().timeToCoordinate(point.time); } catch (e) {}
+    }
+    if (x === null && point.logical != null && chart.timeScale()) {
+        try { x = chart.timeScale().logicalToCoordinate(point.logical); } catch (e) {}
+    }
+    if (x === null && point.fallbackX != null) {
+        x = point.fallbackX;
+    }
+
+    let y = null;
+    if (point.price != null && candleSeries) {
+        try { y = candleSeries.priceToCoordinate(point.price); } catch (e) {}
+    }
+    if (y === null && point.fallbackY != null) {
+        y = point.fallbackY;
+    }
+
+    return { x, y };
+}
+
+function pixelToChartPoint(x, y) {
+    if (!chart || !candleSeries) return null;
+    let time = null;
+    let logical = null;
+    try {
+        time = chart.timeScale().coordinateToTime(x);
+        logical = chart.timeScale().coordinateToLogical(x);
+    } catch (e) {}
+    let price = null;
+    try {
+        price = candleSeries.coordinateToPrice(y);
+    } catch (e) {}
+
+    return {
+        time: time || Math.floor(Date.now() / 1000),
+        logical: logical,
+        price: price || 0,
+        fallbackX: x,
+        fallbackY: y,
+    };
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+    let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    return Math.hypot(px - projX, py - projY);
+}
+
+function findHitDrawing(clickX, clickY) {
+    if (!drawingCanvas) return null;
+    const w = drawingCanvas.width;
+    const threshold = 10;
+
+    for (let i = drawings.length - 1; i >= 0; i--) {
+        const d = drawings[i];
+        if (d.type === 'trendline') {
+            const p1 = chartPointToPixel(d.p1);
+            const p2 = chartPointToPixel(d.p2);
+            if (p1 && p2 && p1.x != null && p1.y != null && p2.x != null && p2.y != null) {
+                if (distToSegment(clickX, clickY, p1.x, p1.y, p2.x, p2.y) <= threshold) {
+                    return d;
+                }
+            }
+        } else if (d.type === 'horizontal') {
+            const py = candleSeries ? candleSeries.priceToCoordinate(d.price) : null;
+            if (py != null && Math.abs(clickY - py) <= threshold) {
+                return d;
+            }
+        } else if (d.type === 'rectangle') {
+            const p1 = chartPointToPixel(d.p1);
+            const p2 = chartPointToPixel(d.p2);
+            if (p1 && p2 && p1.x != null && p1.y != null && p2.x != null && p2.y != null) {
+                const minX = Math.min(p1.x, p2.x) - 4;
+                const maxX = Math.max(p1.x, p2.x) + 4;
+                const minY = Math.min(p1.y, p2.y) - 4;
+                const maxY = Math.max(p1.y, p2.y) + 4;
+                if (clickX >= minX && clickX <= maxX && clickY >= minY && clickY <= maxY) {
+                    return d;
+                }
+            }
+        } else if (d.type === 'text') {
+            const pt = chartPointToPixel(d.point);
+            if (pt && pt.x != null && pt.y != null) {
+                if (Math.hypot(clickX - pt.x, clickY - pt.y) <= 30) {
+                    return d;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function showDeletePopover(x, y, id) {
+    selectedDrawingId = id;
+    const pop = $('drawingContextMenu');
+    if (!pop) return;
+    pop.style.left = `${Math.max(60, Math.min(x, (drawingCanvas?.width || 600) - 60))}px`;
+    pop.style.top = `${Math.max(30, y)}px`;
+    pop.style.display = 'block';
+    redrawCanvas();
+}
+
+function hideDeletePopover() {
+    const pop = $('drawingContextMenu');
+    if (pop) pop.style.display = 'none';
+}
+
+function deleteSelectedDrawing() {
+    if (!selectedDrawingId) return;
+    drawings = drawings.filter(d => d.id !== selectedDrawingId);
+    selectedDrawingId = null;
+    hideDeletePopover();
+    saveDrawingsForActiveSymbol();
+    redrawCanvas();
+}
+
+function setDrawingTool(toolName) {
+    currentDrawingTool = toolName;
+    document.querySelectorAll('.draw-btn[data-tool]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tool === toolName);
+    });
+    hideDeletePopover();
+    selectedDrawingId = null;
+
+    if (!drawingCanvas) return;
+    if (toolName === 'cursor') {
+        drawingCanvas.classList.remove('interactive-mode');
+        drawingCanvas.style.pointerEvents = 'none';
+    } else {
+        drawingCanvas.classList.add('interactive-mode');
+        drawingCanvas.style.pointerEvents = 'auto';
+    }
+    redrawCanvas();
+}
+
+function redrawCanvas() {
+    if (!drawingCanvas || !drawingCtx) return;
+    const w = drawingCanvas.width;
+    const h = drawingCanvas.height;
+    drawingCtx.clearRect(0, 0, w, h);
+
+    drawings.forEach((d) => {
+        const isSelected = (d.id === selectedDrawingId);
+        drawingCtx.save();
+        drawingCtx.strokeStyle = d.color || '#f0b90b';
+        drawingCtx.fillStyle = d.color || '#f0b90b';
+        drawingCtx.lineWidth = isSelected ? 3 : 2;
+
+        if (d.type === 'trendline') {
+            const p1 = chartPointToPixel(d.p1);
+            const p2 = chartPointToPixel(d.p2);
+            if (p1 && p2 && p1.x != null && p1.y != null && p2.x != null && p2.y != null) {
+                drawingCtx.beginPath();
+                drawingCtx.moveTo(p1.x, p1.y);
+                drawingCtx.lineTo(p2.x, p2.y);
+                drawingCtx.stroke();
+
+                if (isSelected) {
+                    drawingCtx.fillStyle = '#ffffff';
+                    [p1, p2].forEach(p => {
+                        drawingCtx.beginPath();
+                        drawingCtx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                        drawingCtx.fill();
+                        drawingCtx.stroke();
+                    });
+                }
+            }
+        } else if (d.type === 'horizontal') {
+            const py = candleSeries ? candleSeries.priceToCoordinate(d.price) : null;
+            if (py != null) {
+                drawingCtx.beginPath();
+                drawingCtx.setLineDash([5, 4]);
+                drawingCtx.moveTo(0, py);
+                drawingCtx.lineTo(w, py);
+                drawingCtx.stroke();
+                drawingCtx.setLineDash([]);
+
+                const badgeText = fmt(d.price);
+                drawingCtx.fillStyle = d.color || '#f0b90b';
+                drawingCtx.fillRect(w - 75, py - 9, 75, 18);
+                drawingCtx.fillStyle = '#0b0e11';
+                drawingCtx.font = 'bold 10px JetBrains Mono, monospace';
+                drawingCtx.fillText(badgeText, w - 70, py + 4);
+            }
+        } else if (d.type === 'rectangle') {
+            const p1 = chartPointToPixel(d.p1);
+            const p2 = chartPointToPixel(d.p2);
+            if (p1 && p2 && p1.x != null && p1.y != null && p2.x != null && p2.y != null) {
+                const rx = Math.min(p1.x, p2.x);
+                const ry = Math.min(p1.y, p2.y);
+                const rw = Math.abs(p2.x - p1.x);
+                const rh = Math.abs(p2.y - p1.y);
+
+                drawingCtx.fillStyle = hexToRgba(d.color || '#f0b90b', 0.16);
+                drawingCtx.fillRect(rx, ry, rw, rh);
+                drawingCtx.strokeRect(rx, ry, rw, rh);
+
+                if (isSelected) {
+                    drawingCtx.fillStyle = '#ffffff';
+                    [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]].forEach(([hx, hy]) => {
+                        drawingCtx.beginPath();
+                        drawingCtx.arc(hx, hy, 4, 0, Math.PI * 2);
+                        drawingCtx.fill();
+                        drawingCtx.stroke();
+                    });
+                }
+            }
+        } else if (d.type === 'text') {
+            const pt = chartPointToPixel(d.point);
+            if (pt && pt.x != null && pt.y != null) {
+                drawingCtx.font = 'bold 12px Inter, sans-serif';
+                const metrics = drawingCtx.measureText(d.text);
+                const bgW = metrics.width + 14;
+                const bgH = 22;
+                drawingCtx.fillStyle = 'rgba(11, 14, 22, 0.88)';
+                drawingCtx.fillRect(pt.x, pt.y - 16, bgW, bgH);
+                drawingCtx.strokeStyle = d.color || '#f0b90b';
+                drawingCtx.strokeRect(pt.x, pt.y - 16, bgW, bgH);
+
+                drawingCtx.fillStyle = d.color || '#f0b90b';
+                drawingCtx.fillText(d.text, pt.x + 7, pt.y);
+            }
+        }
+        drawingCtx.restore();
+    });
+
+    // Preview during dragging
+    if (isDrawing && drawStartPoint && drawCurrentPoint) {
+        drawingCtx.save();
+        drawingCtx.strokeStyle = activeDrawingColor;
+        drawingCtx.fillStyle = activeDrawingColor;
+        drawingCtx.lineWidth = 2;
+
+        if (currentDrawingTool === 'trendline') {
+            drawingCtx.beginPath();
+            drawingCtx.moveTo(drawStartPoint.fallbackX, drawStartPoint.fallbackY);
+            drawingCtx.lineTo(drawCurrentPoint.fallbackX, drawCurrentPoint.fallbackY);
+            drawingCtx.stroke();
+        } else if (currentDrawingTool === 'rectangle') {
+            const rx = Math.min(drawStartPoint.fallbackX, drawCurrentPoint.fallbackX);
+            const ry = Math.min(drawStartPoint.fallbackY, drawCurrentPoint.fallbackY);
+            const rw = Math.abs(drawCurrentPoint.fallbackX - drawStartPoint.fallbackX);
+            const rh = Math.abs(drawCurrentPoint.fallbackY - drawStartPoint.fallbackY);
+            drawingCtx.fillStyle = hexToRgba(activeDrawingColor, 0.18);
+            drawingCtx.fillRect(rx, ry, rw, rh);
+            drawingCtx.strokeRect(rx, ry, rw, rh);
+        }
+        drawingCtx.restore();
+    }
+}
+
+function initDrawingSystem() {
+    drawingCanvas = $('drawingCanvas');
+    if (!drawingCanvas) return;
+    drawingCtx = drawingCanvas.getContext('2d');
+    const container = $('chartCanvasContainer') || $('chart');
+
+    function syncCanvasSize() {
+        if (!container || !drawingCanvas) return;
+        const w = container.clientWidth || 800;
+        const h = container.clientHeight || 500;
+        if (drawingCanvas.width !== w || drawingCanvas.height !== h) {
+            drawingCanvas.width = w;
+            drawingCanvas.height = h;
+            redrawCanvas();
+        }
+    }
+
+    syncCanvasSize();
+    const resizeObs = new ResizeObserver(() => syncCanvasSize());
+    resizeObs.observe(container);
+
+    // Sync when chart timescale pans/zooms
+    if (chart && chart.timeScale()) {
+        try {
+            chart.timeScale().subscribeVisibleTimeRangeChange(() => requestAnimationFrame(redrawCanvas));
+            chart.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(redrawCanvas));
+        } catch (e) {}
+    }
+
+    // Toolbar buttons
+    document.querySelectorAll('.draw-btn[data-tool]').forEach(btn => {
+        btn.addEventListener('click', () => setDrawingTool(btn.dataset.tool));
+    });
+
+    const colorInp = $('drawColorInput');
+    if (colorInp) {
+        colorInp.addEventListener('input', (e) => {
+            activeDrawingColor = e.target.value;
+            if (selectedDrawingId) {
+                const target = drawings.find(d => d.id === selectedDrawingId);
+                if (target) { target.color = activeDrawingColor; saveDrawingsForActiveSymbol(); redrawCanvas(); }
+            }
+        });
+    }
+
+    const clearBtn = $('clearDrawingsBtn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            if (drawings.length === 0) return;
+            if (confirm('Clear all drawings on this chart?')) {
+                drawings = [];
+                selectedDrawingId = null;
+                hideDeletePopover();
+                saveDrawingsForActiveSymbol();
+                redrawCanvas();
+            }
+        });
+    }
+
+    const delItemBtn = $('btnDeleteSelectedDrawing');
+    if (delItemBtn) {
+        delItemBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteSelectedDrawing();
+        });
+    }
+
+    // Keyboard Delete shortcut
+    window.addEventListener('keydown', (e) => {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDrawingId) {
+            if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+            deleteSelectedDrawing();
+        }
+    });
+
+    // Pointer mode smart hover
+    container.addEventListener('mousemove', (e) => {
+        if (currentDrawingTool !== 'cursor') return;
+        const rect = drawingCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const hit = findHitDrawing(x, y);
+        if (hit) {
+            drawingCanvas.style.pointerEvents = 'auto';
+            drawingCanvas.style.cursor = 'pointer';
+        } else if (!selectedDrawingId) {
+            drawingCanvas.style.pointerEvents = 'none';
+            drawingCanvas.style.cursor = 'default';
+        }
+    });
+
+    // Canvas Mouse interaction
+    drawingCanvas.addEventListener('mousedown', (e) => {
+        const rect = drawingCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        if (currentDrawingTool === 'cursor') {
+            const hit = findHitDrawing(x, y);
+            if (hit) {
+                showDeletePopover(x, y, hit.id);
+            } else {
+                selectedDrawingId = null;
+                hideDeletePopover();
+                drawingCanvas.style.pointerEvents = 'none';
+                redrawCanvas();
+            }
+            return;
+        }
+
+        if (currentDrawingTool === 'horizontal') {
+            const pt = pixelToChartPoint(x, y);
+            if (pt) {
+                drawings.push({
+                    id: 'draw_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    type: 'horizontal',
+                    color: activeDrawingColor,
+                    price: pt.price,
+                });
+                saveDrawingsForActiveSymbol();
+                setDrawingTool('cursor');
+            }
+            return;
+        }
+
+        if (currentDrawingTool === 'text') {
+            const textVal = prompt('Enter chart note text:');
+            if (textVal && textVal.trim()) {
+                const pt = pixelToChartPoint(x, y);
+                if (pt) {
+                    drawings.push({
+                        id: 'draw_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                        type: 'text',
+                        color: activeDrawingColor,
+                        point: pt,
+                        text: textVal.trim(),
+                    });
+                    saveDrawingsForActiveSymbol();
+                }
+            }
+            setDrawingTool('cursor');
+            return;
+        }
+
+        if (currentDrawingTool === 'trendline' || currentDrawingTool === 'rectangle') {
+            isDrawing = true;
+            drawStartPoint = pixelToChartPoint(x, y);
+            drawCurrentPoint = drawStartPoint;
+            redrawCanvas();
+        }
+    });
+
+    drawingCanvas.addEventListener('mousemove', (e) => {
+        if (!isDrawing) return;
+        const rect = drawingCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        drawCurrentPoint = pixelToChartPoint(x, y);
+        redrawCanvas();
+    });
+
+    drawingCanvas.addEventListener('mouseup', (e) => {
+        if (!isDrawing) return;
+        isDrawing = false;
+        const rect = drawingCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const endPt = pixelToChartPoint(x, y);
+
+        if (drawStartPoint && endPt) {
+            const dist = Math.hypot(endPt.fallbackX - drawStartPoint.fallbackX, endPt.fallbackY - drawStartPoint.fallbackY);
+            if (dist > 5) {
+                drawings.push({
+                    id: 'draw_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    type: currentDrawingTool,
+                    color: activeDrawingColor,
+                    p1: drawStartPoint,
+                    p2: endPt,
+                });
+                saveDrawingsForActiveSymbol();
+            }
+        }
+        drawStartPoint = null;
+        drawCurrentPoint = null;
+        setDrawingTool('cursor');
+    });
+
+    loadDrawingsForActiveSymbol();
+}
+
+function updateChopIndicatorsUI(data) {
+    if (!data) {
+        if ($('indAdx')) $('indAdx').textContent = '--';
+        if ($('indSlope')) $('indSlope').textContent = '--';
+        if ($('indSep')) $('indSep').textContent = '--';
+        if ($('indChop')) {
+            $('indChop').textContent = '--';
+            $('indChop').style.color = 'var(--text-secondary)';
+        }
+        return;
+    }
+    const adx = data.adx_14 != null ? Number(data.adx_14) : null;
+    const slope = data.ema_21_slope != null ? Number(data.ema_21_slope) : null;
+    const sep = data.ema_sep_pct != null ? Number(data.ema_sep_pct) : null;
+
+    if ($('indAdx')) {
+        $('indAdx').textContent = adx != null ? adx.toFixed(1) : '--';
+        $('indAdx').style.color = (adx != null && adx >= 20) ? 'var(--green-success)' : 'var(--red-danger)';
+    }
+    if ($('indSlope')) {
+        $('indSlope').textContent = slope != null ? `${slope > 0 ? '+' : ''}${slope.toFixed(3)}%` : '--';
+        $('indSlope').style.color = (slope != null && Math.abs(slope) >= 0.05) ? 'var(--green-success)' : 'var(--red-danger)';
+    }
+    if ($('indSep')) {
+        $('indSep').textContent = sep != null ? `${sep.toFixed(3)}%` : '--';
+        $('indSep').style.color = (sep != null && sep >= 0.25) ? 'var(--green-success)' : 'var(--red-danger)';
+    }
+    if ($('indChop')) {
+        const isChop = (adx != null && adx < 20) || (slope != null && Math.abs(slope) < 0.05) || (sep != null && sep < 0.25);
+        $('indChop').textContent = isChop ? 'CHOP (BLOCKED)' : 'PASS (TRENDING)';
+        $('indChop').style.color = isChop ? 'var(--red-danger)' : 'var(--green-success)';
+    }
+}
+
 // ===== Chart Setup (TradingView style with zoom/pan) =====
 function initChart() {
     try {
@@ -217,7 +749,14 @@ function initChart() {
             }
         });
         ro.observe(container);
-        log('success', '✅ Chart ready (TradingView style - zoom/pan enabled)');
+
+        try {
+            initDrawingSystem();
+        } catch (dErr) {
+            console.warn('initDrawingSystem err:', dErr);
+        }
+
+        log('success', '✅ Chart ready (TradingView style - zoom/pan + drawing tools enabled)');
         return true;
     } catch (e) {
         console.error('Chart init failed:', e);
@@ -271,6 +810,7 @@ function renderChartForSymbol(symbol) {
             }
         }
         chart.timeScale().fitContent();
+        requestAnimationFrame(redrawCanvas);
     } catch (e) {
         console.error('Chart render failed:', e);
     }
@@ -353,6 +893,7 @@ function initSocket() {
                 if ($('indEma21')) $('indEma21').textContent = (data.ema_21 && data.ema_21 > 0) ? `$${fmt(data.ema_21)}` : '--';
                 if ($('indEma55')) $('indEma55').textContent = (data.ema_55 && data.ema_55 > 0) ? `$${fmt(data.ema_55)}` : '--';
                 renderEMAStack(data);
+                updateChopIndicatorsUI(data);
             }
         });
 
@@ -520,6 +1061,31 @@ function updatePositionUI(data) {
         }
     }
 
+    // Estimated Fees calculation:
+    // UI requirement: har trade card pe dikhao: "Fees ≈ $0.0X (margin ka Y%)"
+    const feesEl = $('posFees');
+    const focusFeesEl = $('posFocusFees');
+    if (data.side && data.side !== 'NONE') {
+        const size = Math.abs(Number(data.size) || 0);
+        const price = Number(data.entry_price || data.mark_price || 0);
+        const notional = size * price;
+        const estFees = notional * 0.0010; // ~0.10% round-trip taker
+        const margin = lev > 0 ? notional / lev : 0;
+        const feeMarginPct = margin > 0 ? (estFees / margin) * 100 : (0.10 * lev);
+        const feeStr = `Fees ≈ $${estFees.toFixed(2)} (margin ka ${feeMarginPct.toFixed(1)}%)`;
+        if (feesEl) {
+            feesEl.textContent = feeStr;
+            feesEl.style.color = 'var(--gold-primary)';
+        }
+        if (focusFeesEl) {
+            focusFeesEl.textContent = feeStr;
+            focusFeesEl.style.color = 'var(--gold-primary)';
+        }
+    } else {
+        if (feesEl) feesEl.textContent = '--';
+        if (focusFeesEl) focusFeesEl.textContent = '--';
+    }
+
     // Dynamic aura glow on Position Card
     const posCard = $('positionCard');
     if (posCard) {
@@ -652,11 +1218,15 @@ function renderPositionsTable() {
         const pnlClass = pnl > 0 ? 'pnl-positive' : (pnl < 0 ? 'pnl-negative' : 'pnl-zero');
         const sideBadge = p.side === 'LONG' ? '<span class="pos-badge-long">LONG</span>' : (p.side === 'SHORT' ? '<span class="pos-badge-short">SHORT</span>' : '<span class="pos-badge-none">FLAT</span>');
 
+        const notional = Math.abs(p.size || 0) * (p.mark_price || p.entry_price || 0);
+        const estFee = (notional * 0.0010).toFixed(2);
+        const feeSub = hasPos ? `<div style="font-size:10px; color:var(--gold-primary); font-family:var(--font-mono); margin-top:2px;">Fees ≈ $${estFee}</div>` : '';
+
         html += `
         <tr class="${sym === activeSymbol ? 'table-row-selected' : ''}" onclick="selectSymbol('${sym}')" style="cursor:pointer;">
             <td><strong style="color:var(--gold-primary);">${sym}</strong></td>
             <td>${sideBadge}</td>
-            <td style="font-family:var(--font-mono);">${Math.abs(p.size || 0).toFixed(4)}</td>
+            <td style="font-family:var(--font-mono);">${Math.abs(p.size || 0).toFixed(4)}${feeSub}</td>
             <td style="font-family:var(--font-mono);">${p.entry_price ? '$' + fmt(p.entry_price) : '--'}</td>
             <td style="font-family:var(--font-mono);">${p.mark_price ? '$' + fmt(p.mark_price) : '--'}</td>
             <td class="${pnlClass}" style="font-weight:700; font-family:var(--font-mono);">$${pnl.toFixed(2)}</td>
@@ -756,6 +1326,7 @@ function selectSymbol(sym) {
         if ($('indEma21')) $('indEma21').textContent = data.ema_21 ? `$${fmt(data.ema_21)}` : '--';
         if ($('indEma55')) $('indEma55').textContent = data.ema_55 ? `$${fmt(data.ema_55)}` : '--';
         renderEMAStack(data);
+        updateChopIndicatorsUI(data);
         const sig = signalsBySymbol[sym] || 'HOLD';
         const el = $('indSignal');
         if (el) {
@@ -772,6 +1343,7 @@ function selectSymbol(sym) {
         const el = $('indSignal');
         if (el) { el.textContent = '--'; el.className = ''; }
         renderEMAStack(null);
+        updateChopIndicatorsUI(null);
     }
     if (positionsBySymbol[sym]) {
         updatePositionUI(positionsBySymbol[sym]);
@@ -779,6 +1351,7 @@ function selectSymbol(sym) {
         const curLev = parseInt($('leverage')?.value) || 10;
         updatePositionUI({ symbol: sym, side: 'NONE', size: 0, entry_price: 0, mark_price: 0, unrealized_pnl: 0, leverage: curLev });
     }
+    loadDrawingsForActiveSymbol();
     if (chartDataBySymbol[sym]) {
         renderChartForSymbol(sym);
     } else if (chart) {
@@ -1492,6 +2065,12 @@ function attachListeners() {
     // Auto-calculate TP from SL (1:3 RR) + handle TP mode UI
     const slInput = $('stopLossPct');
     const tpModeSel = $('tpMode');
+    const tfSelect = $('timeframe');
+    if (tfSelect) {
+        tfSelect.addEventListener('change', () => {
+            loadDrawingsForActiveSymbol();
+        });
+    }
 
     function updateTPModeUI() {
         const sl = parseFloat(slInput?.value) || 0;
