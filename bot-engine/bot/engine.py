@@ -99,6 +99,8 @@ class SymbolWorker(threading.Thread):
         self.strategy = EMAQuadStrategy()
         # Leverage readiness event — workers wait on this before trading
         self._leverage_ready = leverage_ready
+        # Settlement cooldown tracking to prevent race conditions on close
+        self._last_close_timestamp = 0.0
 
     def _get_effective_leverage(self, symbol: str) -> int:
         """Get the true active leverage for this symbol from the exchange or config."""
@@ -110,7 +112,7 @@ class SymbolWorker(threading.Thread):
                     return int(pos.leverage)
         except Exception:
             pass
-        return max(1, int(self.config.get("leverage", 125)))
+        return max(1, int(self.config.get("leverage", 50)))
 
     def _update_exchange_sl(self, side: str, new_sl: float, qty: float):
         """Update exchange stop loss order to lock in profit or break-even, and cancel any rogue TP orders."""
@@ -335,7 +337,7 @@ class SymbolWorker(threading.Thread):
                 # Check if reversal condition is met (for visibility)
                 reversal_pending = False
                 reversal_reason = ""
-                if self.entry_signal is not None:
+                if self.tp_mode == "ema_reversal" and self.entry_signal is not None:
                     if pos.side == "LONG" and self.entry_signal == Signal.BUY and result.signal == Signal.SELL:
                         reversal_pending = True
                         reversal_reason = "EMA55 flipped to TOP, LONG should close + SHORT open"
@@ -359,7 +361,7 @@ class SymbolWorker(threading.Thread):
                                 f"Current signal={cur_sig_str} | "
                                 f"Mark={pos.mark_price:.4f} Entry={self.entry_price:.4f} | "
                                 f"SL={self.sl_price:.4f} TP={self.tp_price if self.tp_price else 'EMA-flip'} | "
-                                f"No reversal yet (signal same as entry)")
+                                f"Mode={self.tp_mode}")
                     })
 
             sl_hit, tp_hit, reason = self._check_software_sl_tp(pos, result)
@@ -382,6 +384,7 @@ class SymbolWorker(threading.Thread):
                 close = self.engine.trader.close_position(symbol)
                 self._log_order(close, f"[{symbol}] {reason}")
                 if close.get("success"):
+                    self._last_close_timestamp = time.time()
                     self.trades_today += 1
                     # Record close in Trade History!
                     try:
@@ -401,6 +404,8 @@ class SymbolWorker(threading.Thread):
                             pnl=calc_pnl,
                             roe_pct=calc_roe,
                             fee_est=calc_fees,
+                            leverage=trade_lev,
+                            qty=trade_qty,
                         )
                         self.engine._emit("trades_updated", {
                             "trades": self.engine.history.get_trades(limit=50),
@@ -477,33 +482,69 @@ class SymbolWorker(threading.Thread):
 
         # ===== POSITION SYNC CHECK =====
         actual_side = pos.side if (pos.side in ("LONG", "SHORT") and pos.size != 0) else "NONE"
-        if actual_side != self.expected_pos_side:
+        is_settling = (time.time() - getattr(self, "_last_close_timestamp", 0.0) < 20.0)
+        if not is_settling and actual_side != self.expected_pos_side:
             if self.expected_pos_side is not None and actual_side == "NONE":
                 # Bot expected a position but it's gone now (user closed or SL/TP hit on exchange)
-                mp = self.entry_price or 0.0
+                mp = 0.0
                 try:
-                    mp = self.engine.trader.get_mark_price(symbol)
+                    mp = float(self.engine.trader.get_mark_price(symbol) or 0.0)
                 except Exception:
                     pass
+                if mp <= 0:
+                    mp = float(self.entry_price or 0.0)
 
-                try:
-                    self.engine.history.record_close(
-                        symbol=symbol,
-                        exit_price=mp,
-                        reason="👤 Manual Close (Exchange / SL-TP Hit)",
-                    )
-                    self.engine._emit("trades_updated", {
-                        "trades": self.engine.history.get_trades(limit=50),
-                        "stats": self.engine.history.get_stats(),
-                    })
-                except Exception as he:
-                    logger.error("Failed to record external close in history: %s", he)
+                # Fetch active open trade if exists in history to compute real PnL & leverage
+                open_trade = None
+                for t in self.engine.history.trades:
+                    if t.get("symbol") == symbol.upper() and t.get("status") == "OPEN":
+                        open_trade = t
+                        break
+
+                trade_lev = self._get_effective_leverage(symbol)
+                trade_qty = 0.0
+                calc_pnl = 0.0
+                calc_roe = 0.0
+                calc_fees = 0.0
+                if open_trade:
+                    t_entry = float(open_trade.get("entry_price") or mp)
+                    trade_qty = float(open_trade.get("qty") or 0.0)
+                    t_side = open_trade.get("side", self.expected_pos_side)
+                    trade_lev = max(int(open_trade.get("leverage") or trade_lev), 1)
+                    t_margin = float(open_trade.get("margin") or 0.0)
+                    if t_margin <= 0 and t_entry > 0 and trade_qty > 0:
+                        t_margin = (t_entry * trade_qty) / trade_lev
+                    if t_side == "LONG":
+                        calc_pnl = (mp - t_entry) * trade_qty
+                    else:
+                        calc_pnl = (t_entry - mp) * trade_qty
+                    calc_roe = (calc_pnl / t_margin * 100.0) if t_margin > 0 else 0.0
+                    calc_fees = (t_entry + mp) * trade_qty * 0.0006
+
+                if self.engine.history.has_open_trade(symbol):
+                    try:
+                        self.engine.history.record_close(
+                            symbol=symbol,
+                            exit_price=mp,
+                            reason="👤 Manual Close (Exchange / SL-TP Hit)",
+                            pnl=calc_pnl,
+                            roe_pct=calc_roe,
+                            fee_est=calc_fees,
+                            leverage=trade_lev,
+                            qty=trade_qty,
+                        )
+                        self.engine._emit("trades_updated", {
+                            "trades": self.engine.history.get_trades(limit=50),
+                            "stats": self.engine.history.get_stats(),
+                        })
+                    except Exception as he:
+                        logger.error("Failed to record external close in history: %s", he)
 
                 self.engine._emit("log", {
                     "level": "warn",
                     "msg": (f"[{symbol}] ⚠️ Position closed (SL/TP hit on exchange or manual close). "
                             f"Bot expected {self.expected_pos_side} but found NONE. "
-                            f"Saved in Trade History. Waiting for NEW cross before next trade.")
+                            f"Waiting for NEW cross before next trade.")
                 })
                 self.expected_pos_side = None
                 self.waiting_for_new_cross = True  # Strict mode: must wait for fresh cross
@@ -513,7 +554,7 @@ class SymbolWorker(threading.Thread):
                 self.tp_price = None
                 self.tp_stage = 0
             elif actual_side != "NONE" and self.expected_pos_side != actual_side and self.reversal_pending_side is None:
-                # Position flipped or new opposite position opened externally
+                # Genuine position opened externally or on startup
                 self.engine._emit("log", {
                     "level": "warn",
                     "msg": (f"[{symbol}] ⚠️ External trade detected! "
@@ -521,6 +562,24 @@ class SymbolWorker(threading.Thread):
                             f"Syncing state to {actual_side}.")
                 })
                 self.expected_pos_side = actual_side
+                if not self.engine.history.has_open_trade(symbol):
+                    try:
+                        lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
+                        self.engine.history.record_open(
+                            symbol=symbol,
+                            side=actual_side,
+                            entry_price=pos.entry_price or pos.mark_price,
+                            qty=abs(pos.size),
+                            leverage=lev,
+                            initial_sl=self.sl_price,
+                            initial_tp=self.tp_price,
+                        )
+                        self.engine._emit("trades_updated", {
+                            "trades": self.engine.history.get_trades(limit=50),
+                            "stats": self.engine.history.get_stats(),
+                        })
+                    except Exception as he:
+                        logger.error("Failed to auto-register existing position in history: %s", he)
                 try:
                     self.engine.notifier.send(
                         f"⚠️ External Trade Detected - {symbol}",
@@ -557,6 +616,22 @@ class SymbolWorker(threading.Thread):
                     entry_signal=inferred_entry_signal,
                     actual_leverage=pos.leverage,
                 )
+                # Auto-register in trade history if not already open
+                if not self.engine.history.has_open_trade(symbol) and abs(pos.size) > 0:
+                    try:
+                        lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
+                        self.engine.history.record_open(
+                            symbol=symbol,
+                            side=actual_side,
+                            entry_price=entry,
+                            qty=abs(pos.size),
+                            leverage=lev,
+                            initial_sl=self.sl_price,
+                            initial_tp=self.tp_price,
+                        )
+                    except Exception as he:
+                        logger.error("Failed to auto-register restored trade in history: %s", he)
+
                 # Purge any legacy 6% fixed TP orders on exchange & sync SL to safe level
                 if self.sl_price and self.sl_price > 0:
                     self._update_exchange_sl(actual_side, self.sl_price, abs(pos.size))
@@ -1170,8 +1245,10 @@ class SymbolWorker(threading.Thread):
                     return (False, True,
                             f"⚡ FIXED-TP HIT (price {mark:.4f} <= TP {self.tp_price:.4f}, PnL={pnl_pct:+.2f}%)")
 
-        # ---------- 4) EMA-REVERSAL CHECK (ALWAYS ACTIVE — strategy feature) ----------
-        if not self.ema_reversal_tp_fired and result is not None and self.entry_signal is not None:
+        # ---------- 4) EMA-REVERSAL CHECK ----------
+        # ONLY active if tp_mode is specifically set to 'ema_reversal'.
+        # In 'trailing' mode, the trailing SL ladder protects capital and locks profits without premature flip exits.
+        if self.tp_mode == "ema_reversal" and not self.ema_reversal_tp_fired and result is not None and self.entry_signal is not None:
             cur_sig = result.signal
             if side == "LONG" and self.entry_signal == Signal.BUY and cur_sig == Signal.SELL:
                 pnl_pct = (mark - self.entry_price) / self.entry_price * 100 if self.entry_price > 0 else 0
