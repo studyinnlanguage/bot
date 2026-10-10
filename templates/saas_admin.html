@@ -120,7 +120,7 @@
                     });
                     const data = await r.json();
                     if (data.success) {
-                        window.location.href = '/admin';
+                        window.location.href = window.location.pathname || '/x7k2-admin';
                     } else {
                         err.textContent = data.error || 'Login failed';
                         err.style.display = 'block';

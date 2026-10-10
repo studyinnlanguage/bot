@@ -49,6 +49,22 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
 app.config["SECRET_KEY"] = os.environ.get("BOT_ENGINE_SECRET", secrets.token_hex(32))
 
+# Security: Suppress Werkzeug server banner disclosure in development / fallback modes
+try:
+    from werkzeug.serving import WSGIRequestHandler
+    WSGIRequestHandler.server_version = "Web-Server"
+    WSGIRequestHandler.sys_version = ""
+except Exception:
+    pass
+
+@app.after_request
+def apply_security_headers(response):
+    response.headers["Server"] = "Web-Server"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
 # Fix 12: Shared secret token — set by parent SaaS when spawning this process.
 # Requests without the correct X-Bot-Token header are rejected.
 _BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", "")

@@ -113,9 +113,30 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+# Security: Suppress Werkzeug server banner disclosure in development / fallback modes
+try:
+    from werkzeug.serving import WSGIRequestHandler
+    WSGIRequestHandler.server_version = "Web-Server"
+    WSGIRequestHandler.sys_version = ""
+except Exception:
+    pass
+
+@app.after_request
+def apply_security_headers(response):
+    response.headers["Server"] = "Web-Server"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
 # ============================================================
 # Configuration
 # ============================================================
+
+# Secret Admin URL path (e.g. /x7k2-admin) - hides admin endpoint from automated scanners
+ADMIN_SECRET_PATH = (os.environ.get("ADMIN_SECRET_PATH") or "/x7k2-admin").strip()
+if not ADMIN_SECRET_PATH.startswith("/"):
+    ADMIN_SECRET_PATH = "/" + ADMIN_SECRET_PATH
 
 # Admin password - supports ADMIN_SECRET, ADMIN_PASSWORD, ADMIN_PASS, etc.
 # Defaults to "AdminBot@2024!" (as specified in install.sh and README) if not set.
@@ -127,7 +148,7 @@ ADMIN_SECRET = (
     or os.environ.get("SAAS_ADMIN_SECRET")
     or "AdminBot@2024!"
 ).strip()
-logger.info("Admin panel: ENABLED (password configured)")
+logger.info("Admin panel: ENABLED (secret path: %s)", ADMIN_SECRET_PATH)
 
 # Fix 1: Encryption key for API keys — MUST be set via env var in production
 _ENCRYPTION_RAW = os.environ.get("ENCRYPTION_KEY", "")
@@ -1365,8 +1386,15 @@ def index():
 
     return redirect("/bot/")
 
+@app.route(ADMIN_SECRET_PATH)
 @app.route("/admin")
 def admin_panel():
+    # If accessed via plain /admin and a secret path is configured:
+    # return 404 to unauthenticated scanners to hide admin presence!
+    if request.path == "/admin" and ADMIN_SECRET_PATH != "/admin":
+        if not is_admin():
+            return "Not Found", 404
+
     if is_admin():
         return render_template("saas_admin.html", admin_login_required=False)
     return render_template("saas_admin.html", admin_login_required=True)
@@ -3401,62 +3429,84 @@ signal.signal(signal.SIGTERM, _shutdown_handler)
 signal.signal(signal.SIGINT, _shutdown_handler)
 
 # ============================================================
-# Entry point
+# Watchdog Monitor (runs in background for Gunicorn & standalone)
+# ============================================================
+
+WATCHDOG_MAX_RESTARTS = 5
+_watchdog_restart_counts: dict[str, int] = {}
+_watchdog_lock_file = None
+
+def _is_watchdog_leader() -> bool:
+    global _watchdog_lock_file
+    try:
+        lock_path = DATA_DIR / ".watchdog.lock"
+        _watchdog_lock_file = open(lock_path, "w")
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(_watchdog_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(_watchdog_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except Exception:
+        return False
+
+def _watchdog():
+    # Only single leader process across Gunicorn workers executes the watchdog loop
+    if not _is_watchdog_leader():
+        return
+    logger.info("Watchdog thread started - monitoring bot-engine processes")
+    while True:
+        try:
+            for user_id, proc_info in list(DB.get("bot_processes", {}).items()):
+                if not proc_info.get("should_run", False):
+                    continue
+
+                pid = proc_info.get("pid")
+                if not pid:
+                    continue
+
+                if not is_process_alive(pid):
+                    # Check restart count
+                    restart_count = _watchdog_restart_counts.get(user_id, 0)
+                    if restart_count >= WATCHDOG_MAX_RESTARTS:
+                        logger.error("Watchdog: user %s exceeded max restarts (%d). Stopping.",
+                                   user_id, WATCHDOG_MAX_RESTARTS)
+                        DB.get("bot_processes", {}).pop(user_id, None)
+                        save_db(DB)
+                        continue
+
+                    logger.warning("Watchdog: bot-engine died for user %s, restarting... (attempt %d/%d)",
+                                  user_id, restart_count + 1, WATCHDOG_MAX_RESTARTS)
+                    old_port = proc_info.get("port")
+                    DB.get("bot_processes", {}).pop(user_id, None)
+                    save_db(DB)
+
+                    result = ensure_bot_engine_running(user_id)
+                    if result["success"]:
+                        _watchdog_restart_counts[user_id] = restart_count + 1
+                        logger.info("Watchdog: restarted bot-engine for user %s on port %s",
+                                   user_id, result['port'])
+                    else:
+                        _watchdog_restart_counts[user_id] = restart_count + 1
+                        logger.error("Watchdog: failed to restart for %s: %s",
+                                    user_id, result.get("error"))
+        except Exception as e:
+            logger.error("Watchdog error: %s", e)
+
+        time.sleep(30)
+
+# Start watchdog in background thread (daemon)
+_watchdog_thread = _threading.Thread(target=_watchdog, daemon=True)
+_watchdog_thread.start()
+
+# ============================================================
+# Entry point (for standalone development execution)
 # ============================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     host = os.environ.get("HOST", "0.0.0.0")
     logger.info("SaaS webapp running on port %d", port)
-
-    # Watchdog thread - keeps bot-engine alive with MAX_RESTART limit
-    WATCHDOG_MAX_RESTARTS = 5
-    _watchdog_restart_counts: dict[str, int] = {}
-
-    def _watchdog():
-        logger.info("Watchdog thread started - monitoring bot-engine processes")
-        while True:
-            try:
-                for user_id, proc_info in list(DB.get("bot_processes", {}).items()):
-                    if not proc_info.get("should_run", False):
-                        continue
-
-                    pid = proc_info.get("pid")
-                    if not pid:
-                        continue
-
-                    if not is_process_alive(pid):
-                        # Check restart count
-                        restart_count = _watchdog_restart_counts.get(user_id, 0)
-                        if restart_count >= WATCHDOG_MAX_RESTARTS:
-                            logger.error("Watchdog: user %s exceeded max restarts (%d). Stopping.",
-                                       user_id, WATCHDOG_MAX_RESTARTS)
-                            DB.get("bot_processes", {}).pop(user_id, None)
-                            save_db(DB)
-                            continue
-
-                        logger.warning("Watchdog: bot-engine died for user %s, restarting... (attempt %d/%d)",
-                                      user_id, restart_count + 1, WATCHDOG_MAX_RESTARTS)
-                        old_port = proc_info.get("port")
-                        DB.get("bot_processes", {}).pop(user_id, None)
-                        save_db(DB)
-
-                        result = ensure_bot_engine_running(user_id)
-                        if result["success"]:
-                            _watchdog_restart_counts[user_id] = restart_count + 1
-                            logger.info("Watchdog: restarted bot-engine for user %s on port %s",
-                                       user_id, result['port'])
-                        else:
-                            _watchdog_restart_counts[user_id] = restart_count + 1
-                            logger.error("Watchdog: failed to restart for %s: %s",
-                                        user_id, result.get("error"))
-            except Exception as e:
-                logger.error("Watchdog error: %s", e)
-
-            time.sleep(30)
-
-    watchdog_thread = _threading.Thread(target=_watchdog, daemon=True)
-    watchdog_thread.start()
-
     from werkzeug.serving import run_simple
     run_simple(host, port, app, use_reloader=False, use_debugger=False, threaded=True)

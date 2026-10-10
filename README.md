@@ -60,7 +60,7 @@ Yeh ek public URL dega jaise `https://random-words.trycloudflare.com`. Users ko 
 
 ## 👨‍💼 Admin (Tum) Kaise Manage Karoge
 
-1. `https://abc.trycloudflare.com/admin` kholo
+1. `https://abc.trycloudflare.com/x7k2-admin` kholo (Secret Admin URL)
 2. Password: **`AdminBot@2024!`** (change it in `.env` file)
 3. Sab users dekh sakte ho:
    - Email, name, subscription status

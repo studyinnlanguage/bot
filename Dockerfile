@@ -18,6 +18,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir \
     "Flask>=3.0.3,<4.0" \
     "Flask-SocketIO>=5.3.6,<6.0" \
+    "gunicorn>=21.2.0" \
     "python-engineio>=4.9.1,<5.0" \
     "python-socketio>=5.11.4,<6.0" \
     "simple-websocket>=1.0.0,<2.0" \
@@ -43,5 +44,5 @@ ENV PORT=5000
 ENV HOST=0.0.0.0
 ENV PYTHONUNBUFFERED=1
 
-# Run the application
-CMD ["python", "app.py"]
+# Run the application with production WSGI server
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]

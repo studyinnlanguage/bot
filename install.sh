@@ -80,11 +80,15 @@ fi
 echo ""
 echo "Step 3/5: Bot dependencies install kar rahe hain..."
 
+cd "$SCRIPT_DIR"
+pip3 install -r requirements.txt --quiet --break-system-packages 2>&1 | tail -3 || {
+    pip3 install -r requirements.txt --quiet 2>&1 | tail -3
+}
 cd "$SCRIPT_DIR/bot-engine"
 pip3 install -r requirements.txt --quiet --break-system-packages 2>&1 | tail -3 || {
     pip3 install -r requirements.txt --quiet 2>&1 | tail -3
 }
-print_step "Bot dependencies installed"
+print_step "Bot & Gunicorn dependencies installed"
 
 # ============================================
 # Step 4: Generate secrets + config
@@ -104,19 +108,20 @@ cat > "$SCRIPT_DIR/.env" << EOF
 FLASK_SECRET=$JWT_SECRET
 ENCRYPTION_KEY=$ENCRYPTION_KEY
 ADMIN_SECRET=AdminBot@2024!
+ADMIN_SECRET_PATH=/x7k2-admin
 TRIAL_DAYS=7
 PORT=5000
 HOST=0.0.0.0
 EOF
 
-print_step "Secrets generated (.env file created)"
+print_step "Secrets generated (.env file created with secret admin path)"
 print_warn "Admin password: AdminBot@2024! (change it later via env var)"
 
 # ============================================
 # Step 5: Start with PM2
 # ============================================
 echo ""
-echo "Step 5/5: Server start kar rahe hain (PM2 ke saath)..."
+echo "Step 5/5: Server start kar rahe hain (Gunicorn + PM2 ke saath)..."
 
 cd "$SCRIPT_DIR"
 
@@ -126,14 +131,14 @@ pm2 delete tradebot-cloud > /dev/null 2>&1 || true
 # Load env vars
 export $(cat .env | xargs)
 
-# Start with PM2
-pm2 start "python3 app.py" --name tradebot-cloud --cwd "$SCRIPT_DIR" > /dev/null 2>&1
+# Start with Gunicorn (production WSGI server) under PM2
+pm2 start "gunicorn -w 4 -b 0.0.0.0:5000 app:app" --name tradebot-cloud --cwd "$SCRIPT_DIR" > /dev/null 2>&1
 pm2 save > /dev/null 2>&1
 
 # Setup auto-restart on server reboot
 pm2 startup > /dev/null 2>&1 || true
 
-print_step "Server started with PM2"
+print_step "Server started with Gunicorn under PM2"
 
 # ============================================
 # Done!
@@ -148,8 +153,8 @@ SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo "  http://localhost:5000"
 echo "  http://$SERVER_IP:5000"
 echo ""
-echo "Admin Panel:"
-echo "  http://$SERVER_IP:5000/admin"
+echo "Secret Admin Panel (Confidential):"
+echo "  http://$SERVER_IP:5000/x7k2-admin"
 echo "  Admin Password: AdminBot@2024!"
 echo ""
 echo "First user jo signup karega woh ADMIN ban jayega."
