@@ -131,8 +131,8 @@ pm2 delete tradebot-cloud > /dev/null 2>&1 || true
 # Load env vars
 export $(cat .env | xargs)
 
-# Start with Gunicorn (production WSGI server) under PM2
-pm2 start "gunicorn -w 4 -b 0.0.0.0:5000 app:app" --name tradebot-cloud --cwd "$SCRIPT_DIR" > /dev/null 2>&1
+# Start with Gunicorn (production threaded WSGI server) under PM2 (1 worker + 16 threads for persistent Socket.IO sessions)
+pm2 start "gunicorn -w 1 --threads 16 --worker-class gthread --worker-connections 1000 --timeout 120 -b 0.0.0.0:5000 app:app" --name tradebot-cloud --cwd "$SCRIPT_DIR" > /dev/null 2>&1
 pm2 save > /dev/null 2>&1
 
 # Setup auto-restart on server reboot

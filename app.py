@@ -89,6 +89,22 @@ USER_INSTANCES_DIR = BASE_DIR / "user_instances"
 LOG_DIR.mkdir(exist_ok=True)
 USER_CONFIGS_DIR.mkdir(exist_ok=True)
 USER_INSTANCES_DIR.mkdir(exist_ok=True)
+BOT_PROCESSES_FILE = BASE_DIR / ".bot_processes.json"
+
+def _load_bot_processes() -> dict:
+    try:
+        if BOT_PROCESSES_FILE.exists():
+            return json.loads(BOT_PROCESSES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def _save_bot_processes(procs: dict):
+    try:
+        BOT_PROCESSES_FILE.write_text(json.dumps(procs, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -104,10 +120,20 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
 
 # Fix 2: FLASK_SECRET must be set in production to preserve sessions across restarts
-_flask_secret = os.environ.get("FLASK_SECRET", "")
+_flask_secret = os.environ.get("FLASK_SECRET", "").strip()
 if not _flask_secret:
-    logger.warning("[SECURITY] FLASK_SECRET env var NOT SET — sessions will be lost on every restart! Set FLASK_SECRET in production.")
-    _flask_secret = secrets.token_hex(32)
+    _secret_file = BASE_DIR / ".flask_secret"
+    if _secret_file.exists():
+        try:
+            _flask_secret = _secret_file.read_text(encoding="utf-8").strip()
+        except Exception:
+            _flask_secret = ""
+    if not _flask_secret:
+        _flask_secret = secrets.token_hex(32)
+        try:
+            _secret_file.write_text(_flask_secret, encoding="utf-8")
+        except Exception:
+            pass
 app.config["SECRET_KEY"] = _flask_secret
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -1236,12 +1262,16 @@ def start_user_bot(user_id: str) -> dict:
 
             proc = subprocess.Popen([sys.executable, "app.py"], **popen_kwargs)
 
-            DB.setdefault("bot_processes", {})[user_id] = {
+            proc_data = {
                 "pid": proc.pid,
                 "port": port,
                 "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "should_run": True,
             }
+            DB.setdefault("bot_processes", {})[user_id] = proc_data
+            shared = _load_bot_processes()
+            shared[user_id] = proc_data
+            _save_bot_processes(shared)
             save_db(DB)
             logger.info("Started bot-engine (detached) for user %s: PID=%s, port=%s", user_id, proc.pid, port)
 
@@ -1255,6 +1285,9 @@ def start_user_bot(user_id: str) -> dict:
                     pass
                 logger.error("Bot-engine crashed on start for %s. Log: %s", user_id, error_detail)
                 DB.get("bot_processes", {}).pop(user_id, None)
+                shared = _load_bot_processes()
+                shared.pop(user_id, None)
+                _save_bot_processes(shared)
                 save_db(DB)
                 return {"success": False, "error": f"Bot-engine crashed on startup. Log: {error_detail[:200]}"}
 
@@ -1267,6 +1300,9 @@ def start_user_bot(user_id: str) -> dict:
 def stop_user_bot(user_id: str) -> dict:
     """Stop a user's bot-engine instance."""
     proc_info = DB.get("bot_processes", {}).get(user_id)
+    if not proc_info:
+        shared = _load_bot_processes()
+        proc_info = shared.get(user_id)
     if not proc_info or not proc_info.get("pid"):
         return {"success": True, "message": "Bot not running"}
 
@@ -1276,6 +1312,9 @@ def stop_user_bot(user_id: str) -> dict:
 
     proc_info["should_run"] = False
     DB.get("bot_processes", {}).pop(user_id, None)
+    shared = _load_bot_processes()
+    shared.pop(user_id, None)
+    _save_bot_processes(shared)
     save_db(DB)
     logger.info("Stopped bot-engine for user %s", user_id)
     return {"success": True, "message": "Bot stopped"}
@@ -1318,6 +1357,12 @@ def get_bot_status(user_id: str) -> dict:
     """Get bot status for a user."""
     proc_info = DB.get("bot_processes", {}).get(user_id)
     if not proc_info or not proc_info.get("pid"):
+        shared = _load_bot_processes()
+        proc_info = shared.get(user_id)
+        if proc_info:
+            DB.setdefault("bot_processes", {})[user_id] = proc_info
+
+    if not proc_info or not proc_info.get("pid"):
         return {"running": False}
 
     if is_process_alive(proc_info["pid"]):
@@ -1329,6 +1374,10 @@ def get_bot_status(user_id: str) -> dict:
         }
     else:
         DB.get("bot_processes", {}).pop(user_id, None)
+        shared = _load_bot_processes()
+        if user_id in shared:
+            shared.pop(user_id, None)
+            _save_bot_processes(shared)
         save_db(DB)
         return {"running": False}
 
@@ -2143,6 +2192,9 @@ def bot_engine_proxy(path=''):
     status = get_bot_status(user["id"])
 
     if not status["running"]:
+        if path.startswith('socket.io') or path.startswith('api/'):
+            return jsonify({"status": "starting", "error": "Bot engine starting..."}), 503
+
         import threading
         def _start_bg():
             result = ensure_bot_engine_running(user["id"])
@@ -2167,7 +2219,10 @@ def bot_engine_proxy(path=''):
     port = status["port"]
     method = request.method
 
-    url = f"http://127.0.0.1:{port}/{path}"
+    fwd_path = path
+    if fwd_path == 'socket.io':
+        fwd_path = 'socket.io/'
+    url = f"http://127.0.0.1:{port}/{fwd_path}"
     if request.query_string:
         url += f"?{request.query_string.decode()}"
 
@@ -2191,8 +2246,9 @@ def bot_engine_proxy(path=''):
             logger.warning("Could not sync engine config to DB for %s: %s", user["id"], e)
 
     try:
+        proxy_timeout = 65 if path.startswith('socket.io') else 30
         resp = req_lib.request(method, url, headers=fwd_headers, data=body,
-                               stream=True, timeout=30, allow_redirects=False)
+                               stream=True, timeout=proxy_timeout, allow_redirects=False)
     except req_lib.exceptions.ConnectionError:
         # Engine dead (stale PID/port after a restart). Clear the stale entry
         # so the next request respawns a fresh instance instead of looping.
@@ -2205,7 +2261,14 @@ def bot_engine_proxy(path=''):
         return f"Proxy error: {str(e)}", 500
 
     excluded = {'content-encoding', 'transfer-encoding', 'connection', 'content-length', 'keep-alive'}
-    response_headers = [(k, v) for k, v in resp.headers.items() if k.lower() not in excluded]
+    import re
+    response_headers = []
+    for k, v in resp.headers.items():
+        if k.lower() in excluded:
+            continue
+        if k.lower() == 'location':
+            v = re.sub(rf'^https?://127\.0\.0\.1:{port}', '/bot', v)
+        response_headers.append((k, v))
 
     content_type = resp.headers.get('content-type', '')
 
@@ -2220,7 +2283,6 @@ def bot_engine_proxy(path=''):
         html = html.replace('fetch("/bot/api/user/', 'fetch("/api/user/')
         html = html.replace("fetch('/bot/api/auth/", "fetch('/api/auth/")
         html = html.replace('fetch("/bot/api/auth/', 'fetch("/api/auth/')
-        import re
         html = re.sub(r'io\s*\(\s*\{', "io({path: '/bot/socket.io', ", html)
         html = re.sub(r'io\s*\(\s*\)', "io({path: '/bot/socket.io'})", html)
         return Response(html.encode('utf-8'), status=resp.status_code, headers=response_headers)
@@ -2234,13 +2296,16 @@ def bot_engine_proxy(path=''):
         js = js.replace('fetch("/bot/api/user/', 'fetch("/api/user/')
         js = js.replace("fetch('/bot/api/auth/", "fetch('/api/auth/")
         js = js.replace('fetch("/bot/api/auth/', 'fetch("/api/auth/')
-        import re
         js = re.sub(r'io\s*\(\s*\{', "io({path: '/bot/socket.io', ", js)
         js = re.sub(r'io\s*\(\s*\)', "io({path: '/bot/socket.io'})", js)
         return Response(js.encode('utf-8'), status=resp.status_code, headers=response_headers)
 
     else:
-        # Stream non-HTML and non-JS content (e.g. Socket.IO polling, static files)
+        # Deliver Socket.IO polling packets immediately (no generator overhead)
+        if path.startswith('socket.io'):
+            return Response(resp.content, status=resp.status_code, headers=response_headers)
+
+        # Stream non-HTML and non-JS content (e.g. large static files)
         def generate():
             try:
                 for chunk in resp.iter_content(chunk_size=4096):
