@@ -44,5 +44,5 @@ ENV PORT=5000
 ENV HOST=0.0.0.0
 ENV PYTHONUNBUFFERED=1
 
-# Run the application with production WSGI server
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
+# Run the application with production WSGI server (threaded for Socket.IO stickiness)
+CMD ["gunicorn", "-w", "1", "--threads", "16", "--worker-class", "gthread", "--worker-connections", "1000", "--timeout", "120", "-b", "0.0.0.0:5000", "app:app"]

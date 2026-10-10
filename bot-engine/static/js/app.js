@@ -823,9 +823,10 @@ function initSocket() {
             log('warn', 'Socket.IO load nahi hui. Status polling se hogi.');
             return false;
         }
-        // Use polling first (Railway proxy friendly), then upgrade to websocket
+        // Use polling exclusively through proxy for 100% stable live stream
         socket = io({
-            transports: ['polling', 'websocket'],
+            transports: ['polling'],
+            upgrade: false,
             reconnection: true,          // Auto-reconnect on disconnect
             reconnectionAttempts: Infinity,  // Never give up
             reconnectionDelay: 1000,     // Start at 1s
