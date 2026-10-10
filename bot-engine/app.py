@@ -160,6 +160,26 @@ def index():
     return render_template("dashboard.html", config=CONFIG)
 
 
+@app.route("/legal")
+@app.route("/privacy")
+@app.route("/terms")
+@app.route("/security")
+@app.route("/disclaimer")
+@app.route("/risk-disclaimer")
+def legal_hub():
+    path = request.path.strip("/").lower()
+    default_tab = "disclaimer"
+    if "privacy" in path:
+        default_tab = "privacy"
+    elif "term" in path:
+        default_tab = "terms"
+    elif "sec" in path:
+        default_tab = "security"
+    elif "disclaimer" in path or "risk" in path:
+        default_tab = "disclaimer"
+    return render_template("legal.html", active_tab=default_tab)
+
+
 @app.route("/favicon.ico")
 def favicon():
     png_bytes = bytes.fromhex(
