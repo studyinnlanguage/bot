@@ -77,7 +77,7 @@
             <img src="/static/img/weexionic-logo.png" onerror="this.src='/bot/static/img/weexionic-logo.png'" alt="Weexionic">
         </div>
         <h1 class="title">WEEXIONIC <span>TRADING BOT</span></h1>
-        <p class="subtitle">EMA Quad-Trend Strategy (8, 13, 21, 55)<br>24/7 Cloud Automated Trading</p>
+        <p class="subtitle">Weexionic Quad-Trend Quantitative Strategy<br>24/7 Cloud Automated Execution</p>
 
         <div class="tabs">
             <button class="tab active" onclick="switchTab('login', event)">Login</button>
@@ -115,6 +115,12 @@
                 <label class="label">Referral Code (optional)</label>
                 <input type="text" id="signupReferral" class="input" placeholder="ABC12345" style="text-transform:uppercase;" value="{{ ref_code or '' }}">
             </div>
+            <div style="font-size:11.5px; color:#848e9c; margin-bottom:16px; display:flex; align-items:flex-start; gap:8px; line-height:1.45;">
+                <input type="checkbox" id="signupAgree" required style="accent-color:#0ecb81; margin-top:2px; cursor:pointer;">
+                <label for="signupAgree" style="cursor:pointer;">
+                    I have read and agree to the <a href="/terms" target="_blank" style="color:#f0b90b; text-decoration:none;">Terms of Service</a> &amp; <a href="/disclaimer" target="_blank" style="color:#f6465d; text-decoration:none;">Risk Disclaimer</a>. I accept full personal responsibility for my trading.
+                </label>
+            </div>
             <button type="submit" id="signupBtn" class="btn">Create Account</button>
         </form>
 
@@ -126,13 +132,19 @@
         </a>
 
         <div class="info">
-            <strong>Get started:</strong> Create an account, select a package, make the payment,<br>
-            and start trading within minutes!<br><br>
-            Strategy: EMA 8, 13, 21, 55 crossover<br>
-            Strict 1:3 Risk-Reward (SL=2%, TP=6%)
+            <strong>Get started:</strong> Create an account, select a package, connect your exchange API,<br>
+            and automate your trades in minutes!<br><br>
+            Strategy: Weexionic Proprietary Quantitative Trend Engine<br>
+            Dynamic Multi-Tier Risk-Reward &amp; Protective Trailing SL
         </div>
-        <div style="text-align: center; margin-top: 16px;">
-            <a href="/admin" style="color: #848e9c; font-size: 11px; text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='#f0b90b'" onmouseout="this.style.color='#848e9c'">🔒 Admin Portal &rarr;</a>
+        <div class="legal-links-footer" style="text-align: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(42,46,54,0.6); font-size: 11px; color: #5c687d;">
+            <a href="/disclaimer" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#f6465d'" onmouseout="this.style.color='#848e9c'">⚠️ Risk Disclaimer</a> &bull;
+            <a href="/terms" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#f0b90b'" onmouseout="this.style.color='#848e9c'">Terms of Service</a> &bull;
+            <a href="/privacy" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#0ecb81'" onmouseout="this.style.color='#848e9c'">Privacy Policy</a> &bull;
+            <a href="/security" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#0ecb81'" onmouseout="this.style.color='#848e9c'">Security</a>
+        </div>
+        <div style="text-align: center; margin-top: 12px;">
+            <a href="/admin" style="color: #5c687d; font-size: 11px; text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='#f0b90b'" onmouseout="this.style.color='#5c687d'">🔒 Admin Portal &rarr;</a>
         </div>
     </div>
 

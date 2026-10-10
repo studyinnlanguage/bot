@@ -1371,6 +1371,25 @@ def admin_panel():
         return render_template("saas_admin.html", admin_login_required=False)
     return render_template("saas_admin.html", admin_login_required=True)
 
+@app.route("/legal")
+@app.route("/privacy")
+@app.route("/terms")
+@app.route("/security")
+@app.route("/disclaimer")
+@app.route("/risk-disclaimer")
+def legal_hub():
+    path = request.path.strip("/").lower()
+    default_tab = "disclaimer"
+    if "privacy" in path:
+        default_tab = "privacy"
+    elif "term" in path:
+        default_tab = "terms"
+    elif "sec" in path:
+        default_tab = "security"
+    elif "disclaimer" in path or "risk" in path:
+        default_tab = "disclaimer"
+    return render_template("saas_legal.html", active_tab=default_tab)
+
 @app.route("/api/debug/logs")
 def list_logs():
     if not is_admin():

@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WEEXIONIC - Legal, Risk Disclaimer & Privacy Policy</title>
+    <link rel="icon" type="image/png" href="/static/img/weexionic-logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #070a0f;
+            --bg-card: #12161f;
+            --bg-surface: #1a1f2c;
+            --bg-hover: #22293a;
+            --border: #262e3d;
+            --border-highlight: #3b465c;
+            --text-main: #f0f3f8;
+            --text-muted: #8e9bb0;
+            --text-dim: #5c687d;
+            --gold: #f0b90b;
+            --gold-glow: rgba(240, 185, 11, 0.2);
+            --emerald: #0ecb81;
+            --emerald-glow: rgba(14, 203, 129, 0.2);
+            --crimson: #f6465d;
+            --crimson-glow: rgba(246, 70, 93, 0.2);
+            --blue: #2b7fff;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: var(--font-sans);
+            background: linear-gradient(180deg, #070a0f 0%, #0d121a 50%, #070a0f 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            line-height: 1.65;
+            padding-bottom: 60px;
+        }
+
+        /* Top Header */
+        header.legal-nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(11, 14, 21, 0.88);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+        .nav-logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid var(--emerald);
+            box-shadow: 0 0 16px var(--emerald-glow);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        .nav-logo img { width: 100%; height: 100%; object-fit: cover; }
+        .nav-title {
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+        .nav-title span { color: var(--emerald); }
+        .nav-badge {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 6px;
+            background: rgba(240, 185, 11, 0.15);
+            color: var(--gold);
+            border: 1px solid rgba(240, 185, 11, 0.3);
+            letter-spacing: 0.5px;
+        }
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .nav-btn-outline {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+        .nav-btn-outline:hover {
+            color: var(--text-main);
+            border-color: var(--border-highlight);
+            background: var(--bg-hover);
+        }
+        .nav-btn-primary {
+            background: linear-gradient(135deg, var(--gold) 0%, #f8d12f 100%);
+            color: #0b0e11;
+            border: none;
+            box-shadow: 0 4px 14px var(--gold-glow);
+        }
+        .nav-btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(240, 185, 11, 0.35);
+        }
+
+        /* Container Layout */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 36px 20px;
+        }
+
+        /* Hero Banner */
+        .hero-banner {
+            text-align: center;
+            margin-bottom: 36px;
+            padding: 32px 20px;
+            background: radial-gradient(circle at center, rgba(14, 203, 129, 0.08) 0%, rgba(18, 22, 31, 0) 70%);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .hero-title {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 10px;
+        }
+        .hero-title span {
+            background: linear-gradient(135deg, #0ecb81 0%, #f0b90b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero-subtitle {
+            font-size: 14px;
+            color: var(--text-muted);
+            max-width: 680px;
+            margin: 0 auto 16px;
+        }
+        .last-updated {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-family: var(--font-mono);
+            color: var(--text-dim);
+            background: var(--bg-surface);
+            padding: 4px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+        }
+
+        /* Tabs Navigation */
+        .tab-bar {
+            display: flex;
+            gap: 8px;
+            background: var(--bg-card);
+            padding: 6px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            margin-bottom: 30px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .tab-bar::-webkit-scrollbar { display: none; }
+        .tab-btn {
+            flex: 1;
+            min-width: 170px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 18px;
+            background: transparent;
+            color: var(--text-muted);
+            border: none;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: var(--font-sans);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .tab-btn:hover {
+            color: var(--text-main);
+            background: var(--bg-surface);
+        }
+        .tab-btn.active {
+            background: linear-gradient(135deg, #1f2738 0%, #29344c 100%);
+            color: #fff;
+            border: 1px solid var(--border-highlight);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+        }
+        .tab-btn.active.tab-disclaimer { border-color: var(--crimson); color: #ff8595; }
+        .tab-btn.active.tab-terms { border-color: var(--gold); color: #ffd647; }
+        .tab-btn.active.tab-privacy { border-color: var(--blue); color: #7db2ff; }
+        .tab-btn.active.tab-security { border-color: var(--emerald); color: #51e6ab; }
+
+        /* Document Pane */
+        .doc-pane {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+        .doc-pane.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Content Card */
+        .content-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+        }
+        @media (max-width: 768px) {
+            .content-card { padding: 24px 18px; }
+            .hero-title { font-size: 24px; }
+            .tab-btn { min-width: 140px; font-size: 12px; padding: 10px 12px; }
+        }
+
+        /* Typography & Document Styles */
+        .doc-header {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 24px;
+            margin-bottom: 32px;
+        }
+        .doc-title {
+            font-size: 24px;
+            font-weight: 800;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .doc-desc {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        h2.section-heading {
+            font-size: 18px;
+            font-weight: 700;
+            color: #fff;
+            margin: 32px 0 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-left: 3px solid var(--gold);
+            padding-left: 12px;
+        }
+        h2.section-heading.danger { border-left-color: var(--crimson); }
+        h2.section-heading.success { border-left-color: var(--emerald); }
+        h2.section-heading.info { border-left-color: var(--blue); }
+
+        h3.sub-heading {
+            font-size: 15px;
+            font-weight: 600;
+            color: #d8e0ee;
+            margin: 20px 0 8px;
+        }
+
+        p.text-body {
+            font-size: 14px;
+            color: #b5c1d4;
+            line-height: 1.75;
+            margin-bottom: 16px;
+        }
+
+        ul.legal-list {
+            margin: 12px 0 20px 22px;
+            color: #b5c1d4;
+            font-size: 14px;
+            line-height: 1.75;
+        }
+        ul.legal-list li { margin-bottom: 8px; }
+        ul.legal-list li strong { color: #fff; }
+
+        /* Callout Banners */
+        .alert-box {
+            border-radius: 12px;
+            padding: 20px;
+            margin: 24px 0;
+            font-size: 13.5px;
+            line-height: 1.7;
+        }
+        .alert-crimson {
+            background: rgba(246, 70, 93, 0.08);
+            border: 1px solid rgba(246, 70, 93, 0.35);
+            color: #ff94a2;
+        }
+        .alert-crimson strong { color: #fff; }
+        .alert-gold {
+            background: rgba(240, 185, 11, 0.08);
+            border: 1px solid rgba(240, 185, 11, 0.35);
+            color: #ffd86b;
+        }
+        .alert-gold strong { color: #fff; }
+        .alert-emerald {
+            background: rgba(14, 203, 129, 0.08);
+            border: 1px solid rgba(14, 203, 129, 0.35);
+            color: #72f0b7;
+        }
+        .alert-emerald strong { color: #fff; }
+        .alert-blue {
+            background: rgba(43, 127, 255, 0.08);
+            border: 1px solid rgba(43, 127, 255, 0.35);
+            color: #9ac2ff;
+        }
+        .alert-blue strong { color: #fff; }
+
+        /* Summary Grid */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+        .summary-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px;
+            transition: border-color 0.2s;
+        }
+        .summary-card:hover { border-color: var(--border-highlight); }
+        .summary-card-icon { font-size: 22px; margin-bottom: 8px; }
+        .summary-card-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+        .summary-card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+        /* Footer */
+        footer.legal-footer {
+            margin-top: 50px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-dim);
+            padding: 24px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        footer.legal-footer a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        footer.legal-footer a:hover { color: var(--gold); }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="legal-nav">
+        <a href="/" class="nav-brand">
+            <div class="nav-logo">
+                <img src="/static/img/weexionic-logo.png" onerror="this.src='/bot/static/img/weexionic-logo.png'" alt="Weexionic">
+            </div>
+            <div>
+                <div class="nav-title">WEEXIONIC <span>LEGAL</span></div>
+            </div>
+            <span class="nav-badge">Compliance Hub</span>
+        </a>
+        <div class="nav-actions">
+            <a href="/packages" class="nav-btn nav-btn-outline">Pricing Plans</a>
+            <a href="/" class="nav-btn nav-btn-primary">Dashboard Login</a>
+        </div>
+    </header>
+
+    <div class="container">
+        
+        <!-- Hero Header -->
+        <div class="hero-banner">
+            <h1 class="hero-title">Legal, Risk &amp; <span>Compliance Center</span></h1>
+            <p class="hero-subtitle">
+                Official terms, comprehensive risk disclosure, privacy policy, and infrastructure security protocols governing the Weexionic automated trading platform.
+            </p>
+            <div class="last-updated">
+                <span>🛡️</span> Effective Date &amp; Last Updated: October 2026
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="tab-bar">
+            <button class="tab-btn tab-disclaimer active" onclick="switchLegalTab('disclaimer')">
+                <span>⚠️</span> Risk Disclaimer
+            </button>
+            <button class="tab-btn tab-terms" onclick="switchLegalTab('terms')">
+                <span>📜</span> Terms of Service
+            </button>
+            <button class="tab-btn tab-privacy" onclick="switchLegalTab('privacy')">
+                <span>🔒</span> Privacy Policy
+            </button>
+            <button class="tab-btn tab-security" onclick="switchLegalTab('security')">
+                <span>🛡️</span> Security Policy
+            </button>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- PANE 1: RISK DISCLAIMER & STRATEGY DISCLOSURE                  -->
+        <!-- ============================================================== -->
+        <div id="pane-disclaimer" class="doc-pane active">
+            <div class="content-card">
+                <div class="doc-header">
+                    <h2 class="doc-title">⚠️ General Risk Disclaimer &amp; Strategy Disclosure</h2>
+                    <p class="doc-desc">Mandatory risk notice, limitation of liability, and algorithmic strategy disclosure.</p>
+                </div>
+
+                <div class="alert-box alert-crimson">
+                    <strong>CRITICAL NOTICE — ZERO LIABILITY &amp; USER ASSUMPTION OF RISK:</strong><br>
+                    WEEXIONIC, ITS FOUNDERS, DEVELOPERS, OPERATORS, AND AFFILIATES <strong>ACCEPT ABSOLUTELY ZERO RESPONSIBILITY, ZERO LIABILITY, AND ZERO LEGAL OR MONETARY OBLIGATION</strong> FOR ANY CAPITAL LOSSES, EXCHANGE LIQUIDATIONS, SYSTEM DOWNTIME, UNEXPECTED MARKET DRAWDOWN, OR TRADING DECISIONS MADE USING THIS SOFTWARE. BY USING WEEXIONIC, <strong>YOU AGREE THAT YOU ARE 100% EXCLUSIVELY RESPONSIBLE FOR ALL TRADES, CAPITAL RISKS, AND OUTCOMES.</strong>
+                </div>
+
+                <div class="summary-grid">
+                    <div class="summary-card">
+                        <div class="summary-card-icon">⚡</div>
+                        <div class="summary-card-title">High Leverage Risk</div>
+                        <div class="summary-card-desc">Futures trading with up to 50x+ leverage can cause rapid, total loss of initial margin within seconds.</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🚫</div>
+                        <div class="summary-card-title">No Financial Advice</div>
+                        <div class="summary-card-desc">This platform is strictly automated software tooling. Nothing herein constitutes investment or tax advice.</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🧠</div>
+                        <div class="summary-card-title">Proprietary Strategy</div>
+                        <div class="summary-card-desc">Operates via the Weexionic Quad-Trend Quantitative Model. Internal formulas and mechanics are protected trade secrets.</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🔑</div>
+                        <div class="summary-card-title">Non-Custodial</div>
+                        <div class="summary-card-desc">Weexionic never touches your funds. Execution occurs exclusively via your exchange API with withdrawals disabled.</div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading danger">1. Absolute Limitation of Liability (No Responsibility)</h2>
+                <p class="text-body">
+                    Weexionic is an automated algorithmic interface designed to transmit algorithmic trading signals and order requests to supported cryptocurrency exchanges (such as Binance and WEEX) via user-provided API credentials.
+                </p>
+                <p class="text-body">
+                    Under no circumstances shall the creators, developers, owners, hosting providers, or distributors of Weexionic be held liable for any loss of capital, missed profits, trading liquidations, system errors, internet disconnects, exchange order matching delays, or third-party outages. <strong>The entire financial risk of operating this automated software rests solely and entirely upon you, the user.</strong>
+                </p>
+
+                <h2 class="section-heading">2. Cryptocurrency Futures &amp; Leverage Trading Warning</h2>
+                <p class="text-body">
+                    The trading of cryptocurrency derivatives, perpetual futures contracts, and digital assets carries an inherently high degree of financial risk. High leverage (such as 20x, 50x, or higher) magnifies both potential gains and potential losses:
+                </p>
+                <ul class="legal-list">
+                    <li><strong>Rapid Liquidation:</strong> A microscopic adverse movement in asset price against your open position can lead to the immediate closure (liquidation) of your position and loss of all deposited margin.</li>
+                    <li><strong>Market Volatility:</strong> Cryptocurrency markets trade 24 hours a day, 7 days a week, and are subject to flash crashes, extreme slippage, wicks, and unpredictable liquidity gaps.</li>
+                    <li><strong>Never Risk What You Cannot Afford to Lose:</strong> Do not allocate emergency funds, debt capital, or living expenses to cryptocurrency algorithmic trading.</li>
+                </ul>
+
+                <h2 class="section-heading success">3. Proprietary Algorithmic Strategy Disclosure</h2>
+                <p class="text-body">
+                    Weexionic automates trades using our proprietary <strong>Weexionic Quad-Trend Quantitative Momentum Strategy</strong> (also incorporating dynamic multi-stage trailing stop-loss algorithms and chop/volatility filters).
+                </p>
+                <div class="alert-box alert-gold">
+                    <strong>CONFIDENTIALITY OF STRATEGY MECHANICS:</strong><br>
+                    While the software provides effortless, plug-and-play automated execution for users of all experience levels, the exact underlying mathematical formulas, multi-layered moving average calculations, trend threshold calibrations, and internal weighting mechanisms are <strong>strictly proprietary trade secrets of Weexionic</strong>. To protect platform users against predatory front-running, arbitrage decay, and copy-cat exploitation, internal algorithmic formulas are never disclosed.
+                </div>
+                <p class="text-body">
+                    The strategy is engineered for hands-free simplicity: users simply input their risk parameters (such as capital allocation, leverage, and symbol) and the bot manages technical evaluation, entry detection, dynamic trailing take-profit milestones, and protective stops automatically.
+                </p>
+
+                <h2 class="section-heading info">4. No Financial, Investment, or Legal Advice</h2>
+                <p class="text-body">
+                    No information, statistic, past win-rate record, backtest metric, or trade log presented on this website or in the bot dashboard constitutes financial advice, investment advice, trading recommendation, or solicitation.
+                </p>
+                <p class="text-body">
+                    You are solely responsible for conducting your own independent research and assessing your personal risk tolerance before engaging in leveraged derivative trading.
+                </p>
+
+                <h2 class="section-heading">5. Exchange &amp; Connectivity Risk</h2>
+                <p class="text-body">
+                    Weexionic is an independent technology tool and is not affiliated, endorsed by, or partnered with Binance, WEEX, or any other cryptocurrency exchange. Weexionic cannot control and assumes no liability for exchange API maintenance, server timeouts, order rejection, rate limiting, or order execution price slippage.
+                </p>
+            </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- PANE 2: TERMS OF SERVICE                                       -->
+        <!-- ============================================================== -->
+        <div id="pane-terms" class="doc-pane">
+            <div class="content-card">
+                <div class="doc-header">
+                    <h2 class="doc-title">📜 Terms of Service</h2>
+                    <p class="doc-desc">User agreement, software licensing, and operational guidelines.</p>
+                </div>
+
+                <div class="alert-box alert-gold">
+                    <strong>BINDING LEGAL AGREEMENT:</strong><br>
+                    By registering an account, activating a digital license key, purchasing a package, or connecting your exchange API credentials to Weexionic, you acknowledge that you have read, understood, and irrevocably agreed to be bound by these Terms of Service.
+                </div>
+
+                <h2 class="section-heading">1. User Eligibility &amp; Legal Jurisdiction</h2>
+                <p class="text-body">
+                    You must be at least eighteen (18) years of age or the legal age of majority in your jurisdiction to access Weexionic. You certify that you are legally authorized to trade cryptocurrency derivatives under the laws and regulations of your country of residence and that you are not residing in a prohibited jurisdiction.
+                </p>
+
+                <h2 class="section-heading success">2. Grant of Software License</h2>
+                <p class="text-body">
+                    Subject to your active subscription and compliance with these terms, Weexionic grants you a non-exclusive, non-transferable, revocable license to access our automated cloud trading platform for personal computational use.
+                </p>
+                <ul class="legal-list">
+                    <li><strong>Prohibited Actions:</strong> You may not decompile, reverse engineer, disassemble, extract source code, clone, scrape, or resell the Weexionic platform or any of its proprietary trading algorithms.</li>
+                    <li><strong>Single User License:</strong> Each license key is provisioned for an individual account and cannot be redistributed, shared, or leased to third parties.</li>
+                </ul>
+
+                <h2 class="section-heading info">3. Non-Custodial Architecture &amp; API Responsibilities</h2>
+                <p class="text-body">
+                    Weexionic operates on a strictly non-custodial framework. We never hold custody of your digital assets, tokens, private keys, or fiat balances.
+                </p>
+                <ul class="legal-list">
+                    <li><strong>Withdrawal Permission Ban:</strong> You must <strong>NEVER grant withdrawal permissions</strong> on any API key you submit to the platform. Weexionic requires ONLY "Read" and "Futures Trading" API permissions.</li>
+                    <li><strong>Credential Confidentiality:</strong> You are solely responsible for securing your account credentials, passwords, and API key management.</li>
+                </ul>
+
+                <h2 class="section-heading danger">4. Subscriptions, Payments &amp; No-Refund Policy</h2>
+                <p class="text-body">
+                    Weexionic provides immediate digital access to high-performance cloud computing resources, persistent worker processes, and automated execution bots.
+                </p>
+                <div class="alert-box alert-crimson">
+                    <strong>STRICT DIGITAL GOODS NO-REFUND POLICY:</strong><br>
+                    Because subscription activation immediately provisions dedicated cloud server resources, processes, and proprietary licensing, <strong>all payments, USDT deposits, and subscription package fees are final and non-refundable under all circumstances</strong>. Please review all features and the Risk Disclaimer prior to purchase.
+                </div>
+
+                <h2 class="section-heading">5. Indemnification</h2>
+                <p class="text-body">
+                    You agree to defend, indemnify, and hold harmless Weexionic, its developers, operators, hosting partners, and affiliates from and against any and all claims, damages, obligations, losses, liabilities, costs, or debt (including attorney's fees) arising from: (a) your use of the platform; (b) your violation of any term of these Terms; or (c) any financial trading losses incurred on your exchange account.
+                </p>
+
+                <h2 class="section-heading">6. Modifications &amp; Termination</h2>
+                <p class="text-body">
+                    Weexionic reserves the right to modify, suspend, or discontinue any feature, endpoint, or subscription tier at any time. Accounts engaged in malicious exploitation, DDoS attacks, abusive API hammering, or unauthorized tampering will be terminated immediately without refund.
+                </p>
+            </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- PANE 3: PRIVACY POLICY                                         -->
+        <!-- ============================================================== -->
+        <div id="pane-privacy" class="doc-pane">
+            <div class="content-card">
+                <div class="doc-header">
+                    <h2 class="doc-title">🔒 Privacy &amp; Data Protection Policy</h2>
+                    <p class="doc-desc">How your account information, encrypted credentials, and system logs are safeguarded.</p>
+                </div>
+
+                <div class="alert-box alert-blue">
+                    <strong>PRIVACY COMMITMENT:</strong><br>
+                    We respect your digital privacy. Weexionic <strong>DOES NOT sell, monetize, rent, or distribute</strong> your personal information, trading activity, or API credentials to any third-party advertisers or data brokers.
+                </div>
+
+                <h2 class="section-heading info">1. Information We Collect</h2>
+                <p class="text-body">
+                    To deliver reliable automated trading services, we collect minimal necessary data:
+                </p>
+                <ul class="legal-list">
+                    <li><strong>Account Credentials:</strong> Email address, display name, and securely salted/hashed password representations (passwords are never stored in plain text).</li>
+                    <li><strong>API Credentials:</strong> User-supplied exchange API keys, passphrases, and secrets used exclusively to execute authorized trades on Binance or WEEX.</li>
+                    <li><strong>Technical &amp; Telemetry Data:</strong> IP address, browser user-agent, session cookies, and bot operation logs used exclusively for brute-force defense, rate limiting, and performance troubleshooting.</li>
+                    <li><strong>Referral Relationship:</strong> Referral codes and commission affiliate associations to distribute referral rewards.</li>
+                </ul>
+
+                <h2 class="section-heading success">2. How Your API Keys Are Protected</h2>
+                <p class="text-body">
+                    Your exchange API secrets are of paramount importance. We implement strict defense-in-depth measures:
+                </p>
+                <ul class="legal-list">
+                    <li><strong>AES-256 Encryption at Rest:</strong> All exchange API keys and secrets stored on our servers are encrypted using industry-standard AES-256 encryption.</li>
+                    <li><strong>TLS 1.3 Encryption in Transit:</strong> All communications between your browser, the Weexionic platform, and exchange API gateways are encrypted over TLS/HTTPS.</li>
+                    <li><strong>Client-Side Masking:</strong> Sensitive API secrets are masked in the user interface to prevent shoulder-surfing and accidental visual leaks.</li>
+                </ul>
+
+                <h2 class="section-heading">3. Data Retention &amp; Account Deletion</h2>
+                <p class="text-body">
+                    You have full sovereignty over your data. Upon request or account cancellation, your stored API credentials, session tokens, and bot instance configurations can be permanently purged from our persistent storage.
+                </p>
+
+                <h2 class="section-heading">4. Cookies &amp; Local Storage</h2>
+                <p class="text-body">
+                    Weexionic utilizes strictly essential session cookies and local storage tokens for user authentication and cross-site request forgery (CSRF) defense. We do not use third-party tracking or behavioral marketing cookies.
+                </p>
+            </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- PANE 4: SECURITY POLICY                                        -->
+        <!-- ============================================================== -->
+        <div id="pane-security" class="doc-pane">
+            <div class="content-card">
+                <div class="doc-header">
+                    <h2 class="doc-title">🛡️ Security Policy &amp; Architecture</h2>
+                    <p class="doc-desc">Non-custodial design, encryption protocols, and defensive security measures.</p>
+                </div>
+
+                <div class="alert-box alert-emerald">
+                    <strong>NON-CUSTODIAL SAFETY GUARANTEE:</strong><br>
+                    Weexionic is built on a 100% non-custodial operational model. <strong>Your capital never leaves your cryptocurrency exchange.</strong> The bot only submits market entry, stop-loss, and take-profit order signals directly to your exchange account via API.
+                </div>
+
+                <div class="summary-grid">
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🔐</div>
+                        <div class="summary-card-title">AES-256 Vault</div>
+                        <div class="summary-card-desc">Sensitive API secrets and passphrases are stored in encrypted vaults at rest.</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🧱</div>
+                        <div class="summary-card-title">Instance Sandboxing</div>
+                        <div class="summary-card-desc">Each user's trading bot runs in an isolated process to eliminate cross-tenant data leakage.</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🚫</div>
+                        <div class="summary-card-title">Zero Withdrawals</div>
+                        <div class="summary-card-desc">Users are strictly required to uncheck withdrawal permissions on all created API keys.</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-card-icon">🛡️</div>
+                        <div class="summary-card-title">Rate Limiting</div>
+                        <div class="summary-card-desc">Automated DDoS mitigation, brute force protection, and credential stuffing defense.</div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading success">1. Mandatory User Security Best Practices</h2>
+                <p class="text-body">
+                    To guarantee absolute peace of mind, all Weexionic users must observe the following exchange API key security rules:
+                </p>
+                <ul class="legal-list">
+                    <li><strong>Always Disable Withdrawals:</strong> When generating an API key on Binance or WEEX, <strong>NEVER enable "Enable Withdrawals"</strong>. Only enable "Enable Reading" and "Enable Futures Trading".</li>
+                    <li><strong>Use IP Whitelisting (Optional / Recommended):</strong> If your subscription utilizes a static cloud worker IP, restrict your exchange API key to accept requests only from that designated address.</li>
+                    <li><strong>Rotate API Keys Periodically:</strong> Periodically delete older exchange API keys and generate fresh ones for ongoing operational hygiene.</li>
+                    <li><strong>Enable Two-Factor Authentication (2FA):</strong> Maintain strong 2FA on your personal email and exchange accounts.</li>
+                </ul>
+
+                <h2 class="section-heading">2. Infrastructure &amp; Runtime Sandboxing</h2>
+                <p class="text-body">
+                    Our platform architecture employs isolated execution runtimes:
+                </p>
+                <ul class="legal-list">
+                    <li><strong>Independent Bot Workers:</strong> Each subscriber instance operates inside an isolated worker runtime, preventing memory cross-contamination.</li>
+                    <li><strong>Dynamic Watchdog Engine:</strong> Heartbeat monitors continuously supervise worker health, ensuring seamless state recovery without orphaned positions.</li>
+                    <li><strong>Encrypted Transport:</strong> End-to-end TLS encryption with modern cipher suites protects all API traffic.</li>
+                </ul>
+
+                <h2 class="section-heading info">3. Responsible Vulnerability Disclosure</h2>
+                <p class="text-body">
+                    We welcome responsible security research. If you discover a potential vulnerability or security flaw in the Weexionic platform, please notify our team promptly. We are committed to swiftly investigating and patching any identified issues.
+                </p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Legal Footer -->
+    <footer class="legal-footer">
+        <p>&copy; 2026 WEEXIONIC TRADING BOT. All rights reserved.</p>
+        <p style="margin-top: 6px;">
+            <a href="#" onclick="switchLegalTab('disclaimer'); return false;">Risk Disclaimer</a> &bull;
+            <a href="#" onclick="switchLegalTab('terms'); return false;">Terms of Service</a> &bull;
+            <a href="#" onclick="switchLegalTab('privacy'); return false;">Privacy Policy</a> &bull;
+            <a href="#" onclick="switchLegalTab('security'); return false;">Security Policy</a>
+        </p>
+        <p style="margin-top: 8px; color:#495364; font-size:11px;">
+            Cryptocurrency derivative trading involves substantial risk of loss. Always trade responsibly.
+        </p>
+    </footer>
+
+    <script>
+        function switchLegalTab(tabName) {
+            const validTabs = ['disclaimer', 'terms', 'privacy', 'security'];
+            if (!validTabs.includes(tabName)) tabName = 'disclaimer';
+
+            // Update Tab Buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.classList.contains('tab-' + tabName)) {
+                    btn.classList.add('active');
+                }
+            });
+
+            // Update Panes
+            document.querySelectorAll('.doc-pane').forEach(pane => {
+                pane.classList.remove('active');
+            });
+            const targetPane = document.getElementById('pane-' + tabName);
+            if (targetPane) {
+                targetPane.classList.add('active');
+            }
+
+            // Update URL hash without jump
+            if (history.pushState) {
+                history.pushState(null, null, '#' + tabName);
+            } else {
+                location.hash = '#' + tabName;
+            }
+
+            // Scroll gently to tab-bar if scrolled down
+            const tabBar = document.querySelector('.tab-bar');
+            if (tabBar && window.scrollY > 200) {
+                tabBar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        // Initialize from URL hash or query param on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const hash = window.location.hash.replace('#', '').toLowerCase();
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabParam = urlParams.get('tab') || hash;
+
+            if (tabParam && ['disclaimer', 'terms', 'privacy', 'security'].includes(tabParam)) {
+                switchLegalTab(tabParam);
+            }
+        });
+
+        // Listen for popstate (browser back/forward)
+        window.addEventListener('popstate', () => {
+            const hash = window.location.hash.replace('#', '').toLowerCase();
+            if (hash && ['disclaimer', 'terms', 'privacy', 'security'].includes(hash)) {
+                switchLegalTab(hash);
+            }
+        });
+    </script>
+</body>
+</html>
