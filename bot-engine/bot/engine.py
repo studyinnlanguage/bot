@@ -763,7 +763,12 @@ class SymbolWorker(threading.Thread):
                     })
                 return
 
-            # Fresh cross happened! Check cooldown (min 30s between crosses)
+            # Fresh cross happened! Guard against entering multiple times on the same candle
+            candle_id = str(df.index[-2]) if len(df) >= 2 else str(time.time())
+            if getattr(self, '_last_trade_candle_id', None) == candle_id:
+                return
+            self._last_trade_candle_id = candle_id
+
             now = time.time()
             if now - self._last_cross_time < 30:
                 # Too soon after last cross - ignore (prevents rapid false crosses)
