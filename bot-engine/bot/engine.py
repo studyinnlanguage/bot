@@ -235,12 +235,24 @@ class SymbolWorker(threading.Thread):
             df = self.engine.trader.get_klines(symbol, interval=timeframe, limit=200)
             self._last_df = df  # Cache for instant chart update
         except Exception as e:
-            logger.error(f"[{symbol}] Failed to fetch klines after retries: {e}")
+            err_msg = str(e)
+            logger.error(f"[{symbol}] Failed to fetch klines after retries: {err_msg}")
+            is_rate_limit = any(x in err_msg.lower() for x in ["418", "429", "-1003", "too many requests", "banned"])
+            if is_rate_limit:
+                self.engine._emit("log", {
+                    "level": "warn",
+                    "msg": f"[{symbol}] ⚠️ Binance rate limit / IP temporary ban hit. Pausing requests for 60s to let limit clear..."
+                })
+                for _ in range(60):
+                    if self.stop_event.is_set() or not self.engine.is_running:
+                        break
+                    time.sleep(1)
+                return
             # Don't spam logs every tick - only log every 12th tick (~1 min)
             if self.candles_processed % 12 == 0:
                 self.engine._emit("log", {
                     "level": "error",
-                    "msg": f"[{symbol}] Klines fetch fail: {str(e)[:100]}. Chart empty - API error."
+                    "msg": f"[{symbol}] Klines fetch fail: {err_msg[:100]}. Chart empty - API error."
                 })
             # Try to use cached df if available
             if self._last_df is not None:
@@ -1390,8 +1402,8 @@ class MonitorThread(threading.Thread):
                         "msg": f"❌ MONITOR error: {str(e)[:120]}. Check API keys/Passphrase."
                     })
                     first_run = False
-            # Poll every 5s (compromise between responsiveness and rate limits)
-            for _ in range(5):
+            # Poll every 10s (protects exchange API rate limits)
+            for _ in range(10):
                 if self.stop_event.is_set():
                     break
                 time.sleep(1)
@@ -1706,6 +1718,7 @@ class BotEngine:
 
         self.config = config
         self.notifier.update_config(config)
+        self.stop_monitor()  # Stop background monitor while trading workers are running to avoid hitting rate limits
         try:
             self.trader = get_trader(config)
         except Exception as e:
@@ -1860,6 +1873,10 @@ class BotEngine:
             self.workers.clear()
 
         self.is_running = False
+        try:
+            self.start_monitor(self.config)
+        except Exception:
+            pass
         self._emit("status", {"running": False, "message": "Bot stopped"})
         self._emit("log", {"level": "info", "msg": "Bot STOPPED by user"})
         # Send notification
@@ -1882,9 +1899,10 @@ class BotEngine:
             self.workers.clear()
         self.is_running = False
         self.trader = None
-        # NOTE: Do NOT stop the monitor or clear active_symbol.
-        # Monitor keeps running so user still sees live data after force stop.
-        # active_symbol stays so chart stays populated.
+        try:
+            self.start_monitor(self.config)
+        except Exception:
+            pass
         self._emit("status", {"running": False, "message": "Force stopped"})
         self._emit("log", {
             "level": "warn",
@@ -1994,11 +2012,11 @@ class BotEngine:
         """How often to re-check the strategy and SL/TP.
         Faster polling = SL/TP triggers faster."""
         mapping = {
-            "1m": 3, "3m": 3, "5m": 3, "15m": 5,
-            "30m": 5, "1h": 10, "2h": 15, "4h": 30,
-            "1d": 60, "1w": 120,
+            "1m": 5, "3m": 8, "5m": 12, "15m": 20,
+            "30m": 30, "1h": 45, "2h": 60, "4h": 90,
+            "1d": 120, "1w": 300,
         }
-        return mapping.get(timeframe, 3)
+        return mapping.get(timeframe, 12)
 
     def status(self) -> dict:
         symbols = self._symbols_list() if self.is_running else []
