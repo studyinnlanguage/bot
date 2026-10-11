@@ -2192,9 +2192,6 @@ def bot_engine_proxy(path=''):
     status = get_bot_status(user["id"])
 
     if not status["running"]:
-        if path.startswith('socket.io') or path.startswith('api/'):
-            return jsonify({"status": "starting", "error": "Bot engine starting..."}), 503
-
         import threading
         def _start_bg():
             result = ensure_bot_engine_running(user["id"])
@@ -2204,6 +2201,9 @@ def bot_engine_proxy(path=''):
 
         bg = threading.Thread(target=_start_bg, daemon=True)
         bg.start()
+
+        if path.startswith('socket.io') or path.startswith('api/'):
+            return jsonify({"status": "starting", "error": "Bot engine starting... Please refresh the page (F5)."}), 503
 
         return '''<html><head><meta http-equiv="refresh" content="3"></head>
         <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
