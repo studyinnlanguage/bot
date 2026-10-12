@@ -273,9 +273,12 @@ def update_config():
         except Exception as _e:
             logger.warning("Could not auto-apply leverage on config save: %s", _e)
         try:
-            ENGINE.start_monitor(CONFIG)
+            if not ENGINE.is_running:
+                ENGINE.start_monitor(CONFIG)
+            else:
+                ENGINE.sync_config(CONFIG)
         except Exception as _e:
-            logger.warning("Could not start monitor on config save: %s", _e)
+            logger.warning("Could not sync engine config on save: %s", _e)
 
     safe_keys = ("api_secret", "email_password", "telegram_bot_token", "whatsapp_apikey")
     return jsonify({"success": True, "config": {k: v for k, v in CONFIG.items() if k not in safe_keys}})
