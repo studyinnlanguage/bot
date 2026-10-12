@@ -59,6 +59,20 @@ class EMAQuadStrategy:
         self.ema_mid2 = ema_mid2
         self.ema_long = ema_long
         self._prev_signal: Signal = Signal.HOLD
+        self._trade_entered_for_signal: bool = False
+
+    def _calc_signal(self, row) -> Signal:
+        e8 = float(row["ema_8"]) if not pd.isna(row["ema_8"]) else None
+        e13 = float(row["ema_13"]) if not pd.isna(row["ema_13"]) else None
+        e21 = float(row["ema_21"]) if not pd.isna(row["ema_21"]) else None
+        e55 = float(row["ema_55"]) if not pd.isna(row["ema_55"]) else None
+        if e8 is None or e13 is None or e21 is None or e55 is None:
+            return Signal.HOLD
+        if e55 < e8 and e55 < e13 and e55 < e21:
+            return Signal.BUY
+        elif e55 > e8 and e55 > e13 and e55 > e21:
+            return Signal.SELL
+        return Signal.HOLD
 
     def analyze(self, df: pd.DataFrame) -> Optional[StrategyResult]:
         """Analyze candles and return signal."""
@@ -87,8 +101,25 @@ class EMAQuadStrategy:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"
 
-        just_crossed = (self._prev_signal != signal and signal in (Signal.BUY, Signal.SELL))
-        self._prev_signal = signal
+        # Check historical fresh cross on the candles:
+        # A fresh cross means the crossover occurred on the current or previous candle.
+        # If the market has already been in BUY/SELL for 3+ candles, it is an ongoing pump/dump -> NOT a fresh cross!
+        is_fresh_cross = False
+        if signal in (Signal.BUY, Signal.SELL) and len(enriched) >= 3:
+            sig_prev1 = self._calc_signal(enriched.iloc[-2])
+            sig_prev2 = self._calc_signal(enriched.iloc[-3])
+            # Fresh if transition happened on candle -1 or candle -2
+            if sig_prev1 != signal or sig_prev2 != signal:
+                is_fresh_cross = True
+
+        # Signal state transition
+        if signal != self._prev_signal:
+            self._trade_entered_for_signal = False
+            self._prev_signal = signal
+
+        just_crossed = False
+        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and is_fresh_cross:
+            just_crossed = True
 
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
         adx_val = float(last.get("adx_14", 0.0)) if "adx_14" in last and not pd.isna(last["adx_14"]) else 0.0
@@ -109,6 +140,10 @@ class EMAQuadStrategy:
             chop_passed=True,
             chop_reason="",
         )
+
+    def mark_trade_entered(self):
+        """Called when a trade is entered so we don't fire multiple entries for same cross."""
+        self._trade_entered_for_signal = True
 
     def latest_indicators(self, df: pd.DataFrame) -> dict:
         """Return latest indicator values as a dict (for UI display)."""
@@ -135,9 +170,11 @@ class EMAQuadStrategy:
     def reset_cross_state(self):
         """Reset the previous-signal tracker."""
         self._prev_signal = Signal.HOLD
+        self._trade_entered_for_signal = False
         logger.info("Strategy cross state reset - waiting for fresh cross")
 
     def reset_for_reversal(self):
         """Reset for reversal."""
         self._prev_signal = Signal.HOLD
+        self._trade_entered_for_signal = False
         logger.info("Strategy reset for REVERSAL")
