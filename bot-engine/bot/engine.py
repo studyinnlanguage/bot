@@ -854,6 +854,7 @@ class SymbolWorker(threading.Thread):
         tp_mode = (cfg.get("tp_mode") or "trailing").lower()
         if tp_mode in ("both", "fixed") or tp_mode not in ("trailing", "ema_reversal"):
             tp_mode = "trailing"
+        tp_pct = float(cfg.get("take_profit_pct", sl_pct * 3) or (sl_pct * 3))
 
         # Determine effective leverage and safe distance
         lev = self._get_effective_leverage(symbol)
@@ -1054,7 +1055,7 @@ class SymbolWorker(threading.Thread):
         return fallback
 
     def _set_software_sl_tp(self, symbol: str, side: str, entry_price: float,
-                            sl_pct: float, tp_pct: float,
+                            sl_pct: float = 2.0, tp_pct: float = 6.0,
                             tp_mode: str = "trailing",
                             entry_signal: Optional[Signal] = None,
                             actual_leverage: Optional[int] = None):
