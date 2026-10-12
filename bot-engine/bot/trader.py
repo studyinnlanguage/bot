@@ -552,16 +552,17 @@ class BinanceFuturesTrader:
             logger.warning("Limit/Maker order failed (%s): %s", side, e)
             return {"success": False, "error": str(e), "quantity": quantity, "price": price}
 
-    def close_position(self, symbol: str) -> dict:
-        """Close the current position for the symbol using reduceOnly market order."""
+    def close_position(self, symbol: str, quantity: float = None) -> dict:
+        """Close the current position (or partial quantity) for the symbol using reduceOnly market order."""
         pos = self.get_position(symbol)
         if pos.side == "NONE" or pos.size == 0:
             return {"success": True, "message": "No position to close"}
         close_side = "SELL" if pos.side == "LONG" else "BUY"
+        qty = abs(pos.size) if quantity is None else min(abs(float(quantity)), abs(pos.size))
         return self.place_market_order(
             symbol=symbol,
             side=close_side,
-            quantity=abs(pos.size),
+            quantity=qty,
             reduce_only=True,
         )
 

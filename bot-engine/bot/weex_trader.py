@@ -775,17 +775,18 @@ class WEEXFuturesTrader:
             logger.error("WEEX order failed: %s", e)
             return {"success": False, "error": str(e), "quantity": quantity}
 
-    def close_position(self, symbol: str) -> dict:
-        """Close the current position using reduceOnly market order."""
+    def close_position(self, symbol: str, quantity: float = None) -> dict:
+        """Close the current position (or partial quantity) using reduceOnly market order."""
         pos = self.get_position(symbol)
         if pos.side == "NONE" or pos.size == 0:
             return {"success": True, "message": "No position to close"}
         # Closing LONG -> SELL with reduceOnly; closing SHORT -> BUY with reduceOnly
         close_side = "SELL" if pos.side == "LONG" else "BUY"
+        qty = abs(pos.size) if quantity is None else min(abs(float(quantity)), abs(pos.size))
         return self.place_market_order(
             symbol=symbol,
             side=close_side,
-            quantity=abs(pos.size),
+            quantity=qty,
             reduce_only=True,
             position_side=pos.side,
         )
