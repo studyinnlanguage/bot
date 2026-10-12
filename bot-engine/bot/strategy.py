@@ -50,14 +50,14 @@ class StrategyResult:
 
 
 class EMAQuadStrategy:
-    """Quad-EMA crossover strategy with clean fan-out stack alignment, anti-exhaustion, and chop filters."""
+    """Quad-EMA crossover strategy with 3-candle confirmation window, anti-exhaustion, and chop filters."""
 
-    ADX_MIN: float = 20.0
-    EMA_SLOPE_MIN_PCT: float = 0.05
-    MIN_SEP_PCT: float = 0.25
-    COOLDOWN_MOVE_THRESHOLD_PCT: float = 1.0
+    ADX_MIN: float = 14.0
+    EMA_SLOPE_MIN_PCT: float = 0.02
+    MIN_SEP_PCT: float = 0.10
+    COOLDOWN_MOVE_THRESHOLD_PCT: float = 2.5
     COOLDOWN_CANDLES: int = 3
-    MAX_EMA21_EXTENSION_PCT: float = 0.8
+    MAX_EMA21_EXTENSION_PCT: float = 1.5
 
     def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55):
         self.indicators = IndicatorSet(ema_short, ema_mid1, ema_mid2, ema_long)
@@ -67,9 +67,9 @@ class EMAQuadStrategy:
         self.ema_long = ema_long
         # Track previous candle's signal to detect fresh crosses
         self._prev_signal: Signal = Signal.HOLD
-        # Track the LAST signal we acted on (for reset_cross_state logic)
-        self._last_acted_signal: Signal = Signal.HOLD
         self._require_hold_before_cross: bool = False
+        self._cross_candle_count: int = 0
+        self._trade_entered_for_signal: bool = False
 
     def analyze(self, df: pd.DataFrame) -> Optional[StrategyResult]:
         """Analyze candles and return a signal with clean stack, anti-exhaustion, and chop filters applied."""
@@ -94,38 +94,36 @@ class EMAQuadStrategy:
             logger.warning("EMA values contain NaN - need more historical data")
             return None
 
-        # Clean 4-EMA Stack Alignment:
-        # BUY (LONG): EMA8 > EMA13 > EMA21 > EMA55 (clean upward fan-out)
-        # SELL (SHORT): EMA8 < EMA13 < EMA21 < EMA55 (clean downward waterfall)
-        if float(e8) > float(e13) > float(e21) > float(e55):
+        # Core EMA Strategy:
+        # BUY (LONG): EMA55 is at the BOTTOM (e55 < e8, e13, e21)
+        # SELL (SHORT): EMA55 is at the TOP (e55 > e8, e13, e21)
+        if float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21):
             signal = Signal.BUY
-            reason = "Clean Bullish Stack (EMA 8 > 13 > 21 > 55) -> LONG signal"
-        elif float(e8) < float(e13) < float(e21) < float(e55):
+            reason = "EMA55 is at BOTTOM (below EMA8, 13, 21) -> LONG signal"
+        elif float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21):
             signal = Signal.SELL
-            reason = "Clean Bearish Waterfall (EMA 8 < 13 < 21 < 55) -> SHORT signal"
+            reason = "EMA55 is at TOP (above EMA8, 13, 21) -> SHORT signal"
         else:
             signal = Signal.HOLD
-            reason = "EMAs tangled / mixed stack order -> HOLD"
+            reason = "EMA55 in middle / tangled -> HOLD"
 
         # ===== CHOP & EXHAUSTION FILTERS =====
-        # 1. ADX(14) < 20 -> NO TRADE (chop detector)
+        # 1. ADX(14) < 14 -> Chop (market flat)
         adx_val = float(last.get("adx_14", 0.0)) if "adx_14" in last and not pd.isna(last["adx_14"]) else 0.0
 
-        # 2. EMA slope check: EMA21 abhi vs 6 candles pehle — agar flat (|slope| < 0.05%) -> no trade
+        # 2. EMA slope check: EMA21 abhi vs 6 candles pehle — agar flat (|slope| < 0.02%) -> no trade
         slope_val = float(last.get("ema_21_slope", 0.0)) if "ema_21_slope" in last and not pd.isna(last["ema_21_slope"]) else 0.0
 
-        # 3. Price cloud ke andar hai -> no trade:
-        # agar price EMA8 aur EMA55 ke beech ghoom raha hai to skip
-        cloud_low = min(float(e8), float(e55))
-        cloud_high = max(float(e8), float(e55))
-        price_in_cloud = (cloud_low <= last_close <= cloud_high)
+        # 3. Price cloud check:
+        # For BUY: price should be above EMA55
+        # For SELL: price should be below EMA55
         price_valid_for_trend = True
-        if signal == Signal.BUY and last_close <= cloud_high:
+        if signal == Signal.BUY and last_close <= float(e55):
             price_valid_for_trend = False
-        elif signal == Signal.SELL and last_close >= cloud_low:
+        elif signal == Signal.SELL and last_close >= float(e55):
             price_valid_for_trend = False
 
-        # 4. Cooldown: 1 candle mein >= 1.0% ka move (dump/pump) -> agle 3 candles koi naya trade nahi
+        # 4. Cooldown: 1 candle mein >= 2.5% ka massive move (dump/pump) -> agle 3 candles cooldown
         has_big_move_in_recent_candles = False
         recent_tail = df_eval.tail(4)
         if len(recent_tail) >= 2:
@@ -139,67 +137,78 @@ class EMAQuadStrategy:
                 if not pd.isna(max_hl) and max_hl >= self.COOLDOWN_MOVE_THRESHOLD_PCT:
                     has_big_move_in_recent_candles = True
 
-        # 5. min_sep_pct (separation between EMA8 and EMA55 >= 0.25%)
+        # 5. min_sep_pct (separation between EMA8 and EMA55 >= 0.10%)
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0
 
         # 6. Anti-Exhaustion / Late Entry Trap Filter:
         # Prevents buying at top after 3-4 consecutive pump candles, or shorting at bottom after 3-4 dump candles
         is_exhausted_move = False
-        chop_reason = ""
+        exhaustion_reason = ""
         if len(df_eval) >= 4 and signal in (Signal.BUY, Signal.SELL):
             recent_candles = df_eval.tail(4)
             if signal == Signal.BUY:
                 consecutive_green = sum(1 for i in (1, 2, 3) if recent_candles["close"].iloc[-i] > recent_candles["open"].iloc[-i])
                 three_candle_move = ((recent_candles["close"].iloc[-1] - recent_candles["open"].iloc[-3]) / recent_candles["open"].iloc[-3]) * 100.0
                 dist_above_ema21 = (last_close - float(e21)) / float(e21) * 100.0
-                if consecutive_green >= 3 and (three_candle_move >= 0.8 or dist_above_ema21 >= self.MAX_EMA21_EXTENSION_PCT):
+                if consecutive_green >= 3 and (three_candle_move >= 2.0 or dist_above_ema21 >= self.MAX_EMA21_EXTENSION_PCT):
                     is_exhausted_move = True
-                    chop_reason = f"Exhaustion Trap: 3 consecutive pump candles (+{three_candle_move:.2f}%) / overextended. Skip buying top."
+                    exhaustion_reason = f"Exhaustion Trap: 3 consecutive pump candles (+{three_candle_move:.2f}%) / overextended. Skip buying top."
             elif signal == Signal.SELL:
                 consecutive_red = sum(1 for i in (1, 2, 3) if recent_candles["close"].iloc[-i] < recent_candles["open"].iloc[-i])
                 three_candle_drop = ((recent_candles["open"].iloc[-3] - recent_candles["close"].iloc[-1]) / recent_candles["open"].iloc[-3]) * 100.0
                 dist_below_ema21 = (float(e21) - last_close) / float(e21) * 100.0
-                if consecutive_red >= 3 and (three_candle_drop >= 0.8 or dist_below_ema21 >= self.MAX_EMA21_EXTENSION_PCT):
+                if consecutive_red >= 3 and (three_candle_drop >= 2.0 or dist_below_ema21 >= self.MAX_EMA21_EXTENSION_PCT):
                     is_exhausted_move = True
-                    chop_reason = f"Exhaustion Trap: 3 consecutive dump candles (-{three_candle_drop:.2f}%) / overextended. Skip shorting bottom."
+                    exhaustion_reason = f"Exhaustion Trap: 3 consecutive dump candles (-{three_candle_drop:.2f}%) / overextended. Skip shorting bottom."
 
         chop_passed = True
+        chop_reason = ""
         if signal in (Signal.BUY, Signal.SELL):
             if is_exhausted_move:
                 chop_passed = False
-            elif adx_val < self.ADX_MIN:
+                chop_reason = exhaustion_reason
+            elif adx_val > 0 and adx_val < self.ADX_MIN:
                 chop_passed = False
                 chop_reason = f"ADX(14)={adx_val:.1f} < {self.ADX_MIN} (Chop / sideways market)"
             elif abs(slope_val) < self.EMA_SLOPE_MIN_PCT:
                 chop_passed = False
-                chop_reason = f"EMA21 slope={slope_val:+.3f}% (|slope| < {self.EMA_SLOPE_MIN_PCT}%, cloud flat)"
-            elif price_in_cloud or not price_valid_for_trend:
+                chop_reason = f"EMA21 slope={slope_val:+.3f}% (|slope| < {self.EMA_SLOPE_MIN_PCT}%, flat)"
+            elif not price_valid_for_trend:
                 chop_passed = False
-                chop_reason = f"Price (${last_close:.4f}) inside EMA cloud [{cloud_low:.4f} - {cloud_high:.4f}]"
+                chop_reason = f"Price (${last_close:.4f}) lagging behind EMA55 (${float(e55):.4f})"
             elif has_big_move_in_recent_candles:
                 chop_passed = False
-                chop_reason = f"Dump/Pump Cooldown active (>=1.0% move in last 3 candles)"
+                chop_reason = f"Dump/Pump Cooldown active (>= {self.COOLDOWN_MOVE_THRESHOLD_PCT}% spike in last 3 candles)"
             elif sep_pct < self.MIN_SEP_PCT:
                 chop_passed = False
                 chop_reason = f"EMA separation {sep_pct:.3f}% < {self.MIN_SEP_PCT}% (EMAs squeezed)"
 
-        # Detect FRESH cross: ONLY on the exact candle where signal changes!
-        # NO pending cross queue - if cross happened in chop or exhaustion, it is DEAD!
+        # ===== FRESH CROSS TRACKING & CONFIRMATION WINDOW =====
         just_crossed = False
+
+        if signal != self._prev_signal:
+            # Signal changed (e.g. HOLD -> BUY, or SELL -> BUY)
+            self._cross_candle_count = 0
+            self._trade_entered_for_signal = False
+            self._prev_signal = signal
+        else:
+            self._cross_candle_count += 1
 
         if self._require_hold_before_cross:
             if signal == Signal.HOLD:
                 self._require_hold_before_cross = False
         else:
-            if signal in (Signal.BUY, Signal.SELL):
-                raw_cross = (self._prev_signal != signal)
-                if raw_cross and chop_passed:
-                    just_crossed = True
-                elif raw_cross and not chop_passed:
-                    logger.info("Fresh %s cross rejected by filter: %s (Trade skipped)", signal.value, chop_reason)
-
-        # Update previous signal state
-        self._prev_signal = signal
+            # Allow entry on the first 3 candles of the fresh cross
+            if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal:
+                if self._cross_candle_count <= 3:
+                    if chop_passed:
+                        just_crossed = True
+                        self._trade_entered_for_signal = True
+                        logger.info("✅ Valid %s entry triggered on candle %d of cross!",
+                                    signal.value, self._cross_candle_count)
+                    else:
+                        logger.info("⏳ Candle %d of %s cross held by filter: %s",
+                                    self._cross_candle_count, signal.value, chop_reason)
 
         return StrategyResult(
             signal=signal,
@@ -242,38 +251,17 @@ class EMAQuadStrategy:
     def reset_cross_state(self):
         """Reset the previous-signal tracker. Called when bot starts or
         after a trade closes, so the next cross must be FRESH.
-
-        CRITICAL FIX: After this is called, the strategy will NOT fire
-        just_crossed=True until the signal first goes to HOLD (EMA55 leaves
-        its extreme position) and then comes back to BUY/SELL. This prevents
-        the bot from immediately re-entering a trade after a manual close
-        when EMA55 is still in the same position.
         """
         self._prev_signal = Signal.HOLD
         self._require_hold_before_cross = True
-        logger.info("Strategy cross state reset - waiting for EMAs to untangle "
-                    "and form fresh aligned stack (fresh cross required)")
+        self._cross_candle_count = 0
+        self._trade_entered_for_signal = False
+        logger.info("Strategy cross state reset - waiting for fresh cross")
 
     def reset_for_reversal(self):
-        """Reset prev_signal to HOLD WITHOUT requiring HOLD-before-cross.
-
-        Used after an EMA55-REVERSAL TP fires. The signal has just flipped
-        to the OPPOSITE side (e.g., BUY → SELL), which IS a fresh cross.
-        We want the bot to immediately open the opposite position on the
-        next tick — NOT wait for EMA55 to go to HOLD/mixed first.
-
-        Example flow:
-          1. Bot is LONG (entry_signal=BUY). EMA55 was at BOTTOM.
-          2. EMA55 flips to TOP. Signal becomes SELL.
-          3. EMA-reversal TP fires → close LONG.
-          4. Call reset_for_reversal() → _prev_signal = HOLD.
-          5. Next tick: _prev_signal=HOLD, signal=SELL → just_crossed=True.
-          6. Bot opens SHORT. ✅ (Immediate reversal, no waiting.)
-        """
+        """Reset prev_signal to HOLD WITHOUT requiring HOLD-before-cross."""
         self._prev_signal = Signal.HOLD
-        # Do NOT set _require_hold_before_cross — let the natural cross
-        # detection fire just_crossed=True on the next tick.
         self._require_hold_before_cross = False
-        self._pending_chop_cross = None
-        logger.info("Strategy reset for REVERSAL - opposite signal will "
-                    "trigger fresh entry on next tick (no HOLD required)")
+        self._cross_candle_count = 0
+        self._trade_entered_for_signal = False
+        logger.info("Strategy reset for REVERSAL - opposite signal will trigger fresh entry")
