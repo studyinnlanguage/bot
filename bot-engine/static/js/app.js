@@ -660,16 +660,16 @@ function updateChopIndicatorsUI(data) {
     }
     if ($('indSlope')) {
         $('indSlope').textContent = slope != null ? `${slope > 0 ? '+' : ''}${slope.toFixed(3)}%` : '--';
-        $('indSlope').style.color = (slope != null && Math.abs(slope) >= 0.05) ? 'var(--green-success)' : 'var(--red-danger)';
+        $('indSlope').style.color = (slope != null && Math.abs(slope) >= 0.02) ? 'var(--green-success)' : 'var(--yellow-warning)';
     }
     if ($('indSep')) {
         $('indSep').textContent = sep != null ? `${sep.toFixed(3)}%` : '--';
-        $('indSep').style.color = (sep != null && sep >= 0.25) ? 'var(--green-success)' : 'var(--red-danger)';
+        $('indSep').style.color = (sep != null && sep >= 0.10) ? 'var(--green-success)' : 'var(--yellow-warning)';
     }
     if ($('indChop')) {
-        const isChop = (adx != null && adx < 20) || (slope != null && Math.abs(slope) < 0.05) || (sep != null && sep < 0.25);
-        $('indChop').textContent = isChop ? 'CHOP (BLOCKED)' : 'PASS (TRENDING)';
-        $('indChop').style.color = isChop ? 'var(--red-danger)' : 'var(--green-success)';
+        const isChop = (adx != null && adx < 15);
+        $('indChop').textContent = isChop ? 'CONSOLIDATING' : 'PASS (TRENDING)';
+        $('indChop').style.color = isChop ? 'var(--yellow-warning)' : 'var(--green-success)';
     }
 }
 

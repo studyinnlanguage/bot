@@ -58,8 +58,8 @@ class SymbolWorker(threading.Thread):
         self.trades_today = 0
         self._last_trade_date = datetime.now(timezone.utc).date()
         self.last_check = None
-        # Strict mode: bot only trades on FRESH crosses.
-        self.waiting_for_new_cross = True
+        # On startup, ready to trade active signal immediately (no waiting)
+        self.waiting_for_new_cross = False
         # Track what position we THINK is open (for sync detection).
         self.expected_pos_side = None
         # ===== SOFTWARE SL/TP WATCHDOG STATE =====
@@ -154,7 +154,7 @@ class SymbolWorker(threading.Thread):
                     self.engine._emit("log", {
                         "level": "info",
                         "msg": (f"[{self.symbol}] Startup: signal={seed_result.signal.value}, "
-                                f"candles={len(df)}. Waiting for FRESH cross.")
+                                f"candles={len(df)}. Ready to trade.")
                     })
                     # Emit chart data immediately for active symbol
                     if self.engine.active_symbol == self.symbol:
@@ -762,20 +762,17 @@ class SymbolWorker(threading.Thread):
             if hasattr(self, '_waiting_logged'):
                 delattr(self, '_waiting_logged')
         else:
-            # No position. Check if we should enter a new trade.
-            # STRICT: Only enter on a FRESH cross.
-            if not result.just_crossed:
-                # SILENT: Don't log anything when waiting (no spam!)
-                # Only log ONCE when transitioning to waiting state
-                if self.waiting_for_new_cross and not hasattr(self, '_waiting_logged'):
-                    self._waiting_logged = True
-                    self.engine._emit("log", {
-                        "level": "info",
-                        "msg": (f"[{symbol}] ⏳ Waiting for FRESH cross before entering trade... (silent mode)")
-                    })
+            # No position open.
+            # If signal is HOLD -> wait for BUY or SELL
+            if signal == Signal.HOLD:
                 return
 
-            # Fresh cross happened! Guard against entering multiple times on the same candle
+            # If waiting_for_new_cross is True (after a trade closed), wait for fresh cross
+            if self.waiting_for_new_cross:
+                if not result.just_crossed:
+                    return
+
+            # Active signal or fresh cross! Guard against multiple entries on same candle
             candle_id = str(df.index[-2]) if len(df) >= 2 else str(time.time())
             if getattr(self, '_last_trade_candle_id', None) == candle_id:
                 return
