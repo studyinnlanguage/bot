@@ -1258,16 +1258,21 @@ window.closePositionForSymbol = async function(symbol) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbol: symbol })
         });
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            log('error', `[${symbol}] Close request returned HTTP ${r.status}`);
+            return;
+        }
         const d = await r.json();
         if (d.success) {
             log('success', `[${symbol}] Position closed successfully!`);
             window.fetchPositions();
             if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         } else {
-            log('error', `[${symbol}] Close failed: ${d.error}`);
+            log('error', `[${symbol}] Close failed: ${d.error || 'Unknown error'}`);
         }
     } catch (e) {
-        log('error', `[${symbol}] Close error: ${e.message}`);
+        log('error', `[${symbol}] Close error: ${e.message || e}`);
     }
 }
 
@@ -1961,16 +1966,21 @@ async function closePosition() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbol: activeSymbol }),
         });
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            log('error', `[${activeSymbol}] Close request returned HTTP ${r.status}`);
+            return;
+        }
         const data = await r.json();
         if (data.success) {
             log('success', `[${activeSymbol}] Position close request accepted`);
             window.fetchPositions();
             if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         } else {
-            log('error', `[${activeSymbol}] Close failed: ${data.error}`);
+            log('error', `[${activeSymbol}] Close failed: ${data.error || 'Unknown error'}`);
         }
     } catch (e) {
-        log('error', `Close error: ${e}`);
+        log('error', `Close error: ${e.message || e}`);
     }
 }
 
