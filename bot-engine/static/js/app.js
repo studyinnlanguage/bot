@@ -932,10 +932,6 @@ function initSocket() {
                     el.classList.add(`signal-${data.signal.toLowerCase()}`);
                 }
             }
-            if (data.signal !== 'HOLD') {
-                log(data.signal === 'BUY' ? 'success' : 'warn',
-                    `[${sym}] SIGNAL: ${data.signal} - ${data.reason}`);
-            }
         });
 
         socket.on('position', (data) => {

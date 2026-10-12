@@ -1860,6 +1860,42 @@ class BotEngine:
             logger.error("Bot start notification failed: %s", e)
         return {"success": True, "message": "Bot started"}
 
+    def sync_config(self, new_config: dict):
+        """Dynamically update running workers when user saves settings without needing stop/start."""
+        self.config = new_config
+        self.notifier.update_config(new_config)
+        if not self.is_running:
+            return
+
+        new_symbols = set(self._symbols_list())
+        with self.lock:
+            current_symbols = set(self.workers.keys())
+
+            # Stop and remove deleted symbols
+            to_remove = current_symbols - new_symbols
+            for sym in to_remove:
+                w = self.workers.pop(sym, None)
+                if w:
+                    w.stop_event.set()
+                    self._emit("log", {"level": "info", "msg": f"[{sym}] ⏹️ Removed from active trading watchlist. Worker stopped."})
+
+            # Start new symbols
+            to_add = new_symbols - current_symbols
+            for sym in to_add:
+                w = SymbolWorker(self, sym, new_config)
+                self.workers[sym] = w
+                w.start()
+                self._emit("log", {"level": "info", "msg": f"[{sym}] ▶️ Added to active trading watchlist. Worker started."})
+
+            # Update config on surviving workers
+            for sym in (current_symbols & new_symbols):
+                w = self.workers.get(sym)
+                if w:
+                    w.config = new_config
+
+        if new_symbols and self.active_symbol not in new_symbols:
+            self.set_active_symbol(list(new_symbols)[0])
+
     def stop(self):
         """Stop all workers."""
         if not self.is_running:
