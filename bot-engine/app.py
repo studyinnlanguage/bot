@@ -439,20 +439,31 @@ def get_positions():
 
 @app.route("/api/close", methods=["POST"])
 def close_position():
-    if not ENGINE.trader:
-        return jsonify({"success": False, "error": "Bot not connected"})
     data = request.get_json(silent=True) or {}
     symbol = data.get("symbol") or CONFIG.get("symbol", "BTCUSDT")
+
+    # Fallback to monitor_trader or instantiate trader from CONFIG so manual close works even if bot is STOPPED
+    trader = ENGINE.trader or getattr(ENGINE, "monitor_trader", None)
+    if not trader:
+        try:
+            from bot.engine import get_trader
+            trader = get_trader(CONFIG)
+            ENGINE.monitor_trader = trader
+        except Exception as te:
+            logger.error("Could not instantiate trader for close: %s", te)
+
+    if not trader:
+        return jsonify({"success": False, "error": "Bot not connected to exchange. Please check API keys."})
 
     # 1. Fetch current open position before closing to get accurate entry, size & mark price
     pos = None
     try:
-        pos = ENGINE.trader.get_position(symbol)
+        pos = trader.get_position(symbol)
     except Exception as pe:
         logger.warning("Could not fetch position before close: %s", pe)
 
     # 2. Close position via trader
-    result = ENGINE.trader.close_position(symbol)
+    result = trader.close_position(symbol)
 
     # 3. If closed successfully, record in Trade History & reset worker state
     if result.get("success") and pos and pos.side != "NONE" and pos.size != 0:
