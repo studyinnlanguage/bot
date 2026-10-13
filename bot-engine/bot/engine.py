@@ -58,8 +58,8 @@ class SymbolWorker(threading.Thread):
         self.trades_today = 0
         self._last_trade_date = datetime.now(timezone.utc).date()
         self.last_check = None
-        # On startup, ready to trade active trend or confirmed pullback immediately (no 3-day freeze)
-        self.waiting_for_new_cross = False
+        # STRICT RULE: On startup, must wait silently for a genuine FRESH crossover before trading
+        self.waiting_for_new_cross = True
         self.be_sl_set = False            # Break-even SL triggered
         self.partial_tp_done = False      # Partial 50% TP closed
         # Track what position we THINK is open (for sync detection).
@@ -156,7 +156,7 @@ class SymbolWorker(threading.Thread):
                     self.engine._emit("log", {
                         "level": "info",
                         "msg": (f"[{self.symbol}] Startup: signal={seed_result.signal.value}, "
-                                f"candles={len(df)}. Ready to trade.")
+                                f"candles={len(df)}. Waiting for a FRESH crossover.")
                     })
                     # Emit chart data immediately for active symbol
                     if self.engine.active_symbol == self.symbol:
