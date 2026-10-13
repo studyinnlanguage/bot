@@ -80,9 +80,13 @@ class EMAQuadStrategy:
             return None
 
         enriched = self.indicators.compute(df)
+        # CRITICAL FIX: Evaluate trade signals on the last confirmed CLOSED candle (iloc[-2]).
+        # iloc[-1] is the unclosed/forming candle whose close price ticks every second.
+        # Evaluating on confirmed closed candle prevents rapid intra-candle flip traps and whipsaws!
+        closed_candle = enriched.iloc[-2] if len(enriched) >= 2 else enriched.iloc[-1]
         last = enriched.iloc[-1]
 
-        e8, e13, e21, e55 = last["ema_8"], last["ema_13"], last["ema_21"], last["ema_55"]
+        e8, e13, e21, e55 = closed_candle["ema_8"], closed_candle["ema_13"], closed_candle["ema_21"], closed_candle["ema_55"]
         last_close = float(last["close"])
 
         if pd.isna(e55) or pd.isna(e8) or pd.isna(e13) or pd.isna(e21):
@@ -101,16 +105,29 @@ class EMAQuadStrategy:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"
 
-        # Check historical fresh cross on the candles:
-        # A fresh cross means the crossover occurred on the current or previous candle.
-        # If the market has already been in BUY/SELL for 3+ candles, it is an ongoing pump/dump -> NOT a fresh cross!
+        # Check historical fresh cross on the closed candles:
+        # Fresh if crossover occurred on the latest closed candle (iloc[-2]) or the one prior (iloc[-3])
         is_fresh_cross = False
-        if signal in (Signal.BUY, Signal.SELL) and len(enriched) >= 3:
-            sig_prev1 = self._calc_signal(enriched.iloc[-2])
-            sig_prev2 = self._calc_signal(enriched.iloc[-3])
-            # Fresh if transition happened on candle -1 or candle -2
+        if signal in (Signal.BUY, Signal.SELL) and len(enriched) >= 4:
+            sig_prev1 = self._calc_signal(enriched.iloc[-3])
+            sig_prev2 = self._calc_signal(enriched.iloc[-4])
             if sig_prev1 != signal or sig_prev2 != signal:
                 is_fresh_cross = True
+
+        # Trend Continuation / Pullback Entry:
+        # If trend is strong and established, enter on pullback to EMA13/21 so bot never misses 3-day rallies
+        is_pullback = False
+        if signal in (Signal.BUY, Signal.SELL) and not is_fresh_cross and len(enriched) >= 3:
+            c_open = float(closed_candle.get("open", 0))
+            c_close = float(closed_candle.get("close", 0))
+            if signal == Signal.BUY:
+                recent_low = min(float(enriched.iloc[-3]["low"]), float(closed_candle["low"]))
+                if recent_low <= float(e13) and c_close > c_open and c_close > float(e13):
+                    is_pullback = True
+            elif signal == Signal.SELL:
+                recent_high = max(float(enriched.iloc[-3]["high"]), float(closed_candle["high"]))
+                if recent_high >= float(e13) and c_close < c_open and c_close < float(e13):
+                    is_pullback = True
 
         # Signal state transition
         if signal != self._prev_signal:
@@ -118,7 +135,7 @@ class EMAQuadStrategy:
             self._prev_signal = signal
 
         just_crossed = False
-        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and is_fresh_cross:
+        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and (is_fresh_cross or is_pullback):
             just_crossed = True
 
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
