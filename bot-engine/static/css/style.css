@@ -1514,6 +1514,13 @@ input, select {
     .workspace-nav {
         top: 56px;
         padding: 6px 12px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        white-space: nowrap;
+        scrollbar-width: none;
+    }
+    .workspace-nav::-webkit-scrollbar {
+        display: none;
     }
     .ws-quick-actions {
         display: none;
@@ -1521,6 +1528,7 @@ input, select {
     .ws-tab-btn {
         padding: 6px 12px;
         font-size: 12px;
+        flex-shrink: 0;
     }
 
     /* Show mobile quick strip */
@@ -1536,6 +1544,8 @@ input, select {
     .app-container {
         padding: 12px;
         padding-bottom: 84px; /* Space for fixed bottom nav */
+        max-width: 100vw;
+        overflow-x: hidden;
     }
 
     .terminal-grid {
@@ -1572,14 +1582,90 @@ input, select {
         font-size: 14px;
         padding: 11px 12px;
     }
+
+    /* Headers with action buttons */
+    .config-view-header, .history-view-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+        padding: 14px 16px;
+    }
+    .config-actions, .history-header-actions {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        gap: 8px;
+    }
+    .config-actions .btn, .history-header-actions .btn {
+        width: 100%;
+        justify-content: center;
+        white-space: normal;
+        text-align: center;
+        min-height: 42px;
+    }
+
+    /* Tables horizontal scroll container */
+    .history-table-card .card-body,
+    .card-body:has(.history-table),
+    .card-body:has(.pos-table) {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+    }
+    .history-table, .pos-table {
+        min-width: 680px;
+        width: 100%;
+    }
+
+    .history-table-card .card-header {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 10px;
+    }
+    .history-filter-controls {
+        display: flex;
+        width: 100%;
+        gap: 8px;
+    }
+    .history-select {
+        flex: 1;
+        width: 100%;
+    }
+
+    .history-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    .pos-tab-metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
 }
 
 @media (max-width: 600px) {
-    .brand-text h1 .brand-subtext {
-        display: none;
+    .topbar {
+        padding: 8px 10px;
+    }
+    .logo-wrapper {
+        width: 34px;
+        height: 34px;
+    }
+    .brand {
+        gap: 8px;
+    }
+    .brand-text h1 {
+        font-size: 13px;
+    }
+    .brand-text h1 .brand-subtext,
+    .brand-text h1 .pro-badge {
+        display: none !important;
     }
     .topbar-actions .env-badge {
-        display: none;
+        display: none !important;
+    }
+    .btn-account {
+        padding: 5px 8px;
+        font-size: 11px;
     }
     .btn-account #accountBtnText {
         display: none;
@@ -1589,10 +1675,10 @@ input, select {
         gap: 8px;
     }
     .stat {
-        padding: 10px;
+        padding: 8px 10px;
     }
     .stat-value {
-        font-size: 16px;
+        font-size: 15px;
     }
     .indicators-grid {
         grid-template-columns: 1fr 1fr;
@@ -1605,8 +1691,70 @@ input, select {
         grid-template-columns: 1fr;
     }
     .chart-card .card-body {
-        height: 320px;
-        min-height: 320px;
+        height: 300px;
+        min-height: 300px;
+    }
+    .app-container {
+        padding: 8px;
+        padding-bottom: 78px;
+    }
+    .history-stat-card, .pos-metric-card {
+        padding: 10px 12px;
+    }
+    .h-stat-val, .pos-metric-value {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 380px) {
+    .topbar {
+        padding: 6px 8px;
+    }
+    .brand-text h1 {
+        font-size: 12px;
+    }
+    .status-badge {
+        font-size: 9px;
+        padding: 2px 6px;
+    }
+    #legalRiskBtn {
+        font-size: 10px;
+        padding: 4px 6px;
+    }
+    .history-stats-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+    .pos-tab-metrics-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+    .indicators-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+    .mobile-bottom-nav {
+        padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
+    }
+    .mob-nav-item {
+        padding: 4px 1px;
+        max-width: none;
+        gap: 2px;
+    }
+    .mob-nav-icon {
+        font-size: 15px;
+    }
+    .mob-nav-text {
+        font-size: 8.5px;
+        letter-spacing: -0.2px;
+    }
+    .app-container {
+        padding: 6px;
+        padding-bottom: 74px;
     }
 }
 
