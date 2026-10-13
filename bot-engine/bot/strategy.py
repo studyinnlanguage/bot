@@ -114,28 +114,14 @@ class EMAQuadStrategy:
             if sig_prev1 != signal or sig_prev2 != signal:
                 is_fresh_cross = True
 
-        # Trend Continuation / Pullback Entry:
-        # If trend is strong and established, enter on pullback to EMA13/21 so bot never misses 3-day rallies
-        is_pullback = False
-        if signal in (Signal.BUY, Signal.SELL) and not is_fresh_cross and len(enriched) >= 3:
-            c_open = float(closed_candle.get("open", 0))
-            c_close = float(closed_candle.get("close", 0))
-            if signal == Signal.BUY:
-                recent_low = min(float(enriched.iloc[-3]["low"]), float(closed_candle["low"]))
-                if recent_low <= float(e13) and c_close > c_open and c_close > float(e13):
-                    is_pullback = True
-            elif signal == Signal.SELL:
-                recent_high = max(float(enriched.iloc[-3]["high"]), float(closed_candle["high"]))
-                if recent_high >= float(e13) and c_close < c_open and c_close < float(e13):
-                    is_pullback = True
-
         # Signal state transition
         if signal != self._prev_signal:
             self._trade_entered_for_signal = False
             self._prev_signal = signal
 
+        # STRICT RULE: Only enter on a genuine FRESH crossover!
         just_crossed = False
-        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and (is_fresh_cross or is_pullback):
+        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and is_fresh_cross:
             just_crossed = True
 
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
