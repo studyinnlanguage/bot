@@ -58,8 +58,8 @@ class SymbolWorker(threading.Thread):
         self.trades_today = 0
         self._last_trade_date = datetime.now(timezone.utc).date()
         self.last_check = None
-        # On startup, must wait for a FRESH cross if market is already running/pumped
-        self.waiting_for_new_cross = True
+        # On startup, ready to trade active trend or confirmed pullback immediately (no 3-day freeze)
+        self.waiting_for_new_cross = False
         self.be_sl_set = False            # Break-even SL triggered
         self.partial_tp_done = False      # Partial 50% TP closed
         # Track what position we THINK is open (for sync detection).
