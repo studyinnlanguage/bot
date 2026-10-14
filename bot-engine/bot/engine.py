@@ -1096,9 +1096,9 @@ class SymbolWorker(threading.Thread):
             return
 
         # Normalize + persist tp_mode for this position
-        tp_mode = (tp_mode or "trailing").lower()
-        if tp_mode in ("both", "fixed") or tp_mode not in ("trailing", "ema_reversal"):
-            tp_mode = "trailing"
+        tp_mode = (tp_mode or "fixed").lower()
+        if tp_mode not in ("fixed", "trailing", "ema_reversal"):
+            tp_mode = "fixed"
         self.tp_mode = tp_mode
         self.entry_signal = entry_signal
         self.ema_reversal_tp_fired = False  # reset one-shot guard
@@ -1108,15 +1108,14 @@ class SymbolWorker(threading.Thread):
 
         # Effective leverage from position/exchange or override or config
         lev = actual_leverage if (actual_leverage and actual_leverage > 1) else self._get_effective_leverage(symbol)
-        self.target_roe_pct = float(self.config.get("trailing_roe_pct", 100.0))
-
-        # Price move % required for target_roe_pct (100% ROE = 1:1 margin profit) scaled by leverage:
-        target_price_pct = self.target_roe_pct / lev
-        self.r_distance = entry_price * (target_price_pct / 100.0)
-
-        # SL distance capped at 80% ROE for liquidation safety at ultra-high leverage
-        safe_sl_roe = min(self.target_roe_pct, 80.0)
+        
+        # Calculate SL distance from sl_pct (capped at 80% ROE for liquidation safety at ultra-high leverage)
+        sl_roe = sl_pct * lev
+        safe_sl_roe = min(sl_roe, 80.0)
         sl_dist = entry_price * ((safe_sl_roe / lev) / 100.0)
+        
+        self.target_roe_pct = safe_sl_roe
+        self.r_distance = sl_dist
 
         # In trailing mode: Exact 1:1 Risk-to-Reward.
         # Distance to TP1 (1R reward) = self.r_distance (100% ROE = equal to margin investment).
