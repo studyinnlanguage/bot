@@ -741,11 +741,12 @@
                         <div class="form-group">
                             <label>Take Profit Execution Mode</label>
                             <select id="tpMode" class="form-select-styled">
-                                <option value="trailing" selected>🎯 DYNAMIC TRAILING (1:1 ➔ 1:2 ➔ 1:3... Margin Scaled) [ACTIVE]</option>
-                                <option value="ema_reversal">EMA55 REVERSAL — TP when EMA55 flips opposite</option>
+                                <option value="fixed" selected>🎯 FIXED 1:1 TAKE PROFIT (Exit 100% on TP1 — No Trailing)</option>
+                                <option value="trailing">🚀 DYNAMIC TRAILING (1:1 ➔ 1:2 ➔ 1:3... Multi-Stage)</option>
+                                <option value="ema_reversal">⚡ EMA55 REVERSAL — Exit when EMA55 flips</option>
                             </select>
                             <div class="hint-card">
-                                <b>DYNAMIC TRAILING:</b> Starts TP1 at true 1:1 (+100% ROE = Profit equals Investment Margin, e.g. ~$177 on $177 margin). When TP1 is hit, moves SL to Break-even (0 loss) &amp; sets target to TP2 (1:2 / +200% ROE). When TP2 is hit, locks TP1 profit &amp; sets target to TP3! 🚀
+                                <b>FIXED 1:1 TAKE PROFIT:</b> Automatically exits 100% of the trade at TP1 (Reward matches Risk exactly, e.g. 2% SL = 2% TP). No trailing, no premature reversals, completely clean single-target execution. 🎯
                             </div>
                         </div>
 

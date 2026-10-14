@@ -1662,8 +1662,8 @@ async function loadSettings() {
             $('trailingRoePct').value = cfg.trailing_roe_pct || 100;
         }
         if ($('tpMode')) {
-            const rawTp = (cfg.tp_mode || 'trailing').toLowerCase();
-            $('tpMode').value = (rawTp === 'both' || rawTp === 'fixed') ? 'trailing' : rawTp;
+            const rawTp = (cfg.tp_mode || 'fixed').toLowerCase();
+            $('tpMode').value = (rawTp === 'trailing' || rawTp === 'ema_reversal') ? rawTp : 'fixed';
             // Trigger visibility update for TP % hint
             if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
         }
@@ -1810,7 +1810,7 @@ async function saveSettings() {
         stop_loss_pct: parseFloat($('stopLossPct').value) || 0,
         take_profit_pct: parseFloat($('takeProfitPct').value) || 0,
         trailing_roe_pct: parseFloat($('trailingRoePct')?.value) || 100,
-        tp_mode: $('tpMode') ? $('tpMode').value : 'trailing',
+        tp_mode: $('tpMode') ? $('tpMode').value : 'fixed',
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
         // Notifications
@@ -2292,9 +2292,9 @@ function attachListeners() {
 
     function updateTPModeUI() {
         const sl = parseFloat(slInput?.value) || 0;
-        const tp = sl * 3;
+        const tp = sl; // 1:1 Risk-to-Reward
         const tpInput = $('takeProfitPct');
-        const mode = tpModeSel ? tpModeSel.value : 'trailing';
+        const mode = tpModeSel ? tpModeSel.value : 'fixed';
         const trailingRoeGroup = $('trailingRoeGroup');
         if (trailingRoeGroup) {
             trailingRoeGroup.style.display = (mode === 'trailing') ? 'block' : 'none';
@@ -2312,7 +2312,7 @@ function attachListeners() {
             } else {
                 tpInput.style.color = '#0ecb81';
                 tpInput.style.fontStyle = 'normal';
-                tpInput.value = tp.toFixed(1);
+                tpInput.value = `Fixed 1:1 (${tp.toFixed(1)}%)`;
             }
         }
     }

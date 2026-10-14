@@ -66,13 +66,25 @@ class EMAQuadStrategy:
         e13 = float(row["ema_13"]) if not pd.isna(row["ema_13"]) else None
         e21 = float(row["ema_21"]) if not pd.isna(row["ema_21"]) else None
         e55 = float(row["ema_55"]) if not pd.isna(row["ema_55"]) else None
+        adx_val = float(row.get("adx_14", 0.0)) if "adx_14" in row and not pd.isna(row["adx_14"]) else 0.0
         if e8 is None or e13 is None or e21 is None or e55 is None:
             return Signal.HOLD
-        if e55 < e8 and e55 < e13 and e55 < e21:
+        # Chop filter: if ADX < 15, market has no trend momentum -> HOLD
+        if adx_val > 0 and adx_val < 15:
+            return Signal.HOLD
+        # BUY: EMA55 at bottom and EMA8 >= EMA13
+        if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13:
             return Signal.BUY
-        elif e55 > e8 and e55 > e13 and e55 > e21:
+        # SELL: EMA55 at top and EMA8 <= EMA13
+        elif e55 > e8 and e55 > e13 and e55 > e21 and e8 <= e13:
             return Signal.SELL
         return Signal.HOLD
+
+    def seed_startup_state(self, signal: Signal):
+        """Seed startup state so bot NEVER enters on startup."""
+        self._prev_signal = signal
+        self._trade_entered_for_signal = True
+        logger.info("Strategy seeded on startup with signal=%s (waiting for fresh cross)", signal.value)
 
     def analyze(self, df: pd.DataFrame) -> Optional[StrategyResult]:
         """Analyze candles and return signal."""
@@ -92,15 +104,23 @@ class EMAQuadStrategy:
         if pd.isna(e55) or pd.isna(e8) or pd.isna(e13) or pd.isna(e21):
             return None
 
-        # Pure Core EMA Strategy:
-        # BUY (LONG): EMA55 is at the BOTTOM (e55 < e8, e13, e21)
-        # SELL (SHORT): EMA55 is at the TOP (e55 > e8, e13, e21)
-        if float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21):
+        adx_val = float(last.get("adx_14", 0.0)) if "adx_14" in last and not pd.isna(last["adx_14"]) else 0.0
+        slope_val = float(last.get("ema_21_slope", 0.0)) if "ema_21_slope" in last and not pd.isna(last["ema_21_slope"]) else 0.0
+        sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
+
+        # Pure Core EMA Strategy with Momentum & Chop Protection:
+        # 1. Chop Filter: If ADX < 15, market is flat dead sideways chop -> HOLD
+        if adx_val > 0 and adx_val < 15:
+            signal = Signal.HOLD
+            reason = f"ADX({adx_val:.1f}) < 15: Flat Sideways Chop -> HOLD"
+        # 2. BUY (LONG): EMA55 is at BOTTOM (below EMA8, 13, 21) AND EMA8 >= EMA13
+        elif float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21) and float(e8) >= float(e13):
             signal = Signal.BUY
-            reason = "EMA55 is at BOTTOM (below EMA8, 13, 21) -> LONG signal"
-        elif float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21):
+            reason = "EMA55 is at BOTTOM & EMA8 >= EMA13 -> LONG signal"
+        # 3. SELL (SHORT): EMA55 is at TOP (above EMA8, 13, 21) AND EMA8 <= EMA13
+        elif float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21) and float(e8) <= float(e13):
             signal = Signal.SELL
-            reason = "EMA55 is at TOP (above EMA8, 13, 21) -> SHORT signal"
+            reason = "EMA55 is at TOP & EMA8 <= EMA13 -> SHORT signal"
         else:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"
