@@ -80,6 +80,26 @@ class EMAQuadStrategy:
             return Signal.SELL
         return Signal.HOLD
 
+    def _is_ema55_at_bottom(self, row) -> bool:
+        """Check if EMA55 is strictly at the bottom (below 8, 13, and 21)."""
+        e8 = row.get("ema_8")
+        e13 = row.get("ema_13")
+        e21 = row.get("ema_21")
+        e55 = row.get("ema_55")
+        if pd.isna(e8) or pd.isna(e13) or pd.isna(e21) or pd.isna(e55):
+            return False
+        return float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21)
+
+    def _is_ema55_at_top(self, row) -> bool:
+        """Check if EMA55 is strictly at the top (above 8, 13, and 21)."""
+        e8 = row.get("ema_8")
+        e13 = row.get("ema_13")
+        e21 = row.get("ema_21")
+        e55 = row.get("ema_55")
+        if pd.isna(e8) or pd.isna(e13) or pd.isna(e21) or pd.isna(e55):
+            return False
+        return float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21)
+
     def seed_startup_state(self, signal: Signal):
         """Seed startup state so bot NEVER enters on startup."""
         self._prev_signal = signal
@@ -104,8 +124,9 @@ class EMAQuadStrategy:
         if pd.isna(e55) or pd.isna(e8) or pd.isna(e13) or pd.isna(e21):
             return None
 
-        adx_val = float(last.get("adx_14", 0.0)) if "adx_14" in last and not pd.isna(last["adx_14"]) else 0.0
-        slope_val = float(last.get("ema_21_slope", 0.0)) if "ema_21_slope" in last and not pd.isna(last["ema_21_slope"]) else 0.0
+        # CRITICAL FIX: Read ADX & slope from confirmed CLOSED candle (iloc[-2]), NOT forming candle!
+        adx_val = float(closed_candle.get("adx_14", 0.0)) if "adx_14" in closed_candle and not pd.isna(closed_candle["adx_14"]) else 0.0
+        slope_val = float(closed_candle.get("ema_21_slope", 0.0)) if "ema_21_slope" in closed_candle and not pd.isna(closed_candle["ema_21_slope"]) else 0.0
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
 
         # Pure Core EMA Strategy with Momentum & Chop Protection:
@@ -125,13 +146,20 @@ class EMAQuadStrategy:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"
 
-        # Check historical fresh cross on the closed candles:
-        # Fresh if crossover occurred on the latest closed candle (iloc[-2]) or the one prior (iloc[-3])
+        # CRITICAL FIX: Pure Genuine EMA55 Crossover Check
+        # A fresh BUY cross requires that prior to this candle, EMA55 was NOT already sitting at the bottom.
+        # A fresh SELL cross requires that prior to this candle, EMA55 was NOT already sitting at the top.
+        # This completely prevents ADX fluctuations or HOLD flickers from triggering fake "fresh" entries in mid-trend!
         is_fresh_cross = False
-        if signal in (Signal.BUY, Signal.SELL) and len(enriched) >= 4:
-            sig_prev1 = self._calc_signal(enriched.iloc[-3])
-            sig_prev2 = self._calc_signal(enriched.iloc[-4])
-            if sig_prev1 != signal or sig_prev2 != signal:
+        if signal == Signal.BUY and len(enriched) >= 4:
+            was_not_bottom_prev1 = not self._is_ema55_at_bottom(enriched.iloc[-3])
+            was_not_bottom_prev2 = not self._is_ema55_at_bottom(enriched.iloc[-4])
+            if was_not_bottom_prev1 or was_not_bottom_prev2:
+                is_fresh_cross = True
+        elif signal == Signal.SELL and len(enriched) >= 4:
+            was_not_top_prev1 = not self._is_ema55_at_top(enriched.iloc[-3])
+            was_not_top_prev2 = not self._is_ema55_at_top(enriched.iloc[-4])
+            if was_not_top_prev1 or was_not_top_prev2:
                 is_fresh_cross = True
 
         # Signal state transition
@@ -143,10 +171,6 @@ class EMAQuadStrategy:
         just_crossed = False
         if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and is_fresh_cross:
             just_crossed = True
-
-        sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
-        adx_val = float(last.get("adx_14", 0.0)) if "adx_14" in last and not pd.isna(last["adx_14"]) else 0.0
-        slope_val = float(last.get("ema_21_slope", 0.0)) if "ema_21_slope" in last and not pd.isna(last["ema_21_slope"]) else 0.0
 
         return StrategyResult(
             signal=signal,
