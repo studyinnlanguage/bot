@@ -621,14 +621,15 @@ class SymbolWorker(threading.Thread):
         if actual_side != "NONE" and self.reversal_pending_side is None:
             entry = pos.entry_price
             needs_init = (self.sl_price is None or self.tp_price is None)
-            needs_migration = (self.tp_mode in ("both", "fixed"))
 
-            if entry > 0 and (needs_init or needs_migration):
+            if entry > 0 and needs_init:
                 sl_pct_val = float(cfg.get("stop_loss_pct", 2))
-                tp_pct_val = sl_pct_val * 3
-                tp_mode_val = (cfg.get("tp_mode") or "trailing").lower()
-                if tp_mode_val in ("both", "fixed") or tp_mode_val not in ("trailing", "ema_reversal"):
-                    tp_mode_val = "trailing"
+                tp_mode_val = (cfg.get("tp_mode") or "fixed").lower()
+                if tp_mode_val in ("both", "fixed"):
+                    tp_mode_val = "fixed"
+                elif tp_mode_val not in ("trailing", "ema_reversal"):
+                    tp_mode_val = "fixed"
+                tp_pct_val = sl_pct_val if tp_mode_val == "fixed" else (sl_pct_val * 3)
                 inferred_entry_signal = Signal.BUY if actual_side == "LONG" else Signal.SELL
                 self._set_software_sl_tp(
                     symbol, actual_side, entry, sl_pct_val, tp_pct_val,

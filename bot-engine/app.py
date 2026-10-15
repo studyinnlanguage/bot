@@ -142,9 +142,14 @@ def load_config() -> dict:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             merged = {**DEFAULT_CONFIG, **cfg}
-            # Auto-migrate legacy 'both' or 'fixed' modes to pure 'trailing'
-            if merged.get("tp_mode") in ("both", "fixed") or merged.get("tp_mode") not in ("trailing", "ema_reversal"):
-                merged["tp_mode"] = "trailing"
+            # Preserve configured tp_mode (fixed, trailing, ema_reversal). Default to fixed 1:1
+            tp_m = (merged.get("tp_mode") or "fixed").lower()
+            if tp_m in ("both", "fixed"):
+                merged["tp_mode"] = "fixed"
+            elif tp_m in ("trailing", "ema_reversal"):
+                merged["tp_mode"] = tp_m
+            else:
+                merged["tp_mode"] = "fixed"
             if not merged.get("trailing_roe_pct") or float(merged.get("trailing_roe_pct", 0)) < 20:
                 merged["trailing_roe_pct"] = 100.0
             return merged
@@ -247,10 +252,18 @@ def update_config():
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
     CONFIG["stop_loss_pct"] = max(0.5, min(50, float(CONFIG.get("stop_loss_pct", 2))))
     CONFIG["trailing_roe_pct"] = max(20.0, min(500.0, float(CONFIG.get("trailing_roe_pct", 100.0))))
-    CONFIG["tp_mode"] = (CONFIG.get("tp_mode") or "trailing").lower()
-    if CONFIG["tp_mode"] in ("both", "fixed") or CONFIG["tp_mode"] not in ("trailing", "ema_reversal"):
-        CONFIG["tp_mode"] = "trailing"
-    CONFIG["take_profit_pct"] = CONFIG["stop_loss_pct"] * 3
+    tp_m = (CONFIG.get("tp_mode") or "fixed").lower()
+    if tp_m in ("both", "fixed"):
+        CONFIG["tp_mode"] = "fixed"
+    elif tp_m in ("trailing", "ema_reversal"):
+        CONFIG["tp_mode"] = tp_m
+    else:
+        CONFIG["tp_mode"] = "fixed"
+
+    if CONFIG["tp_mode"] == "fixed":
+        CONFIG["take_profit_pct"] = CONFIG["stop_loss_pct"]
+    else:
+        CONFIG["take_profit_pct"] = CONFIG["stop_loss_pct"] * 3
     CONFIG["testnet"] = bool(CONFIG["testnet"])
     CONFIG["telegram_enabled"] = bool(CONFIG.get("telegram_enabled"))
     CONFIG["email_enabled"] = bool(CONFIG.get("email_enabled"))
