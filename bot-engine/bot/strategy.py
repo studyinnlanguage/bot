@@ -66,11 +66,7 @@ class EMAQuadStrategy:
         e13 = float(row["ema_13"]) if not pd.isna(row["ema_13"]) else None
         e21 = float(row["ema_21"]) if not pd.isna(row["ema_21"]) else None
         e55 = float(row["ema_55"]) if not pd.isna(row["ema_55"]) else None
-        adx_val = float(row.get("adx_14", 0.0)) if "adx_14" in row and not pd.isna(row["adx_14"]) else 0.0
         if e8 is None or e13 is None or e21 is None or e55 is None:
-            return Signal.HOLD
-        # Chop filter: if ADX < 15, market has no trend momentum -> HOLD
-        if adx_val > 0 and adx_val < 15:
             return Signal.HOLD
         # BUY: EMA55 at bottom and EMA8 >= EMA13
         if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13:
@@ -128,20 +124,57 @@ class EMAQuadStrategy:
         adx_val = float(closed_candle.get("adx_14", 0.0)) if "adx_14" in closed_candle and not pd.isna(closed_candle["adx_14"]) else 0.0
         slope_val = float(closed_candle.get("ema_21_slope", 0.0)) if "ema_21_slope" in closed_candle and not pd.isna(closed_candle["ema_21_slope"]) else 0.0
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
+        closed_close = float(closed_candle["close"])
+        cloud_low = min(float(e8), float(e55))
+        cloud_high = max(float(e8), float(e55))
 
-        # Pure Core EMA Strategy with Momentum & Chop Protection:
-        # 1. Chop Filter: If ADX < 15, market is flat dead sideways chop -> HOLD
-        if adx_val > 0 and adx_val < 15:
-            signal = Signal.HOLD
-            reason = f"ADX({adx_val:.1f}) < 15: Flat Sideways Chop -> HOLD"
-        # 2. BUY (LONG): EMA55 is at BOTTOM (below EMA8, 13, 21) AND EMA8 >= EMA13
-        elif float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21) and float(e8) >= float(e13):
-            signal = Signal.BUY
-            reason = "EMA55 is at BOTTOM & EMA8 >= EMA13 -> LONG signal"
-        # 3. SELL (SHORT): EMA55 is at TOP (above EMA8, 13, 21) AND EMA8 <= EMA13
-        elif float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21) and float(e8) <= float(e13):
-            signal = Signal.SELL
-            reason = "EMA55 is at TOP & EMA8 <= EMA13 -> SHORT signal"
+        # Check for recent extreme spike candles (>= 1.0% move in single closed candle)
+        has_spike_trap = False
+        if len(enriched) >= 4:
+            recent_candles = enriched.iloc[-4:-1]
+            for _, r_bar in recent_candles.iterrows():
+                o_val = float(r_bar["open"]) if not pd.isna(r_bar["open"]) else 0.0
+                c_val = float(r_bar["close"]) if not pd.isna(r_bar["close"]) else 0.0
+                if o_val > 0:
+                    c_move = abs(c_val - o_val) / o_val * 100.0
+                    if c_move >= 1.0:
+                        has_spike_trap = True
+                        break
+
+        # 1. Base EMA Candidate Detection
+        is_buy_candidate = (float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21) and float(e8) >= float(e13))
+        is_sell_candidate = (float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21) and float(e8) <= float(e13))
+
+        # 2. Strict Price-Action Chop Filters (No lagging ADX)
+        MIN_SEP_PCT = 0.20
+
+        if is_buy_candidate:
+            if closed_close <= cloud_high:
+                signal = Signal.HOLD
+                reason = f"Price (${closed_close:.4f}) inside EMA cloud [{cloud_low:.4f} - {cloud_high:.4f}] -> Chop HOLD"
+            elif sep_pct < MIN_SEP_PCT:
+                signal = Signal.HOLD
+                reason = f"EMAs squeezed (sep {sep_pct:.3f}% < {MIN_SEP_PCT}%) -> Flat Chop HOLD"
+            elif has_spike_trap:
+                signal = Signal.HOLD
+                reason = "Spike Wick Trap Cooldown active (recent >=1.0% candle move) -> HOLD"
+            else:
+                signal = Signal.BUY
+                reason = "EMA55 at BOTTOM & Breakout above Cloud -> LONG signal"
+
+        elif is_sell_candidate:
+            if closed_close >= cloud_low:
+                signal = Signal.HOLD
+                reason = f"Price (${closed_close:.4f}) inside EMA cloud [{cloud_low:.4f} - {cloud_high:.4f}] -> Chop HOLD"
+            elif sep_pct < MIN_SEP_PCT:
+                signal = Signal.HOLD
+                reason = f"EMAs squeezed (sep {sep_pct:.3f}% < {MIN_SEP_PCT}%) -> Flat Chop HOLD"
+            elif has_spike_trap:
+                signal = Signal.HOLD
+                reason = "Spike Wick Trap Cooldown active (recent >=1.0% candle move) -> HOLD"
+            else:
+                signal = Signal.SELL
+                reason = "EMA55 at TOP & Breakdown below Cloud -> SHORT signal"
         else:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"

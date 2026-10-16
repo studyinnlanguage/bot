@@ -1024,9 +1024,7 @@ function updatePositionUI(data) {
     if (trailingEl) {
         if (data.side && data.side !== 'NONE' && data.tp_price) {
             if (tpMode === 'trailing' || tpMode === 'both' || tpMode === 'fixed') {
-                const stage = data.tp_stage || 1;
-                const roe = (stage * targetRoe).toFixed(0);
-                trailingEl.textContent = `TP${stage} (1:${stage} / +${roe}% ROE) @ $${fmt(data.tp_price)}`;
+                trailingEl.textContent = `1:1 TP (+${targetRoe.toFixed(0)}% ROE) @ $${fmt(data.tp_price)}`;
                 trailingEl.style.color = '#0ecb81';
             } else if (tpMode === 'ema_reversal') {
                 trailingEl.textContent = `EMA55 Reversal Target`;
