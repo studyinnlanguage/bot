@@ -142,16 +142,10 @@ def load_config() -> dict:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             merged = {**DEFAULT_CONFIG, **cfg}
-            # Preserve configured tp_mode (fixed, trailing, ema_reversal). Default to fixed 1:1
-            tp_m = (merged.get("tp_mode") or "fixed").lower()
-            if tp_m in ("both", "fixed"):
-                merged["tp_mode"] = "fixed"
-            elif tp_m in ("trailing", "ema_reversal"):
-                merged["tp_mode"] = tp_m
-            else:
-                merged["tp_mode"] = "fixed"
-            if not merged.get("trailing_roe_pct") or float(merged.get("trailing_roe_pct", 0)) < 20:
-                merged["trailing_roe_pct"] = 100.0
+            # Enforce strict 1:1 TP & SL with auto-reversal
+            merged["tp_mode"] = "fixed"
+            merged["take_profit_pct"] = merged.get("stop_loss_pct", 2)
+            merged["trailing_roe_pct"] = 100.0
             return merged
         except (json.JSONDecodeError, OSError) as e:
             logger.error("Failed to load config: %s", e)

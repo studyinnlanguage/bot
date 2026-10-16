@@ -343,15 +343,8 @@ class Notifier:
         title = "Bot Started"
         exchange = config.get("exchange", "binance").upper()
         symbols = ",".join(config.get("symbols_list", []))
-        tp_mode = (config.get("tp_mode") or "trailing").lower()
-        if tp_mode == "trailing":
-            tp_desc = "Dynamic Trailing (1:1 ➔ 1:2 ➔ 1:3... + Break-even SL)"
-        elif tp_mode == "ema_reversal":
-            tp_desc = "EMA55-Reversal (opposite flip)"
-        elif tp_mode == "both":
-            tp_desc = f"Both (Fixed {config.get('take_profit_pct', 0)}% OR EMA55-flip)"
-        else:
-            tp_desc = f"Fixed {config.get('take_profit_pct', 0)}% (1:3 RR)"
+        sl_val = config.get("stop_loss_pct", 2)
+        tp_desc = f"Strict 1:1 TP ({sl_val}%) + Auto-Reversal"
 
         msg = (
             f"Exchange: {exchange}\n"

@@ -179,11 +179,11 @@
                                 <strong id="posPnl" class="pnl-zero">$0.00</strong>
                             </div>
                             <div class="pos-row">
-                                <span>Trailing Target</span>
+                                <span>Take Profit (1:1 Target)</span>
                                 <strong id="posTrailingTp" style="color:var(--green-success)">--</strong>
                             </div>
                             <div class="pos-row">
-                                <span>Dynamic Stop Loss</span>
+                                <span>Stop Loss (1:1 SL)</span>
                                 <strong id="posCurrentSl" style="color:var(--red-danger)">--</strong>
                             </div>
                             <div class="pos-row">
@@ -347,7 +347,7 @@
             <div class="config-view-header">
                 <div>
                     <h2>🎯 Live Open Positions &amp; Risk Monitor</h2>
-                    <p class="section-desc">Real-time futures positions, dynamic trailing targets, unrealized PnL, and manual risk controls.</p>
+                    <p class="section-desc">Real-time futures positions, strict 1:1 profit targets, stop loss, and unrealized PnL.</p>
                 </div>
                 <div class="config-actions">
                     <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
@@ -374,8 +374,8 @@
                     <div class="pos-metric-sub" id="posTabRoe">ROE: 0.00%</div>
                 </div>
                 <div class="pos-metric-card">
-                    <div class="pos-metric-label">Trailing TP Stage</div>
-                    <div class="pos-metric-value" id="posTabStage">Stage 0</div>
+                    <div class="pos-metric-label">1:1 Target (TP / SL)</div>
+                    <div class="pos-metric-value" id="posTabStage">1:1 Auto</div>
                     <div class="pos-metric-sub" id="posTabTpTarget">Target: --</div>
                 </div>
             </div>
@@ -408,10 +408,10 @@
                             <span>Estimated ROE (%)</span><strong id="posFocusRoe">0.00%</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Dynamic Trailing Target</span><strong id="posFocusTrailingTp" style="color:var(--green-success)">--</strong>
+                            <span>Take Profit (1:1 Target)</span><strong id="posFocusTrailingTp" style="color:var(--green-success)">--</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Current Stop Loss</span><strong id="posFocusCurrentSl" style="color:var(--red-danger)">--</strong>
+                            <span>Stop Loss (1:1 SL)</span><strong id="posFocusCurrentSl" style="color:var(--red-danger)">--</strong>
                         </div>
                         <div class="pos-row">
                             <span>Configured Leverage</span><strong id="posFocusLeverage">{{ config.leverage | default(10) }}x</strong>
@@ -441,8 +441,8 @@
                                     <th>Entry</th>
                                     <th>Mark</th>
                                     <th>Unrealized PnL</th>
-                                    <th>Trailing TP</th>
-                                    <th>Stop Loss</th>
+                                    <th>1:1 Take Profit</th>
+                                    <th>1:1 Stop Loss</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -496,7 +496,7 @@
             <div class="history-view-header">
                 <div>
                     <h2><span class="card-icon">📜</span> Bot Trade History &amp; Performance</h2>
-                    <p class="section-desc">Complete record of every trade executed by the bot (including Trailing SL hits, Initial SL, Manual Bot UI closes, and Manual Exchange closes on Binance / WEEX).</p>
+                    <p class="section-desc">Complete record of every trade executed by the bot (including 1:1 TP exits, 1:1 SL triggers, EMA flip reversals, and manual closes).</p>
                 </div>
                 <div class="history-header-actions">
                     <button type="button" class="btn btn-secondary" onclick="if(window.fetchTradeHistory)window.fetchTradeHistory(true)" id="refreshHistoryBtn">🔄 Refresh</button>
@@ -583,7 +583,7 @@
             <div class="config-view-header">
                 <div>
                     <h2>⚙️ Bot Engine Configuration &amp; Strategy</h2>
-                    <p class="section-desc">Manage API credentials, exchange connectivity, multi-coin watchlist, leverage and trailing risk parameters.</p>
+                    <p class="section-desc">Manage API credentials, exchange connectivity, multi-coin watchlist, leverage and strict 1:1 risk parameters.</p>
                 </div>
                 <div class="config-actions">
                     <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
@@ -661,10 +661,10 @@
                     </div>
                 </section>
 
-                <!-- Right: Strategy & Dynamic Risk Management -->
+                <!-- Right: Strategy & Automated 1:1 Risk Management -->
                 <section class="card strategy-card" data-tab-section="controls">
                     <div class="card-header">
-                        <h2><span class="card-icon">🎯</span> Trading Strategy &amp; Dynamic Risk</h2>
+                        <h2><span class="card-icon">🎯</span> Trading Strategy &amp; Automated 1:1 Risk</h2>
                     </div>
                     <div class="card-body">
                         
@@ -724,28 +724,25 @@
                             <div class="hint">Bot dynamically computes USDT size based on current available balance.</div>
                         </div>
 
-                        <!-- Stop Loss & Take Profit Mode -->
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Strict Stop Loss % (min 0.5%)</label>
-                                <input type="number" id="stopLossPct" value="2" min="0.5" max="20" step="0.5" required>
-                                <div class="hint">⚠ STRICT: SL is actively guarded by the engine.</div>
+                        <!-- Automated 1:1 Risk & Profit Settings -->
+                        <div class="form-group">
+                            <label>Automated 1:1 Risk &amp; Target % (SL &amp; TP Distance)</label>
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <input type="number" id="stopLossPct" value="2" min="0.5" max="20" step="0.5" required style="flex:1;">
+                                <input type="hidden" id="takeProfitPct" value="2">
+                                <input type="hidden" id="tpMode" value="fixed">
+                                <span class="badge" style="background:rgba(14,203,129,0.15); color:var(--green-success); border:1px solid rgba(14,203,129,0.3); font-weight:700; padding:10px 14px; border-radius:8px; white-space:nowrap;">
+                                    ⚡ AUTO: 1:1 ACTIVE
+                                </span>
                             </div>
-                            <div class="form-group">
-                                <label>Take Profit Target Display</label>
-                                <input type="text" id="takeProfitPct" value="Dynamic (1:1 ➔ 1:2 ➔ 1:3...)" readonly class="input-readonly-tp">
-                                <div class="hint">⚡ Auto ratchet step trailing (with Break-even SL)</div>
+                            <div class="hint" style="margin-top:6px;">
+                                🎯 <b>Fully Automated 1:1 Risk-to-Reward:</b> Take Profit (+<span id="autoTpDisplay">2.0</span>%) &amp; Stop Loss (-<span id="autoSlDisplay">2.0</span>%) are symmetrically locked. If trend flips opposite, bot cuts trade instantly and auto-reverses!
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label>Take Profit Execution Mode</label>
-                            <select id="tpMode" class="form-select-styled">
-                                <option value="fixed" selected>🎯 STRICT 1:1 TAKE PROFIT + AUTO-REVERSAL ON FLIP</option>
-                            </select>
-                            <div class="hint-card">
-                                <b>1:1 TP + AUTO-REVERSAL:</b> Automatically exits 100% of the trade at 1:1 TP (Reward matches Risk distance). If market trends reverse and EMA flips to the opposite side, bot instantly cuts the trade and opens the opposite position! 🎯
-                            </div>
+                        <div class="hint-card" style="margin-top:12px; border-left:4px solid var(--green-success);">
+                            <b>🤖 100% AUTOMATED EXECUTION:</b> 
+                            Strict 1:1 Take Profit + 1:1 Stop Loss + Instant EMA55 Opposite Flip Reversal. Zero manual switching needed — the engine runs hands-free on auto mode.
                         </div>
 
                     </div>
@@ -760,7 +757,7 @@
             <div class="config-view-header">
                 <div>
                     <h2>🔔 Real-Time Trade Alerts &amp; Notifications</h2>
-                    <p class="section-desc">Receive instant entry, trailing TP stage hit, stop loss trigger, and error notifications across your communication channels.</p>
+                    <p class="section-desc">Receive instant entry, 1:1 TP hit, stop loss trigger, reversal flip, and error notifications across your communication channels.</p>
                 </div>
                 <div class="config-actions">
                     <button id="testNotificationBtn" class="btn btn-primary">⚡ Test All Configured Channels</button>

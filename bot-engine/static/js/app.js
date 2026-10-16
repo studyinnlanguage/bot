@@ -1017,23 +1017,14 @@ function updatePositionUI(data) {
     const lev = (hasOpenTrade && rawLev > 1) ? rawLev : (rawLev > 1 && !$('leverage')?.value ? rawLev : cfgLev);
     if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
 
-    // Trailing TP Target & Dynamic SL
+    // 1:1 Take Profit Target & 1:1 Stop Loss
     const trailingEl = $('posTrailingTp');
-    const tpMode = (data.tp_mode || $('tpMode')?.value || 'trailing').toLowerCase();
     const targetRoe = Number(data.target_roe) || 100;
 
     if (trailingEl) {
         if (data.side && data.side !== 'NONE' && data.tp_price) {
-            if (tpMode === 'trailing' || tpMode === 'both' || tpMode === 'fixed') {
-                trailingEl.textContent = `1:1 TP (+${targetRoe.toFixed(0)}% ROE) @ $${fmt(data.tp_price)}`;
-                trailingEl.style.color = '#0ecb81';
-            } else if (tpMode === 'ema_reversal') {
-                trailingEl.textContent = `EMA55 Reversal Target`;
-                trailingEl.style.color = '#0ecb81';
-            } else {
-                trailingEl.textContent = `$${fmt(data.tp_price)}`;
-                trailingEl.style.color = '#0ecb81';
-            }
+            trailingEl.textContent = `$${fmt(data.tp_price)} (1:1 Target)`;
+            trailingEl.style.color = '#0ecb81';
         } else {
             trailingEl.textContent = '--';
             trailingEl.style.color = '#848e9c';
@@ -1042,26 +1033,8 @@ function updatePositionUI(data) {
     const slEl = $('posCurrentSl');
     if (slEl) {
         if (data.side && data.side !== 'NONE' && data.sl_price) {
-            let slDesc = `$${fmt(data.sl_price)}`;
-            if (tpMode === 'trailing' || tpMode === 'both' || tpMode === 'fixed') {
-                const stage = data.tp_stage || 1;
-                if (stage >= 3) {
-                    const lockedStage = stage - 2;
-                    const lockedRoe = (lockedStage * targetRoe).toFixed(0);
-                    slDesc += ` (Locked TP${lockedStage} +${lockedRoe}% ROE 💰)`;
-                    slEl.style.color = '#0ecb81';
-                } else if (stage === 2) {
-                    slDesc += ` (Break-even 🛡️)`;
-                    slEl.style.color = '#f0b90b';
-                } else {
-                    const slRoe = Math.min(targetRoe, 80);
-                    slDesc += ` (-${slRoe.toFixed(0)}% ROE 🛡️)`;
-                    slEl.style.color = '#f6465d';
-                }
-            } else {
-                slEl.style.color = '#f6465d';
-            }
-            slEl.textContent = slDesc;
+            slEl.textContent = `$${fmt(data.sl_price)} (1:1 SL)`;
+            slEl.style.color = '#f6465d';
         } else {
             slEl.textContent = '--';
             slEl.style.color = '#848e9c';
@@ -1179,7 +1152,7 @@ function updatePositionUI(data) {
 
     if ($('posFocusTrailingTp')) $('posFocusTrailingTp').textContent = trailingEl ? trailingEl.textContent : '--';
     if ($('posFocusCurrentSl')) $('posFocusCurrentSl').textContent = slEl ? slEl.textContent : '--';
-    if ($('posTabStage')) $('posTabStage').textContent = data.side && data.side !== 'NONE' ? `Stage ${data.tp_stage || 1}` : 'Stage 0';
+    if ($('posTabStage')) $('posTabStage').textContent = data.side && data.side !== 'NONE' ? '1:1 Active' : '1:1 Auto';
     if ($('posTabTpTarget')) $('posTabTpTarget').textContent = data.tp_price ? `TP: $${fmt(data.tp_price)}` : 'Target: --';
 
     // Update positions table
@@ -1652,20 +1625,11 @@ async function loadSettings() {
         }
         if ($('amount')) $('amount').value = cfg.amount || 100;
         if ($('amountPct')) $('amountPct').value = cfg.amount_pct || 10;
-        if ($('stopLossPct')) $('stopLossPct').value = cfg.stop_loss_pct || 2;
-        if ($('takeProfitPct')) {
-            const tp = (cfg.stop_loss_pct || 2) * 3;
-            $('takeProfitPct').value = tp.toFixed(1);
-        }
-        if ($('trailingRoePct')) {
-            $('trailingRoePct').value = cfg.trailing_roe_pct || 100;
-        }
-        if ($('tpMode')) {
-            const rawTp = (cfg.tp_mode || 'fixed').toLowerCase();
-            $('tpMode').value = (rawTp === 'trailing' || rawTp === 'ema_reversal') ? rawTp : 'fixed';
-            // Trigger visibility update for TP % hint
-            if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
-        }
+        const slVal = cfg.stop_loss_pct || 2;
+        if ($('stopLossPct')) $('stopLossPct').value = slVal;
+        if ($('takeProfitPct')) $('takeProfitPct').value = slVal;
+        if ($('tpMode')) $('tpMode').value = 'fixed';
+        if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
         if ($('mode')) $('mode').value = cfg.mode || 'both';
         if ($('testnet')) $('testnet').value = String(cfg.testnet ?? true);
         if (cfg.api_key && $('apiKey')) $('apiKey').placeholder = cfg.api_key_masked || 'Saved';
@@ -1807,9 +1771,9 @@ async function saveSettings() {
         amount: parseFloat($('amount').value),
         amount_pct: parseFloat($('amountPct').value),
         stop_loss_pct: parseFloat($('stopLossPct').value) || 0,
-        take_profit_pct: parseFloat($('takeProfitPct').value) || 0,
-        trailing_roe_pct: parseFloat($('trailingRoePct')?.value) || 100,
-        tp_mode: $('tpMode') ? $('tpMode').value : 'fixed',
+        take_profit_pct: parseFloat($('stopLossPct').value) || 0,
+        trailing_roe_pct: 100,
+        tp_mode: 'fixed',
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
         // Notifications
@@ -2279,9 +2243,8 @@ function attachListeners() {
         }
     }
 
-    // Auto-calculate TP from SL (1:3 RR) + handle TP mode UI
+    // Auto-calculate 1:1 TP from SL + sync automated execution badges
     const slInput = $('stopLossPct');
-    const tpModeSel = $('tpMode');
     const tfSelect = $('timeframe');
     if (tfSelect) {
         tfSelect.addEventListener('change', () => {
@@ -2290,40 +2253,22 @@ function attachListeners() {
     }
 
     function updateTPModeUI() {
-        const sl = parseFloat(slInput?.value) || 0;
-        const tp = sl; // 1:1 Risk-to-Reward
+        const sl = parseFloat(slInput?.value) || 2.0;
         const tpInput = $('takeProfitPct');
-        const mode = tpModeSel ? tpModeSel.value : 'fixed';
-        const trailingRoeGroup = $('trailingRoeGroup');
-        if (trailingRoeGroup) {
-            trailingRoeGroup.style.display = (mode === 'trailing') ? 'block' : 'none';
-        }
         if (tpInput) {
-            if (mode === 'trailing') {
-                tpInput.style.color = '#0ecb81';
-                tpInput.style.fontStyle = 'normal';
-                tpInput.value = `Dynamic (1:1 ➔ 1:2 ➔ 1:3...)`;
-            } else if (mode === 'ema_reversal') {
-                // TP % is not used — show as inactive
-                tpInput.style.color = '#848e9c';
-                tpInput.style.fontStyle = 'italic';
-                tpInput.value = '(not used)';
-            } else {
-                tpInput.style.color = '#0ecb81';
-                tpInput.style.fontStyle = 'normal';
-                tpInput.value = `Fixed 1:1 (${tp.toFixed(1)}%)`;
-            }
+            tpInput.value = sl.toFixed(1);
         }
+        if ($('autoTpDisplay')) $('autoTpDisplay').textContent = sl.toFixed(1);
+        if ($('autoSlDisplay')) $('autoSlDisplay').textContent = sl.toFixed(1);
+        const tpModeInput = $('tpMode');
+        if (tpModeInput) tpModeInput.value = 'fixed';
     }
 
     if (slInput) {
         slInput.addEventListener('input', updateTPModeUI);
         slInput.dispatchEvent(new Event('input'));
     }
-    if (tpModeSel) {
-        tpModeSel.addEventListener('change', updateTPModeUI);
-    }
-    // Expose for the config loader to call after setting select.value
+    // Expose for the config loader to call
     window.updateTPModeUI = updateTPModeUI;
 
     // Exchange toggle
