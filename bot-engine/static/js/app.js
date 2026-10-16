@@ -2265,7 +2265,14 @@ function attachListeners() {
             });
             const data = await res.json();
             if (data.success) {
-                log('success', `⚡ Leverage successfully set to ${data.leverage || lev}x!`);
+                const finalLev = data.leverage || lev;
+                if (levInput) levInput.value = finalLev;
+                if ($('posLeverage')) $('posLeverage').textContent = `${finalLev}x`;
+                if (data.adjusted) {
+                    log('warn', `⚠️ Binance Rule: ${activeSymbol} par max limit ${finalLev}x hai (${lev}x Binance allow nahi karta). Set to ${finalLev}x.`);
+                } else {
+                    log('success', `⚡ Leverage successfully set to ${finalLev}x!`);
+                }
             } else {
                 log('warn', `Leverage notice: ${data.error || 'Saved in config'}`);
             }
