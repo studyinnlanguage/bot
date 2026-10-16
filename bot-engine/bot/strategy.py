@@ -145,36 +145,13 @@ class EMAQuadStrategy:
         is_buy_candidate = (float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21) and float(e8) >= float(e13))
         is_sell_candidate = (float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21) and float(e8) <= float(e13))
 
-        # 2. Strict Price-Action Chop Filters (No lagging ADX)
-        MIN_SEP_PCT = 0.20
-
+        # 2. Pure EMA Strategy Signal Assignment (No artificial chop squeeze blocks)
         if is_buy_candidate:
-            if closed_close <= cloud_high:
-                signal = Signal.HOLD
-                reason = f"Price (${closed_close:.4f}) inside EMA cloud [{cloud_low:.4f} - {cloud_high:.4f}] -> Chop HOLD"
-            elif sep_pct < MIN_SEP_PCT:
-                signal = Signal.HOLD
-                reason = f"EMAs squeezed (sep {sep_pct:.3f}% < {MIN_SEP_PCT}%) -> Flat Chop HOLD"
-            elif has_spike_trap:
-                signal = Signal.HOLD
-                reason = "Spike Wick Trap Cooldown active (recent >=1.0% candle move) -> HOLD"
-            else:
-                signal = Signal.BUY
-                reason = "EMA55 at BOTTOM & Breakout above Cloud -> LONG signal"
-
+            signal = Signal.BUY
+            reason = "EMA55 is at BOTTOM & EMA8 >= EMA13 -> BUY (LONG) signal"
         elif is_sell_candidate:
-            if closed_close >= cloud_low:
-                signal = Signal.HOLD
-                reason = f"Price (${closed_close:.4f}) inside EMA cloud [{cloud_low:.4f} - {cloud_high:.4f}] -> Chop HOLD"
-            elif sep_pct < MIN_SEP_PCT:
-                signal = Signal.HOLD
-                reason = f"EMAs squeezed (sep {sep_pct:.3f}% < {MIN_SEP_PCT}%) -> Flat Chop HOLD"
-            elif has_spike_trap:
-                signal = Signal.HOLD
-                reason = "Spike Wick Trap Cooldown active (recent >=1.0% candle move) -> HOLD"
-            else:
-                signal = Signal.SELL
-                reason = "EMA55 at TOP & Breakdown below Cloud -> SHORT signal"
+            signal = Signal.SELL
+            reason = "EMA55 is at TOP & EMA8 <= EMA13 -> SELL (SHORT) signal"
         else:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"

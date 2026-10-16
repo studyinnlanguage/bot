@@ -640,37 +640,7 @@ function initDrawingSystem() {
 }
 
 function updateChopIndicatorsUI(data) {
-    if (!data) {
-        if ($('indAdx')) $('indAdx').textContent = '--';
-        if ($('indSlope')) $('indSlope').textContent = '--';
-        if ($('indSep')) $('indSep').textContent = '--';
-        if ($('indChop')) {
-            $('indChop').textContent = '--';
-            $('indChop').style.color = 'var(--text-secondary)';
-        }
-        return;
-    }
-    const adx = data.adx_14 != null ? Number(data.adx_14) : null;
-    const slope = data.ema_21_slope != null ? Number(data.ema_21_slope) : null;
-    const sep = data.ema_sep_pct != null ? Number(data.ema_sep_pct) : null;
-
-    if ($('indAdx')) {
-        $('indAdx').textContent = adx != null ? adx.toFixed(1) : '--';
-        $('indAdx').style.color = (adx != null && adx >= 20) ? 'var(--green-success)' : 'var(--red-danger)';
-    }
-    if ($('indSlope')) {
-        $('indSlope').textContent = slope != null ? `${slope > 0 ? '+' : ''}${slope.toFixed(3)}%` : '--';
-        $('indSlope').style.color = (slope != null && Math.abs(slope) >= 0.02) ? 'var(--green-success)' : 'var(--yellow-warning)';
-    }
-    if ($('indSep')) {
-        $('indSep').textContent = sep != null ? `${sep.toFixed(3)}%` : '--';
-        $('indSep').style.color = (sep != null && sep >= 0.10) ? 'var(--green-success)' : 'var(--yellow-warning)';
-    }
-    if ($('indChop')) {
-        const isChop = (adx != null && adx < 15);
-        $('indChop').textContent = isChop ? 'CONSOLIDATING' : 'PASS (TRENDING)';
-        $('indChop').style.color = isChop ? 'var(--yellow-warning)' : 'var(--green-success)';
-    }
+    // Pure EMA strategy active - chop indicators retired
 }
 
 // ===== Chart Setup (TradingView style with zoom/pan) =====
