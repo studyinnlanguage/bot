@@ -1011,9 +1011,10 @@ function updatePositionUI(data) {
         else if (pnl < 0) pnlEl.classList.add('pnl-negative');
         else pnlEl.classList.add('pnl-zero');
     }
-    const cfgLev = parseInt($('leverage')?.value) || 125;
+    const cfgLev = parseInt($('leverage')?.value) || 75;
     const rawLev = parseInt(data.leverage) || 0;
-    const lev = rawLev > 1 ? rawLev : cfgLev;
+    const hasOpenTrade = data.side && data.side !== 'NONE';
+    const lev = (hasOpenTrade && rawLev > 1) ? rawLev : (rawLev > 1 && !$('leverage')?.value ? rawLev : cfgLev);
     if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
 
     // Trailing TP Target & Dynamic SL
@@ -2356,6 +2357,16 @@ function attachListeners() {
         } catch (e) {
             log('info', `Leverage set to ${lev}x (Save settings dabayein apply karne ke liye)`);
         }
+    }
+
+    const levInputElem = $('leverage');
+    if (levInputElem) {
+        ['input', 'change'].forEach(evt => {
+            levInputElem.addEventListener(evt, () => {
+                const val = parseInt(levInputElem.value) || 75;
+                if ($('posLeverage')) $('posLeverage').textContent = `${val}x`;
+            });
+        });
     }
 
     // Quick leverage
