@@ -1557,7 +1557,12 @@ class BotEngine:
                     r = active_trader.set_leverage(sym, leverage)
                     results[sym] = r
                     actual = r.get("leverage", leverage) if r.get("success") else leverage
-                    if r.get("success"):
+                    if r.get("adjusted"):
+                        self._emit("log", {
+                            "level": "warn",
+                            "msg": f"[{sym}] ⚠️ Binance Official Limit: {sym} par maximum allowed leverage {actual}x hai ({leverage}x Binance allow nahi karta). Set to {actual}x."
+                        })
+                    elif r.get("success"):
                         self._emit("log", {
                             "level": "success",
                             "msg": f"[{sym}] ⚡ Leverage set to {actual}x on {self.config.get('exchange', 'binance').upper()}"
@@ -1609,7 +1614,16 @@ class BotEngine:
         except Exception:
             pass
 
-        return {"success": True, "leverage": leverage, "results": results}
+        target_sym = cur_sym if cur_sym in results else (symbols[0] if symbols else None)
+        effective_actual_lev = results.get(target_sym, {}).get("leverage", leverage) if target_sym else leverage
+        is_adjusted = results.get(target_sym, {}).get("adjusted", False) if target_sym else False
+        return {
+            "success": True, 
+            "leverage": effective_actual_lev, 
+            "requested": leverage, 
+            "adjusted": is_adjusted, 
+            "results": results
+        }
 
     def start(self, config: dict):
         """Start the bot with the given config."""
