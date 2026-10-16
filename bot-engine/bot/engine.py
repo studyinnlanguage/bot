@@ -105,16 +105,18 @@ class SymbolWorker(threading.Thread):
         self._last_close_timestamp = 0.0
 
     def _get_effective_leverage(self, symbol: str) -> int:
-        """Get the true active leverage for this symbol from the exchange or config."""
+        """Get the true active leverage for this symbol from config (or active open position)."""
+        cfg_lev = max(1, int(self.config.get("leverage", 75)))
         try:
             trader = self.engine.trader or self.engine.monitor_trader
             if trader:
                 pos = trader.get_position(symbol)
-                if pos and pos.leverage and int(pos.leverage) > 1:
+                # Only use exchange position leverage if there is an ACTUAL OPEN POSITION!
+                if pos and pos.side != "NONE" and pos.size != 0 and pos.leverage and int(pos.leverage) > 1:
                     return int(pos.leverage)
         except Exception:
             pass
-        return max(1, int(self.config.get("leverage", 50)))
+        return cfg_lev
 
     def _update_exchange_sl(self, side: str, new_sl: float, qty: float):
         """Update exchange stop loss order to lock in profit or break-even, and cancel any rogue TP orders."""
@@ -321,7 +323,7 @@ class SymbolWorker(threading.Thread):
                 "msg": f"[{symbol}] Not enough data yet (need >= {self.strategy.ema_long + 5} candles)."
             })
             # Still emit position so UI stays in sync
-            effective_lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
+            effective_lev = pos.leverage if (pos.side != "NONE" and pos.size != 0 and pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
             self.engine._emit("position", {
                 "symbol": symbol,
                 "side": pos.side,
@@ -645,7 +647,7 @@ class SymbolWorker(threading.Thread):
                     self._update_exchange_sl(actual_side, self.sl_price, abs(pos.size))
                 self._exchange_tp_cleaned = True
 
-        effective_lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
+        effective_lev = pos.leverage if (pos.side != "NONE" and pos.size != 0 and pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
         self.engine._emit("position", {
             "symbol": symbol,
             "side": pos.side,
@@ -839,8 +841,13 @@ class SymbolWorker(threading.Thread):
         if tp_mode not in ("fixed", "trailing", "ema_reversal"):
             tp_mode = "fixed"
 
-        # Determine effective leverage
+        # Determine effective leverage from user config
         lev = self._get_effective_leverage(symbol)
+        try:
+            if hasattr(self.engine.trader, "set_leverage"):
+                self.engine.trader.set_leverage(symbol, lev)
+        except Exception:
+            pass
 
         # 1:1 Fixed TP: TP distance exactly matches Stop Loss distance (1:1 Risk/Reward)
         safe_sl_roe = min(sl_pct * lev, 80.0)
