@@ -60,9 +60,8 @@ class SymbolWorker(threading.Thread):
         self.candles_processed = 0
         self.trades_today = 0
         self._last_trade_date = datetime.now(timezone.utc).date()
-        self.last_check = None
-        self.waiting_for_new_cross = False
-        self.be_sl_set = False            # Break-even SL triggered
+        # STRICT RULE: On startup, must wait for a genuine FRESH crossover before trading
+        self.waiting_for_new_cross = True
         self.partial_tp_done = False      # Partial 50% TP closed
         # Track what position we THINK is open (for sync detection).
         self.expected_pos_side = None
@@ -156,8 +155,9 @@ class SymbolWorker(threading.Thread):
             if df is not None and len(df) >= 60:
                 seed_result = self.strategy.analyze(df)
                 if seed_result:
+                    # STRICT RULE: Seed startup state so bot NEVER enters on startup without a fresh crossover!
                     self.strategy.seed_startup_state(seed_result.signal)
-                    self.waiting_for_new_cross = False
+                    self.waiting_for_new_cross = True
                     self.last_signal = seed_result.signal
                     self.engine._emit("signal", {
                         "symbol": self.symbol,
@@ -165,12 +165,12 @@ class SymbolWorker(threading.Thread):
                         "reason": seed_result.reason,
                         "emas": {"ema_8": seed_result.ema_8, "ema_13": seed_result.ema_13,
                                  "ema_21": seed_result.ema_21, "ema_55": seed_result.ema_55},
-                        "just_crossed": seed_result.just_crossed,
+                        "just_crossed": False,
                     })
                     self.engine._emit("log", {
                         "level": "info",
-                        "msg": (f"[{self.symbol}] Initial analysis: signal={seed_result.signal.value} "
-                                f"({seed_result.reason}) | Active monitoring ready to trade.")
+                        "msg": (f"[{self.symbol}] Startup: signal={seed_result.signal.value} "
+                                f"({seed_result.reason}). Waiting for a genuine FRESH crossover before taking any trade.")
                     })
                     # Emit chart data immediately for active symbol
                     if self.engine.active_symbol == self.symbol:
@@ -463,12 +463,8 @@ class SymbolWorker(threading.Thread):
                                     f"{opposite_side} on next tick (immediate reversal, no waiting)")
                         })
                     else:
-                        if sl_hit:
-                            self.waiting_for_new_cross = True
-                            self._last_sl_signal = self.entry_signal
-                            self._last_sl_candle_id = str(df.index[-1]) if (df is not None and len(df)) else str(time.time())
-                        else:
-                            self.waiting_for_new_cross = False
+                        # SL or fixed-TP hit: require fresh cross (wait for fresh crossover event)
+                        self.waiting_for_new_cross = True
                         self.strategy.reset_cross_state()
                     # Notification
                     try:
@@ -765,26 +761,27 @@ class SymbolWorker(threading.Thread):
             if signal == Signal.HOLD:
                 return
 
-            # If waiting_for_new_cross is True (after an SL hit), wait for signal to flip or fresh cross
+            # If waiting_for_new_cross is True (startup or after trade closed), must wait for fresh crossover!
             if self.waiting_for_new_cross:
-                if not result.just_crossed and signal == getattr(self, '_last_sl_signal', None):
+                if not result.just_crossed:
                     return
-                # Signal flipped or fresh cross occurred!
-                self.waiting_for_new_cross = False
 
-            # Active signal! Guard against multiple entries on same candle
-            candle_id = str(df.index[-1]) if len(df) >= 1 else str(time.time())
+            # Active signal & fresh cross! Guard against multiple entries on same closed candle
+            candle_id = str(df.index[-2]) if len(df) >= 2 else str(time.time())
             if getattr(self, '_last_trade_candle_id', None) == candle_id:
                 return
-            if getattr(self, '_last_sl_candle_id', None) == candle_id:
-                return  # Do not re-enter on the same candle that just got stopped out!
 
             now = time.time()
-            if now - self._last_cross_time < 15:
+            if now - self._last_cross_time < 30:
+                # Too soon after last cross - ignore (prevents rapid false crosses)
                 return
             self._last_cross_time = now
             self._last_trade_candle_id = candle_id
+
+            # Clear waiting state and record trade entry
             self.waiting_for_new_cross = False
+            if hasattr(self, '_waiting_logged'):
+                delattr(self, '_waiting_logged')
             self.strategy.mark_trade_entered()
 
         # Check mode allows this trade
