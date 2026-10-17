@@ -2251,12 +2251,33 @@ def bot_engine_proxy(path=''):
                                stream=True, timeout=proxy_timeout, allow_redirects=False)
     except req_lib.exceptions.ConnectionError:
         # Engine dead (stale PID/port after a restart). Clear the stale entry
-        # so the next request respawns a fresh instance instead of looping.
-        logger.warning("Bot-engine connection refused for %s (port %s). Marking stopped.",
+        # and auto-respawn a fresh instance immediately.
+        logger.warning("Bot-engine connection refused for %s (port %s). Marking stopped and auto-restarting.",
                        user["id"], port)
         DB.get("bot_processes", {}).pop(user["id"], None)
         save_db(DB)
-        return "Bot engine not responding. It is being restarted — refresh the page.", 502
+
+        import threading
+        def _restart_bg():
+            result = ensure_bot_engine_running(user["id"])
+            if not result.get("success"):
+                logger.error("Auto-restart bot-engine failed for %s: %s",
+                             user["id"], result.get("error"))
+
+        threading.Thread(target=_restart_bg, daemon=True).start()
+
+        if path.startswith('socket.io') or path.startswith('api/'):
+            return jsonify({"status": "starting", "error": "Bot engine restarting... Please wait."}), 503
+
+        return '''<html><head><meta http-equiv="refresh" content="3"></head>
+        <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
+        <div style="max-width:400px;margin:0 auto;">
+            <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
+            <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Restarting...</h2>
+            <p style="color:#848e9c;font-size:14px;">Reconnecting to engine. Page will auto-refresh in 3 seconds...</p>
+        </div>
+        <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
+        </body></html>''', 200
     except Exception as e:
         return f"Proxy error: {str(e)}", 500
 
