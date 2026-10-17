@@ -361,14 +361,16 @@ class SymbolWorker(threading.Thread):
             if self.candles_processed % 6 == 0:
                 entry_sig_str = self.entry_signal.value if self.entry_signal else "N/A"
                 cur_sig_str = result.signal.value
+                sl_fmt = f"{self.sl_price:.4f}" if self.sl_price else "0.0"
+                tp_fmt = f"{self.tp_price:.4f}" if self.tp_price else "0.0"
+                entry_val = self.entry_price or pos.entry_price or 0.0
                 self.engine._emit("log", {
                     "level": "info",
                     "msg": (f"[{symbol}] 📊 Position monitor | "
                             f"Pos={pos.side} (entry_sig={entry_sig_str}) | "
                             f"Current signal={cur_sig_str} | "
-                            f"Mark={pos.mark_price:.4f} Entry={self.entry_price or pos.entry_price:.4f} | "
-                            f"SL={self.sl_price:.4f if self.sl_price else 0.0} "
-                            f"TP={self.tp_price:.4f if self.tp_price else 0.0} | "
+                            f"Mark={pos.mark_price:.4f} Entry={entry_val:.4f} | "
+                            f"SL={sl_fmt} TP={tp_fmt} | "
                             f"1:1 TP & Auto-Reversal Active")
                 })
 
