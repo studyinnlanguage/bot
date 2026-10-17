@@ -97,10 +97,10 @@ class EMAQuadStrategy:
         return float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21)
 
     def seed_startup_state(self, signal: Signal):
-        """Seed startup state: ready to trade if market is in active BUY/SELL signal."""
+        """Seed startup state so bot NEVER enters on startup without a fresh crossover."""
         self._prev_signal = signal
-        self._trade_entered_for_signal = False
-        logger.info("Strategy seeded on startup with signal=%s (ready to trade)", signal.value)
+        self._trade_entered_for_signal = True
+        logger.info("Strategy seeded on startup with signal=%s (waiting for fresh cross)", signal.value)
 
     def analyze(self, df: pd.DataFrame) -> Optional[StrategyResult]:
         """Analyze candles and return signal."""
@@ -139,14 +139,29 @@ class EMAQuadStrategy:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"
 
+        # STRICT RULE: Pure Genuine EMA55 Crossover Check
+        # A fresh BUY cross requires that prior to this candle, EMA55 was NOT already sitting at the bottom.
+        # A fresh SELL cross requires that prior to this candle, EMA55 was NOT already sitting at the top.
+        is_fresh_cross = False
+        if signal == Signal.BUY and len(enriched) >= 4:
+            was_not_bottom_prev1 = not self._is_ema55_at_bottom(enriched.iloc[-3])
+            was_not_bottom_prev2 = not self._is_ema55_at_bottom(enriched.iloc[-4])
+            if was_not_bottom_prev1 or was_not_bottom_prev2:
+                is_fresh_cross = True
+        elif signal == Signal.SELL and len(enriched) >= 4:
+            was_not_top_prev1 = not self._is_ema55_at_top(enriched.iloc[-3])
+            was_not_top_prev2 = not self._is_ema55_at_top(enriched.iloc[-4])
+            if was_not_top_prev1 or was_not_top_prev2:
+                is_fresh_cross = True
+
         # Signal state transition
         if signal != self._prev_signal:
             self._trade_entered_for_signal = False
             self._prev_signal = signal
 
-        # One trade entry per signal direction (instant on startup or signal flip)
+        # STRICT RULE: Only enter on a genuine FRESH crossover!
         just_crossed = False
-        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal:
+        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and is_fresh_cross:
             just_crossed = True
 
         return StrategyResult(
