@@ -793,38 +793,38 @@ function initSocket() {
             log('warn', 'Socket.IO load nahi hui. Status polling se hogi.');
             return false;
         }
-        // Use polling exclusively through proxy for 100% stable live stream
+        // Stable polling socket through SaaS proxy
         socket = io({
             transports: ['polling'],
             upgrade: false,
-            reconnection: true,          // Auto-reconnect on disconnect
-            reconnectionAttempts: Infinity,  // Never give up
-            reconnectionDelay: 1000,     // Start at 1s
-            reconnectionDelayMax: 5000,  // Max 5s between retries
-            timeout: 20000,              // 20s connect timeout
-            pingInterval: 10000,         // Send ping every 10s (keepalive)
-            pingTimeout: 30000,          // 30s ping timeout
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            timeout: 25000,
         });
 
         socket.on('connect', () => {
-            log('success', '✅ Socket connected');
-            // Re-fetch chart data on reconnect (in case we missed updates)
+            if (!window._socketConnectedOnce) {
+                log('success', '✅ Socket connected to bot stream');
+                window._socketConnectedOnce = true;
+            }
             if (activeSymbol && isRunning) {
                 fetchChartData(activeSymbol);
             }
         });
         socket.on('disconnect', (reason) => {
-            log('warn', `⚠️ Socket disconnected: ${reason}. Auto-reconnecting...`);
+            // Only log if explicit server forced disconnect, not normal polling packet renewal
+            if (reason === 'io server disconnect') {
+                log('warn', `⚠️ Session closed by server. Reconnecting...`);
+                socket.connect();
+            }
         });
         socket.on('reconnect', (attempt) => {
-            log('success', `✅ Socket reconnected (attempt ${attempt})`);
+            // Reconnected cleanly
         });
-        socket.on('reconnect_error', (error) => {
-            // Silent - don't spam logs
-        });
-        socket.on('connect_error', (error) => {
-            // Silent - don't spam logs
-        });
+        socket.on('reconnect_error', (error) => {});
+        socket.on('connect_error', (error) => {});
 
         socket.on('log', (data) => log(data.level || 'info', data.msg));
 
@@ -855,6 +855,14 @@ function initSocket() {
             const sym = data.symbol;
             if (!sym) return;
             indicatorsBySymbol[sym] = data;
+            if (data.signal) {
+                signalsBySymbol[sym] = data.signal;
+                const tab = document.querySelector(`.coin-tab[data-symbol="${sym}"]`);
+                if (tab) {
+                    tab.classList.remove('signal-buy', 'signal-sell', 'signal-hold');
+                    tab.classList.add(`signal-${data.signal.toLowerCase()}`);
+                }
+            }
             if (sym === activeSymbol) {
                 if ($('indicatorsSymbol')) $('indicatorsSymbol').textContent = sym;
                 const mp = data.mark_price;
@@ -865,6 +873,24 @@ function initSocket() {
                 if ($('indEma55')) $('indEma55').textContent = (data.ema_55 && data.ema_55 > 0) ? `$${fmt(data.ema_55)}` : '--';
                 renderEMAStack(data);
                 updateChopIndicatorsUI(data);
+
+                // Auto-sync signal card with live EMA indicators
+                let sig = data.signal || signalsBySymbol[sym];
+                if (!sig || sig === 'HOLD') {
+                    const e8 = data.ema_8, e13 = data.ema_13, e21 = data.ema_21, e55 = data.ema_55;
+                    if (e8 && e13 && e21 && e55) {
+                        if (e55 < e8 && e55 < e13 && e55 < e21 && e8 >= e13) sig = 'BUY';
+                        else if (e55 > e8 && e55 > e13 && e55 > e21 && e8 <= e13) sig = 'SELL';
+                        else sig = 'HOLD';
+                    }
+                }
+                signalsBySymbol[sym] = sig || 'HOLD';
+                const el = $('indSignal');
+                if (el) {
+                    el.textContent = signalsBySymbol[sym];
+                    el.className = '';
+                    el.classList.add(`signal-${signalsBySymbol[sym].toLowerCase()}`);
+                }
             }
         });
 
@@ -1480,12 +1506,21 @@ function selectSymbol(sym) {
         if ($('indEma55')) $('indEma55').textContent = data.ema_55 ? `$${fmt(data.ema_55)}` : '--';
         renderEMAStack(data);
         updateChopIndicatorsUI(data);
-        const sig = signalsBySymbol[sym] || 'HOLD';
+        let sig = data.signal || signalsBySymbol[sym];
+        if (!sig || sig === 'HOLD') {
+            const e8 = data.ema_8, e13 = data.ema_13, e21 = data.ema_21, e55 = data.ema_55;
+            if (e8 && e13 && e21 && e55) {
+                if (e55 < e8 && e55 < e13 && e55 < e21 && e8 >= e13) sig = 'BUY';
+                else if (e55 > e8 && e55 > e13 && e55 > e21 && e8 <= e13) sig = 'SELL';
+                else sig = 'HOLD';
+            }
+        }
+        signalsBySymbol[sym] = sig || 'HOLD';
         const el = $('indSignal');
         if (el) {
-            el.textContent = sig;
+            el.textContent = signalsBySymbol[sym];
             el.className = '';
-            el.classList.add(`signal-${sig.toLowerCase()}`);
+            el.classList.add(`signal-${signalsBySymbol[sym].toLowerCase()}`);
         }
     } else {
         // reset
