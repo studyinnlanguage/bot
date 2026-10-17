@@ -557,6 +557,8 @@ class SymbolWorker(threading.Thread):
                             f"Waiting for NEW cross before next trade.")
                 })
                 self.expected_pos_side = None
+                self.position_side = None
+                self.entry_price = None
                 self.waiting_for_new_cross = True  # Strict mode: must wait for fresh cross
                 self.strategy.reset_cross_state()
                 self._exchange_tp_cleaned = False
@@ -756,9 +758,24 @@ class SymbolWorker(threading.Thread):
             if hasattr(self, '_waiting_logged'):
                 delattr(self, '_waiting_logged')
         else:
-            # No position open.
+            # No position open for this symbol.
             # If signal is HOLD -> wait for BUY or SELL
             if signal == Signal.HOLD:
+                return
+
+            # GLOBAL SINGLE-ACTIVE-TRADE LOCK:
+            # Scan 10+ coins concurrently, but only 1 trade can be active at a time.
+            # While 1 trade is running, other coins keep scanning but cannot open a new position
+            # until the active trade completes (hits TP 1:1 or SL).
+            has_active, active_sym = self.engine.has_any_active_position()
+            if has_active and active_sym != symbol:
+                now = time.time()
+                if now - getattr(self, '_last_locked_log_time', 0) > 60:
+                    self.engine._emit("log", {
+                        "level": "info",
+                        "msg": f"[{symbol}] In {signal.value} setup, but [{active_sym}] has an active trade. Holding until [{active_sym}] exits."
+                    })
+                    self._last_locked_log_time = now
                 return
 
             # If waiting_for_new_cross is True (startup or after trade closed), must wait for fresh crossover!
@@ -775,14 +792,18 @@ class SymbolWorker(threading.Thread):
             if now - self._last_cross_time < 30:
                 # Too soon after last cross - ignore (prevents rapid false crosses)
                 return
-            self._last_cross_time = now
-            self._last_trade_candle_id = candle_id
 
-            # Clear waiting state and record trade entry
-            self.waiting_for_new_cross = False
-            if hasattr(self, '_waiting_logged'):
-                delattr(self, '_waiting_logged')
-            self.strategy.mark_trade_entered()
+            # Acquire thread-safe entry lock to prevent simultaneous entry collisions
+            with self.engine._trade_entry_lock:
+                has_active, active_sym = self.engine.has_any_active_position()
+                if has_active and active_sym != symbol:
+                    return
+                self._last_cross_time = now
+                self._last_trade_candle_id = candle_id
+                self.waiting_for_new_cross = False
+                if hasattr(self, '_waiting_logged'):
+                    delattr(self, '_waiting_logged')
+                self.strategy.mark_trade_entered()
 
         # Check mode allows this trade
         if signal == Signal.BUY and mode not in ("long", "both"):
@@ -1479,6 +1500,7 @@ class BotEngine:
         self.history = TradeHistoryManager()
         self.workers: dict[str, SymbolWorker] = {}
         self.lock = threading.Lock()
+        self._trade_entry_lock = threading.Lock()
         self.is_running = False
         self.active_symbol = None  # Which coin the UI is currently viewing
         # ===== MONITOR MODE =====
@@ -1487,6 +1509,17 @@ class BotEngine:
         # see live data immediately after saving settings.
         self.monitor_thread: Optional[MonitorThread] = None
         self.monitor_trader = None  # separate trader instance for monitor
+
+    def has_any_active_position(self) -> tuple[bool, Optional[str]]:
+        """Check if ANY monitored symbol worker currently has an active open trade."""
+        for sym, worker in self.workers.items():
+            if getattr(worker, "position_side", None) in ("LONG", "SHORT"):
+                return True, sym
+            if getattr(worker, "expected_pos_side", None) in ("LONG", "SHORT"):
+                return True, sym
+            if getattr(worker, "entry_price", None) is not None and getattr(worker, "entry_price", 0) > 0:
+                return True, sym
+        return False, None
 
     # ---------- Lifecycle ----------
 
