@@ -14,11 +14,18 @@ from typing import Dict, List, Optional
 import requests
 import pandas as pd
 
-from cryptography.hazmat.primitives.serialization import (
-    load_pem_private_key,
-    load_der_private_key,
-)
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+try:
+    from cryptography.hazmat.primitives.serialization import (
+        load_pem_private_key,
+        load_der_private_key,
+    )
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    HAS_CRYPTOGRAPHY = True
+except ImportError:
+    HAS_CRYPTOGRAPHY = False
+    load_pem_private_key = None
+    load_der_private_key = None
+    Ed25519PrivateKey = None
 
 logger = logging.getLogger("bot.primexbt_trader")
 
@@ -92,6 +99,9 @@ class PrimeXBTTrader:
     def _init_crypto_keys(self):
         """Parse and load Ed25519 PKCS#8 private key from base64 secret."""
         if not self.api_secret:
+            return
+        if not HAS_CRYPTOGRAPHY:
+            logger.warning("PrimeXBT requires 'cryptography' library for Ed25519 authentication. Run: pip install cryptography")
             return
         try:
             raw_b64 = self.api_secret

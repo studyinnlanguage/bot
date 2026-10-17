@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir \
     "numpy>=1.24.0" \
     "pyarrow>=15.0.0" \
     "python-dotenv>=1.0.1" \
+    "cryptography>=41.0.0" \
     && pip install --no-cache-dir --no-deps "binance-futures-connector>=1.5.0"
 
 # Copy application code
