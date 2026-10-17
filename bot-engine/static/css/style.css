@@ -777,6 +777,12 @@ input, select {
     color: #080b11;
     box-shadow: var(--green-glow);
 }
+.exchange-btn[data-exchange="primexbt"].active {
+    background: linear-gradient(135deg, #1d4ed8, #3b82f6);
+    color: #ffffff;
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.5);
+    font-weight: 700;
+}
 
 /* ---------- Buttons ---------- */
 .btn {
