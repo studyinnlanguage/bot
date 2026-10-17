@@ -1033,12 +1033,13 @@ def write_user_bot_config(user_id: str) -> str:
                        'licenses.json', 'crash.log', 'user_configs', 'data', 'trade_history.json'):
             continue
         dest = user_bot_dir / item.name
-        if item.is_dir():
-            if dest.exists():
-                shutil.rmtree(dest, ignore_errors=True)
-            shutil.copytree(item, dest, ignore=shutil.ignore_patterns('__pycache__'))
-        else:
-            shutil.copy2(item, dest)
+        try:
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__'))
+            else:
+                shutil.copy2(item, dest)
+        except Exception as copy_err:
+            logger.debug("Syncing file %s: %s", item.name, copy_err)
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(bot_config, f, indent=2, ensure_ascii=False)
@@ -1119,18 +1120,22 @@ def _close_log_handle(user_id: str):
         except (OSError, ValueError):
             pass
 
-def _wait_for_bot_ready(port: int, timeout: float = 15.0) -> bool:
-    """Poll the bot-engine /api/status until it responds (or timeout)."""
+def _wait_for_bot_ready(port: int, timeout: float = 12.0) -> bool:
+    """Poll the bot-engine until it responds (or timeout)."""
     import urllib.request as _ur
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with _ur.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=2) as r:
-                if r.status == 200:
+            req = _ur.Request(f"http://127.0.0.1:{port}/")
+            with _ur.urlopen(req, timeout=1.5) as r:
+                if r.status in (200, 302):
                     return True
+        except urllib.error.HTTPError as he:
+            if he.code in (200, 403, 302):
+                return True
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(0.4)
     return False
 
 def ensure_bot_engine_running(user_id: str) -> dict:
@@ -2192,29 +2197,22 @@ def bot_engine_proxy(path=''):
     status = get_bot_status(user["id"])
 
     if not status["running"]:
-        import threading
-        def _start_bg():
-            result = ensure_bot_engine_running(user["id"])
-            if not result["success"]:
-                logger.error("Background bot-engine start failed for %s: %s",
-                           user["id"], result.get("error"))
+        result = ensure_bot_engine_running(user["id"])
+        if result.get("success") and result.get("port"):
+            status = {"running": True, "port": result["port"]}
+        else:
+            if path.startswith('socket.io') or path.startswith('api/'):
+                return jsonify({"status": "starting", "error": "Bot engine starting... Please refresh the page (F5)."}), 503
 
-        bg = threading.Thread(target=_start_bg, daemon=True)
-        bg.start()
-
-        if path.startswith('socket.io') or path.startswith('api/'):
-            return jsonify({"status": "starting", "error": "Bot engine starting... Please refresh the page (F5)."}), 503
-
-        return '''<html><head><meta http-equiv="refresh" content="3"></head>
-        <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
-        <div style="max-width:400px;margin:0 auto;">
-            <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
-            <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Starting...</h2>
-            <p style="color:#848e9c;font-size:14px;">Please wait 3-5 seconds. Page will auto-refresh.</p>
-            <p style="color:#5e6673;font-size:12px;margin-top:16px;">First load takes a few seconds. Next loads will be instant.</p>
-        </div>
-        <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
-        </body></html>'''
+            return '''<html><head><meta http-equiv="refresh" content="2"></head>
+            <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
+            <div style="max-width:400px;margin:0 auto;">
+                <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
+                <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Starting...</h2>
+                <p style="color:#848e9c;font-size:14px;">Connecting to bot engine. Please wait...</p>
+            </div>
+            <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
+            </body></html>'''
 
     port = status["port"]
     method = request.method
