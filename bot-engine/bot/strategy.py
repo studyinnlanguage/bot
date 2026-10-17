@@ -128,13 +128,20 @@ class EMAQuadStrategy:
         is_buy_candidate = (float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21) and float(e8) >= float(e13))
         is_sell_candidate = (float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21) and float(e8) <= float(e13))
 
-        # 2. Pure EMA Strategy Signal Assignment
-        if is_buy_candidate:
+        # 2. Flat Market Chop Guard:
+        # In a dead sideways/flat market, all 4 EMAs squeeze together (sep_pct < 0.08%).
+        # Micro-cent noise creates false rapid crossover traps. Require >= 0.08% spread.
+        is_flat_chop = sep_pct < 0.08
+
+        if is_flat_chop and (is_buy_candidate or is_sell_candidate):
+            signal = Signal.HOLD
+            reason = f"Flat market chop (EMA spread {sep_pct:.3f}% < 0.080% required) -> HOLD"
+        elif is_buy_candidate:
             signal = Signal.BUY
-            reason = "EMA55 is at BOTTOM & EMA8 >= EMA13 -> BUY (LONG) signal"
+            reason = f"EMA55 is at BOTTOM & EMA8 >= EMA13 (spread={sep_pct:.2f}%) -> BUY (LONG) signal"
         elif is_sell_candidate:
             signal = Signal.SELL
-            reason = "EMA55 is at TOP & EMA8 <= EMA13 -> SELL (SHORT) signal"
+            reason = f"EMA55 is at TOP & EMA8 <= EMA13 (spread={sep_pct:.2f}%) -> SELL (SHORT) signal"
         else:
             signal = Signal.HOLD
             reason = "EMA55 in middle / tangled -> HOLD"
@@ -194,14 +201,14 @@ class EMAQuadStrategy:
         e55 = float(last["ema_55"]) if not pd.isna(last["ema_55"]) else None
         e13 = float(last["ema_13"]) if not pd.isna(last["ema_13"]) else None
         e21 = float(last["ema_21"]) if not pd.isna(last["ema_21"]) else None
+        sep_pct = round(abs(e8 - e55) / e55 * 100.0, 3) if (e8 and e55) else 0.0
         sig = "HOLD"
         if e8 and e13 and e21 and e55:
-            if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13:
-                sig = "BUY"
-            elif e55 > e8 and e55 > e13 and e55 > e21 and e8 <= e13:
-                sig = "SELL"
-
-        sep_pct = round(abs(e8 - e55) / e55 * 100.0, 3) if (e8 and e55) else 0.0
+            if sep_pct >= 0.08:
+                if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13:
+                    sig = "BUY"
+                elif e55 > e8 and e55 > e13 and e55 > e21 and e8 <= e13:
+                    sig = "SELL"
         return {
             "ema_8": e8,
             "ema_13": e13,
