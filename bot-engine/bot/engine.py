@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 def get_trader(config: dict):
     """Factory: return the correct trader based on config['exchange']."""
     exchange = (config.get("exchange") or "binance").lower()
+    if exchange == "primexbt":
+        from .primexbt_trader import PrimeXBTTrader
+        return PrimeXBTTrader(config)
     if exchange == "weex":
         from .weex_trader import WEEXFuturesTrader
         return WEEXFuturesTrader(

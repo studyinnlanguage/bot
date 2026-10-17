@@ -934,7 +934,7 @@ function initSocket() {
         socket.on('balance', (data) => {
             const bal = data.balance || 0;
             const exchange = (data.exchange || 'binance').toUpperCase();
-            const env = data.testnet ? (exchange === 'WEEX' ? 'DEMO' : 'TESTNET') : 'LIVE';
+            const env = data.testnet ? (exchange === 'BINANCE' ? 'TESTNET' : 'DEMO') : 'LIVE';
             if ($('statBalance')) {
                 $('statBalance').textContent = `$${Number(bal).toFixed(2)}`;
                 $('statBalance').title = `${exchange} ${env} balance`;
@@ -1523,9 +1523,17 @@ function addCoin(customSym = null) {
     const input = $('coinInput');
     const sym = (customSym || input?.value || '').trim().toUpperCase();
     if (!sym) return;
-    if (!/^[A-Z0-9]+USDT$/.test(sym)) {
-        log('warn', `${sym} valid nahi. Format: BTCUSDT, ETHUSDT, BTCSUSDT etc.`);
-        return;
+    const ex = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
+    if (ex === 'primexbt') {
+        if (!/^[A-Z0-9\/\s\.\-_]+$/.test(sym)) {
+            log('warn', `${sym} valid nahi. PrimeXBT format: XAU/USD, BTC/USD, USTEC, US30 etc.`);
+            return;
+        }
+    } else {
+        if (!/^[A-Z0-9]+USDT$/.test(sym)) {
+            log('warn', `${sym} valid nahi. Format: BTCUSDT, ETHUSDT, BTCSUSDT etc.`);
+            return;
+        }
     }
     if (coins.includes(sym)) {
         log('info', `${sym} pehle se added hai.`);
@@ -1645,7 +1653,7 @@ function setExchange(exchange) {
     document.querySelectorAll('.exchange-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.exchange === exchange);
     });
-    // Show/hide passphrase field
+    // Show/hide passphrase field (WEEX only)
     const passGroup = $('passphraseGroup');
     if (passGroup) {
         if (exchange === 'weex') {
@@ -1654,15 +1662,39 @@ function setExchange(exchange) {
             passGroup.classList.add('hidden');
         }
     }
-    // Show/hide WEEX-only leverage buttons (200x-500x)
+    // Update API Key / Secret / Coin placeholders based on exchange
+    if ($('apiKey')) {
+        if (exchange === 'primexbt') $('apiKey').placeholder = 'Enter PrimeXBT API Key ID';
+        else if (exchange === 'weex') $('apiKey').placeholder = 'Enter WEEX API Key';
+        else $('apiKey').placeholder = 'Enter Binance API Key';
+    }
+    if ($('apiSecret')) {
+        if (exchange === 'primexbt') $('apiSecret').placeholder = 'Enter Ed25519 Private Key (PKCS#8)';
+        else if (exchange === 'weex') $('apiSecret').placeholder = 'Enter WEEX API Secret';
+        else $('apiSecret').placeholder = 'Enter Binance API Secret';
+    }
+    if ($('coinInput')) {
+        if (exchange === 'primexbt') $('coinInput').placeholder = 'XAU/USD, BTC/USD, ETH/USD, USTEC...';
+        else $('coinInput').placeholder = 'BTCUSDT, SOLUSDT, ETHUSDT...';
+    }
+
+    // Show/hide WEEX-only and PrimeXBT-only leverage buttons
     document.querySelectorAll('.weex-only').forEach(btn => {
         btn.style.display = exchange === 'weex' ? '' : 'none';
     });
+    document.querySelectorAll('.primexbt-only').forEach(btn => {
+        btn.style.display = exchange === 'primexbt' ? '' : 'none';
+    });
+
     // Update max leverage label and input max
     const maxLevLabel = $('maxLevLabel');
     const levInput = $('leverage');
     const maxLevBtn = $('maxLeverageBtn');
-    if (exchange === 'weex') {
+    if (exchange === 'primexbt') {
+        if (maxLevLabel) maxLevLabel.textContent = '1000';
+        if (levInput) levInput.max = '1000';
+        if (maxLevBtn) maxLevBtn.textContent = '⚡ SET 1000x LEVERAGE';
+    } else if (exchange === 'weex') {
         if (maxLevLabel) maxLevLabel.textContent = '500';
         if (levInput) levInput.max = '500';
         if (maxLevBtn) maxLevBtn.textContent = 'SET 500x LEVERAGE';
@@ -1676,18 +1708,21 @@ function setExchange(exchange) {
     updateEnvBadge(testnet, exchange);
 
     // CRITICAL FIX: When exchange is switched, auto-refresh the coin dropdown
-    // from the NEW exchange's API. Previously the dropdown always showed
-    // Binance coins even after switching to WEEX, causing invalid-coin errors.
+    // from the NEW exchange's API.
     if (prevExchange && prevExchange !== exchange) {
         log('info', `Exchange switched: ${prevExchange} -> ${exchange}. Refreshing coin list...`);
         // Adapt existing coins for new exchange
-        if (exchange === 'weex' && testnet) {
+        if (exchange === 'primexbt') {
+            coins = ['XAU/USD', 'BTC/USD', 'ETH/USD'];
+        } else if (exchange === 'weex' && testnet) {
             coins = coins.map(c => (c.endsWith('USDT') && !c.endsWith('SUSDT')) ? c.replace('USDT', 'SUSDT') : c);
+            if (coins.some(c => c.includes('/') || !c.endsWith('USDT'))) coins = ['BTCSUSDT'];
         } else {
             coins = coins.map(c => c.endsWith('SUSDT') ? c.replace('SUSDT', 'USDT') : c);
+            if (coins.some(c => c.includes('/') || !c.endsWith('USDT'))) coins = ['BTCUSDT'];
         }
         if (coins.length === 0) {
-            coins = exchange === 'weex' && testnet ? ['BTCSUSDT'] : ['BTCUSDT'];
+            coins = exchange === 'primexbt' ? ['XAU/USD'] : (exchange === 'weex' && testnet ? ['BTCSUSDT'] : ['BTCUSDT']);
         }
         activeSymbol = coins[0];
         renderCoinChips();
@@ -1760,12 +1795,11 @@ async function saveSettings() {
         whatsapp_phone: $('whatsappPhone')?.value || undefined,
         whatsapp_apikey: $('whatsappApikey')?.value || undefined,
     };
-    if (cfg.leverage < 1 || cfg.leverage > 500) {
-        log('warn', 'Leverage must be between 1-500');
+    const maxLev = exchange === 'primexbt' ? 1000 : (exchange === 'weex' ? 500 : 125);
+    if (cfg.leverage < 1 || cfg.leverage > maxLev) {
+        log('warn', `Leverage must be between 1-${maxLev}`);
         return;
     }
-    // Exchange-specific cap
-    const maxLev = exchange === 'weex' ? 500 : 125;
     if (cfg.leverage > maxLev) {
         log('warn', `${exchange.toUpperCase()} pe max leverage ${maxLev}x hai`);
         cfg.leverage = maxLev;
@@ -1828,10 +1862,12 @@ function updateEnvBadge(testnet, exchange) {
     const modeBadge = $('modeBadge');
     if (exBadge) {
         exBadge.textContent = (exchange || 'binance').toUpperCase();
-        exBadge.style.color = exchange === 'weex' ? '#0ecb81' : '#f0b90b';
+        exBadge.style.color = exchange === 'primexbt' ? '#3b82f6' : (exchange === 'weex' ? '#0ecb81' : '#f0b90b');
     }
     if (modeBadge) {
-        if (exchange === 'weex') {
+        if (exchange === 'primexbt') {
+            modeBadge.textContent = testnet ? 'DEMO' : 'LIVE';
+        } else if (exchange === 'weex') {
             modeBadge.textContent = testnet ? 'DEMO' : 'LIVE';
         } else {
             modeBadge.textContent = testnet ? 'TESTNET' : 'MAINNET';
@@ -1951,7 +1987,7 @@ async function refreshBalance() {
         if (d.success && $('statBalance')) {
             $('statBalance').textContent = `$${Number(d.balance).toFixed(2)}`;
             const exchange = (d.exchange || 'binance').toUpperCase();
-            const env = d.testnet ? (exchange === 'WEEX' ? 'DEMO' : 'TESTNET') : 'LIVE';
+            const env = d.testnet ? (exchange === 'BINANCE' ? 'TESTNET' : 'DEMO') : 'LIVE';
             $('statBalance').title = `${exchange} ${env} balance`;
         } else if (!d.success && d.error && d.error.includes('not connected')) {
             // No trader at all — show dashes
@@ -2125,7 +2161,9 @@ function attachListeners() {
             const ex = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
             const testnet = $('testnet') ? $('testnet').value === 'true' : true;
             let topCoins = [];
-            if (ex === 'weex') {
+            if (ex === 'primexbt') {
+                topCoins = ["XAU/USD", "GOLD 24/7", "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "EUR/USD", "GBP/USD", "USTEC", "US30"];
+            } else if (ex === 'weex') {
                 if (testnet) {
                     topCoins = ["BTCSUSDT", "ETHSUSDT", "SOLSUSDT", "BNBSUSDT", "XRPSUSDT", "DOGESUSDT", "ADASUSDT", "AVAXSUSDT", "LINKSUSDT", "SUISUSDT"];
                 } else {
@@ -2310,7 +2348,7 @@ function attachListeners() {
     if (maxLevBtn) {
         maxLevBtn.addEventListener('click', () => {
             const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
-            const maxLev = exchange === 'weex' ? 500 : 100;
+            const maxLev = exchange === 'primexbt' ? 1000 : (exchange === 'weex' ? 500 : 100);
             // Highlight matching quick-lev button
             document.querySelectorAll('.quick-leverage .btn').forEach(b => {
                 b.style.background = '';

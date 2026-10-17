@@ -238,9 +238,9 @@ def update_config():
         CONFIG["api_secret"] = data["api_secret"]
 
     CONFIG["exchange"] = (CONFIG.get("exchange") or "binance").lower()
-    if CONFIG["exchange"] not in ("binance", "weex"):
+    if CONFIG["exchange"] not in ("binance", "weex", "primexbt"):
         CONFIG["exchange"] = "binance"
-    max_lev = 500 if CONFIG["exchange"] == "weex" else 125
+    max_lev = 1000 if CONFIG["exchange"] == "primexbt" else (500 if CONFIG["exchange"] == "weex" else 125)
     CONFIG["leverage"] = max(1, min(max_lev, int(CONFIG["leverage"])))
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
@@ -303,7 +303,8 @@ def set_leverage():
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "Invalid leverage"}), 400
 
-    max_lev = 500 if (CONFIG.get("exchange") or "binance").lower() == "weex" else 125
+    ex = (CONFIG.get("exchange") or "binance").lower()
+    max_lev = 1000 if ex == "primexbt" else (500 if ex == "weex" else 125)
     lev = max(1, min(max_lev, lev))
     CONFIG["leverage"] = lev
     save_config(CONFIG)
@@ -558,6 +559,25 @@ def get_all_symbols():
     exchange = (CONFIG.get("exchange") or "binance").lower()
     testnet = CONFIG.get("testnet", True)
     import requests as _req
+
+    if exchange == "primexbt":
+        try:
+            from bot.primexbt_trader import PrimeXBTTrader
+            pxbt = PrimeXBTTrader(CONFIG)
+            symbols = pxbt.get_all_symbols()
+            if symbols:
+                return jsonify({"success": True, "symbols": symbols, "count": len(symbols),
+                                "exchange": "primexbt", "mode": "cfd_futures"})
+        except Exception as e:
+            logger.error("Failed to fetch PrimeXBT symbols: %s", e)
+        fallback = [
+            "XAU/USD", "GOLD 24/7", "XAG/USD",
+            "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "DOGE/USD", "ADA/USD",
+            "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
+            "USTEC", "US30", "GER30", "SP500", "BRENT", "CRUDE"
+        ]
+        return jsonify({"success": True, "symbols": fallback, "count": len(fallback),
+                        "exchange": "primexbt", "mode": "cfd_futures"})
 
     if exchange == "weex":
         try:
