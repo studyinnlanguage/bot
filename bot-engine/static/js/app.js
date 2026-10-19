@@ -1649,6 +1649,7 @@ async function loadSettings() {
         if ($('takeProfitPct')) $('takeProfitPct').value = slVal;
         if ($('tpMode')) $('tpMode').value = 'fixed';
         if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
+        if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
         if ($('mode')) $('mode').value = cfg.mode || 'both';
         if ($('testnet')) $('testnet').value = String(cfg.testnet ?? true);
         if (cfg.api_key && $('apiKey')) $('apiKey').placeholder = cfg.api_key_masked || 'Saved';
@@ -1820,6 +1821,7 @@ async function saveSettings() {
         take_profit_pct: parseFloat($('stopLossPct').value) || 0,
         trailing_roe_pct: 100,
         tp_mode: 'fixed',
+        max_concurrent_trades: parseInt($('maxConcurrentTrades')?.value || 3),
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
         // Notifications

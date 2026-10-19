@@ -133,6 +133,7 @@ DEFAULT_CONFIG = {
     "whatsapp_enabled": False,
     "whatsapp_phone": "",
     "whatsapp_apikey": "",
+    "max_concurrent_trades": 3,
 }
 
 
@@ -228,7 +229,7 @@ def update_config():
               "telegram_enabled", "telegram_bot_token", "telegram_chat_id",
               "email_enabled", "email_smtp_server", "email_smtp_port",
               "email_sender", "email_password", "email_receiver",
-              "whatsapp_enabled", "whatsapp_phone", "whatsapp_apikey"]:
+              "whatsapp_enabled", "whatsapp_phone", "whatsapp_apikey", "max_concurrent_trades"]:
         if k in data:
             CONFIG[k] = data[k]
 
@@ -270,6 +271,13 @@ def update_config():
         CONFIG["symbols_list"] = [str(s).strip().upper() for s in CONFIG["symbols_list"] if str(s).strip()]
     if CONFIG["symbols_list"]:
         CONFIG["symbol"] = CONFIG["symbols_list"][0]
+
+    try:
+        CONFIG["max_concurrent_trades"] = max(1, min(3, int(CONFIG.get("max_concurrent_trades", 3))))
+    except (ValueError, TypeError):
+        CONFIG["max_concurrent_trades"] = 3
+    if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
+        ENGINE.config["max_concurrent_trades"] = CONFIG["max_concurrent_trades"]
 
     save_config(CONFIG)
 

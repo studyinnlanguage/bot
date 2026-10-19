@@ -37,8 +37,15 @@
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .logout { display: block; text-align: center; margin-top: 16px; color: #848e9c;
                   font-size: 12px; text-decoration: none; }
-        .logout:hover { color: #f6465d; }
         #result { margin-top: 16px; font-size: 13px; text-align: center; }
+
+        @media (max-width: 480px) {
+            body { padding: 14px; }
+            .card { padding: 24px 18px; border-radius: 12px; }
+            h1 { font-size: 18px; }
+            input { font-size: 13px; padding: 12px; }
+            .btn { padding: 12px; font-size: 13.5px; }
+        }
     </style>
 </head>
 <body>

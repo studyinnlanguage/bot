@@ -173,6 +173,20 @@
         .msg.show { display: block; }
         .msg-success { background: rgba(14, 203, 129, 0.1); color: #0ecb81; }
         .msg-error { background: rgba(246, 70, 93, 0.1); color: #f6465d; }
+
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .admin-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .admin-title { font-size: 18px; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .admin-table { min-width: 600px; }
+            .form-row { flex-direction: column; }
+            .form-group { width: 100%; min-width: 0; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>

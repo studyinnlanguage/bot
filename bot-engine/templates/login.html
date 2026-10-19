@@ -67,10 +67,6 @@
             margin-bottom: 24px;
             line-height: 1.5;
         }
-            color: #848e9c;
-            margin-bottom: 24px;
-            line-height: 1.5;
-        }
         .login-form-group {
             margin-bottom: 16px;
         }
@@ -177,6 +173,14 @@
             text-transform: uppercase;
             margin-top: 12px;
             margin-bottom: 4px;
+        }
+
+        @media (max-width: 480px) {
+            body { padding: 12px; }
+            .login-card { padding: 24px 18px; border-radius: 12px; }
+            .login-title { font-size: 18px; }
+            .login-input { padding: 11px 12px; font-size: 13px; }
+            .login-btn { padding: 11px; font-size: 13px; }
         }
     </style>
 </head>
