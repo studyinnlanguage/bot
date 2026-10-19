@@ -1009,6 +1009,7 @@ def write_user_bot_config(user_id: str) -> str:
             "take_profit_pct": config.get("take_profit_pct", 6),
             "tp_mode": config.get("tp_mode", "both"),
             "mode": config.get("mode", "both"),
+            "max_concurrent_trades": config.get("max_concurrent_trades", 3),
             "auto_start": False,
             "telegram_enabled": config.get("telegram_enabled", False),
             "telegram_bot_token": decrypt(config.get("telegram_bot_token_enc", "")),
@@ -1412,8 +1413,33 @@ def proxy_to_bot(user_id: str, method: str, path: str, body=None) -> dict:
 # ============================================================
 
 @app.route("/")
+@app.route("/home")
+def home():
+    if request.args.get('logout') == '1':
+        session.clear()
+
+    ref_code = request.args.get('ref', '').strip().upper()
+    if ref_code:
+        session['referral_code'] = ref_code
+
+    user = current_user() if is_logged_in() else None
+    sub = check_subscription(user) if user else None
+    active_ref = ref_code or session.get('referral_code', '')
+
+    return render_template(
+        "saas_home.html",
+        user=user,
+        sub=sub,
+        packages=PACKAGES,
+        ref_code=active_ref,
+        contact_email="Weexionic.duckdns@gmail.com",
+        contact_phone="+92-326-2334-043",
+        wallet_address=WALLET_ADDRESS,
+        wallet_network=WALLET_NETWORK
+    )
+
 @app.route("/login")
-def index():
+def login_page():
     if request.args.get('logout') == '1':
         session.clear()
         return render_template("saas_login.html")
@@ -1439,6 +1465,17 @@ def index():
         return render_template("saas_license.html", user=user, sub=sub)
 
     return redirect("/bot/")
+
+@app.route("/license")
+def license_page():
+    if not is_logged_in():
+        return redirect("/login")
+    user = current_user()
+    if not user:
+        session.clear()
+        return redirect("/login")
+    sub = check_subscription(user)
+    return render_template("saas_license.html", user=user, sub=sub)
 
 @app.route(ADMIN_SECRET_PATH)
 @app.route("/admin")
@@ -1587,6 +1624,7 @@ def api_signup():
             "take_profit_pct": 6,
             "tp_mode": "both",
             "mode": "both",
+            "max_concurrent_trades": 3,
             "api_key_enc": "",
             "api_secret_enc": "",
             "api_passphrase_enc": "",
@@ -2060,6 +2098,12 @@ def api_bot_config():
         config["tp_mode"] = tp_mode
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
+    if "max_concurrent_trades" in data:
+        try:
+            mct = int(data["max_concurrent_trades"])
+            config["max_concurrent_trades"] = max(1, min(3, mct))
+        except (ValueError, TypeError):
+            config["max_concurrent_trades"] = 3
 
     save_db(DB)
     return jsonify({
@@ -2756,6 +2800,7 @@ def google_callback():
                     "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
                     "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
                     "take_profit_pct": 6, "tp_mode": "both", "mode": "both",
+                    "max_concurrent_trades": 3,
                     "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
                 },
             }
@@ -3026,6 +3071,142 @@ def api_create_order():
 
     logger.info("Order %s created: %s by %s ($%d)", order_id, pkg["name"], user["email"], pkg["price"])
     return jsonify({"success": True, "order_id": order_id, "order": order})
+
+
+@app.route("/api/orders/quick-buy", methods=["POST"])
+def api_quick_buy():
+    """Handle 1-click order creation from Homepage for visitors or existing users."""
+    data = request.get_json(force=True) or {}
+    package_id = data.get("package")
+    if package_id not in PACKAGES:
+        return jsonify({"success": False, "error": "Invalid package selected"}), 400
+
+    pkg = PACKAGES[package_id]
+
+    # If user is already logged in:
+    if is_logged_in():
+        user = current_user()
+        if not user:
+            session.clear()
+            return jsonify({"success": False, "error": "Session expired. Please log in again."}), 401
+    else:
+        email = (data.get("email") or "").strip().lower()
+        password = data.get("password", "")
+        if not email or not password:
+            return jsonify({"success": False, "error": "Email and password are required"}), 400
+        if "@" not in email or "." not in email:
+            return jsonify({"success": False, "error": "Please enter a valid email address"}), 400
+
+        # Check if user already exists
+        user = None
+        for u in DB["users"].values():
+            if (u.get("email") or "").lower() == email:
+                user = u
+                break
+
+        if user:
+            # Existing user - verify password
+            if not verify_password(password, user.get("password_hash", "")):
+                return jsonify({"success": False, "error": "Account already exists with this email. Please enter the correct password."}), 401
+            if user.get("banned"):
+                return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
+        else:
+            # Create brand new user
+            if len(password) < 6:
+                return jsonify({"success": False, "error": "Password must be at least 6 characters"}), 400
+
+            user_id = str(uuid.uuid4())
+            referral_code = user_id[:8].upper()
+            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+            ref_by_code = (data.get("referral_code") or session.get("referral_code") or "").strip().upper()
+            referred_by = None
+            if ref_by_code:
+                for u in DB["users"].values():
+                    if u.get("referral_code") == ref_by_code:
+                        referred_by = u["id"]
+                        break
+
+            subscription = {
+                "plan": "none",
+                "status": "inactive",
+                "started_at": now,
+                "expires_at": None,
+            }
+
+            user = {
+                "id": user_id,
+                "email": email,
+                "name": data.get("name") or email.split("@")[0],
+                "password_hash": hash_password(password),
+                "role": "user",
+                "banned": False,
+                "created_at": now,
+                "subscription": subscription,
+                "license_key": None,
+                "referral_code": referral_code,
+                "referred_by": referred_by,
+                "referral_earnings": 0.0,
+                "referral_history": [],
+                "bot_config": {
+                    "exchange": "binance",
+                    "testnet": True,
+                    "symbols_list": ["BTCUSDT"],
+                    "timeframe": "5m",
+                    "leverage": 10,
+                    "amount_mode": "fixed",
+                    "amount": 100,
+                    "amount_pct": 10,
+                    "stop_loss_pct": 2,
+                    "take_profit_pct": 6,
+                    "tp_mode": "both",
+                    "mode": "both",
+                    "max_concurrent_trades": 3,
+                    "api_key_enc": "",
+                    "api_secret_enc": "",
+                    "api_passphrase_enc": "",
+                },
+            }
+            DB["users"][user_id] = user
+            save_db(DB)
+
+        session["user_id"] = user["id"]
+        session.permanent = True
+
+    sub = check_subscription(user)
+    if sub["active"]:
+        return jsonify({"success": True, "redirect": "/bot/", "message": "You already have an active subscription"})
+
+    # Check for existing pending/submitted order for this user
+    for oid, o in DB.get("orders", {}).items():
+        if o["user_id"] == user["id"] and o["status"] in ("pending", "submitted"):
+            return jsonify({"success": True, "order_id": oid, "redirect": f"/payment/{oid}", "existing": True})
+
+    order_id = "ORD-" + secrets.token_hex(4).upper()
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    order = {
+        "id": order_id,
+        "user_id": user["id"],
+        "user_email": user["email"],
+        "user_name": user.get("name", ""),
+        "package_id": package_id,
+        "package_name": pkg["name"],
+        "amount": pkg["price"],
+        "currency": pkg["currency"],
+        "days": pkg["days"],
+        "status": "pending",
+        "tx_hash": "",
+        "screenshot": "",
+        "created_at": now,
+        "submitted_at": None,
+        "verified_at": None,
+        "license_key": None,
+        "rejection_reason": "",
+    }
+    DB.setdefault("orders", {})[order_id] = order
+    save_db(DB)
+    logger.info("Quick buy order %s created: %s for %s ($%d)", order_id, pkg["name"], user["email"], pkg["price"])
+    return jsonify({"success": True, "order_id": order_id, "redirect": f"/payment/{order_id}"})
 
 
 @app.route("/api/orders/submit", methods=["POST"])

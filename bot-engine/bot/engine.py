@@ -765,17 +765,15 @@ class SymbolWorker(threading.Thread):
             if signal == Signal.HOLD:
                 return
 
-            # GLOBAL SINGLE-ACTIVE-TRADE LOCK:
-            # Scan 10+ coins concurrently, but only 1 trade can be active at a time.
-            # While 1 trade is running, other coins keep scanning but cannot open a new position
-            # until the active trade completes (hits TP 1:1 or SL).
-            has_active, active_sym = self.engine.has_any_active_position()
-            if has_active and active_sym != symbol:
+            # CONCURRENT ACTIVE TRADES CONTROL:
+            # User can choose 1, 2, or 3 simultaneous active coin trades (default: 3).
+            can_open, reason = self.engine.can_open_new_trade(symbol)
+            if not can_open:
                 now = time.time()
                 if now - getattr(self, '_last_locked_log_time', 0) > 60:
                     self.engine._emit("log", {
                         "level": "info",
-                        "msg": f"[{symbol}] In {signal.value} setup, but [{active_sym}] has an active trade. Holding until [{active_sym}] exits."
+                        "msg": f"[{symbol}] In {signal.value} setup, but {reason}. Holding until an active trade slot frees up."
                     })
                     self._last_locked_log_time = now
                 return
@@ -797,8 +795,8 @@ class SymbolWorker(threading.Thread):
 
             # Acquire thread-safe entry lock to prevent simultaneous entry collisions
             with self.engine._trade_entry_lock:
-                has_active, active_sym = self.engine.has_any_active_position()
-                if has_active and active_sym != symbol:
+                can_open, _ = self.engine.can_open_new_trade(symbol)
+                if not can_open:
                     return
                 self._last_cross_time = now
                 self._last_trade_candle_id = candle_id
@@ -1512,16 +1510,41 @@ class BotEngine:
         self.monitor_thread: Optional[MonitorThread] = None
         self.monitor_trader = None  # separate trader instance for monitor
 
+    def get_active_positions(self) -> list[str]:
+        """Return list of symbols that currently have an active open position."""
+        active = []
+        for sym, worker in self.workers.items():
+            is_active = (
+                getattr(worker, "position_side", None) in ("LONG", "SHORT") or
+                getattr(worker, "expected_pos_side", None) in ("LONG", "SHORT") or
+                (getattr(worker, "entry_price", None) is not None and getattr(worker, "entry_price", 0) > 0)
+            )
+            if is_active:
+                active.append(sym)
+        return list(dict.fromkeys(active))
+
     def has_any_active_position(self) -> tuple[bool, Optional[str]]:
         """Check if ANY monitored symbol worker currently has an active open trade."""
-        for sym, worker in self.workers.items():
-            if getattr(worker, "position_side", None) in ("LONG", "SHORT"):
-                return True, sym
-            if getattr(worker, "expected_pos_side", None) in ("LONG", "SHORT"):
-                return True, sym
-            if getattr(worker, "entry_price", None) is not None and getattr(worker, "entry_price", 0) > 0:
-                return True, sym
-        return False, None
+        active = self.get_active_positions()
+        return (len(active) > 0, active[0] if active else None)
+
+    def can_open_new_trade(self, symbol: str) -> tuple[bool, str]:
+        """Check if a new trade can be opened for symbol, respecting max_concurrent_trades (1, 2, or 3)."""
+        active_symbols = self.get_active_positions()
+        # If this symbol itself already has a position open, do not re-enter
+        if symbol in active_symbols:
+            return False, f"[{symbol}] already has an active position"
+
+        # User configurable max concurrent trades: 1, 2, or 3 (default: 3)
+        try:
+            max_trades = int(self.config.get("max_concurrent_trades", 3))
+        except (ValueError, TypeError):
+            max_trades = 3
+        max_trades = max(1, min(3, max_trades))
+
+        if len(active_symbols) >= max_trades:
+            return False, f"limit of {max_trades} simultaneous coin trades reached ({', '.join(active_symbols)})"
+        return True, ""
 
     # ---------- Lifecycle ----------
 

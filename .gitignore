@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # TradeBot SaaS - .gitignore
 # ============================================================
 
@@ -8,6 +8,7 @@ user_instances/
 user_configs/
 logs/
 uploads/
+.flask_secret
 
 # Bot engine per-user copies
 bot-engine/logs/

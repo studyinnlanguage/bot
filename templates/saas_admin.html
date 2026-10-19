@@ -79,10 +79,26 @@
         .modal { background: #1e2126; border: 1px solid #2a2e36; border-radius: 12px; padding: 24px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
         .modal h3 { margin-bottom: 16px; }
         .modal img { max-width: 100%; border-radius: 8px; }
-        .modal-close { float: right; background: none; border: none; color: #848e9c; font-size: 20px; cursor: pointer; }
-        .wallet-section { background: #1e2126; border: 1px solid #2a2e36; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; }
         .wallet-section .label { font-size: 10px; color: #848e9c; text-transform: uppercase; margin-bottom: 4px; }
         .wallet-addr { font-family: monospace; font-size: 13px; color: #f0b90b; word-break: break-all; }
+
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .header h1 { font-size: 20px; }
+            .tabs { overflow-x: auto; flex-wrap: nowrap; padding: 4px; scrollbar-width: none; }
+            .tabs::-webkit-scrollbar { display: none; }
+            .tab { flex: 0 0 auto; font-size: 12px; padding: 8px 14px; }
+            .form-grid { grid-template-columns: 1fr; }
+            .license-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; }
+            .user-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; }
+            .order-top { flex-direction: column; align-items: flex-start; gap: 4px; }
+            .order-tx { max-width: 100%; }
+            .stats { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .stat-value { font-size: 18px; }
+        }
+        @media (max-width: 480px) {
+            .stats { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>

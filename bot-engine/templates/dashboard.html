@@ -728,6 +728,22 @@
                             </div>
                         </div>
 
+                        <!-- Concurrent Active Trades / Coins Selection (1, 2, or 3) -->
+                        <div class="form-group" style="margin-top:16px;">
+                            <label style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Simultaneous Active Coin Trades</span>
+                                <span class="badge" style="background:rgba(240,185,11,0.15); color:var(--gold-primary); border:1px solid rgba(240,185,11,0.3); font-size:11px; padding:3px 8px; border-radius:6px;">Choice: 1, 2, or 3 Coins</span>
+                            </label>
+                            <select id="maxConcurrentTrades" style="width:100%; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); border-radius:8px; font-weight:600;">
+                                <option value="1">1 Coin at a time (Conservative - 1 Active Trade Max)</option>
+                                <option value="2">2 Coins at a time (Balanced - 2 Active Trades Max)</option>
+                                <option value="3" selected>3 Coins at a time (Recommended - 3 Active Trades Max)</option>
+                            </select>
+                            <div class="hint" style="margin-top:6px;">
+                                🪙 User can choose to trade 1, 2, or up to 3 coins simultaneously at one time.
+                            </div>
+                        </div>
+
                         <div class="hint-card" style="margin-top:12px; border-left:4px solid var(--green-success);">
                             <b>🤖 100% AUTOMATED EXECUTION:</b> 
                             Strict 1:1 Take Profit + 1:1 Stop Loss + Instant EMA55 Opposite Flip Reversal. Zero manual switching needed — the engine runs hands-free on auto mode.
