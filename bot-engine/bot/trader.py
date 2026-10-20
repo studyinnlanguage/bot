@@ -657,8 +657,8 @@ class BinanceFuturesTrader:
 
     def open_long(self, symbol: str, quantity: float,
                   sl_price: float = None, tp_price: float = None,
-                  order_type: str = "maker", price: float = None) -> dict:
-        """Open a LONG position (maker limit order with market fallback)."""
+                  order_type: str = "market", price: float = None) -> dict:
+        """Open a LONG position (market order default for instant momentum fills)."""
         result = None
         if order_type in ("maker", "limit") and price and price > 0:
             result = self.place_limit_order(symbol, "BUY", quantity, price, post_only=(order_type == "maker"))
@@ -682,8 +682,8 @@ class BinanceFuturesTrader:
 
     def open_short(self, symbol: str, quantity: float,
                    sl_price: float = None, tp_price: float = None,
-                   order_type: str = "maker", price: float = None) -> dict:
-        """Open a SHORT position (maker limit order with market fallback)."""
+                   order_type: str = "market", price: float = None) -> dict:
+        """Open a SHORT position (market order default for instant momentum fills)."""
         result = None
         if order_type in ("maker", "limit") and price and price > 0:
             result = self.place_limit_order(symbol, "SELL", quantity, price, post_only=(order_type == "maker"))

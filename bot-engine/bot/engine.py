@@ -102,8 +102,9 @@ class SymbolWorker(threading.Thread):
         self.strategy = EMAQuadStrategy(min_spread_pct=min_spread)
         # Leverage readiness event — workers wait on this before trading
         self._leverage_ready = leverage_ready
-        # Settlement cooldown tracking to prevent race conditions on close
+        # Settlement cooldown tracking to prevent race conditions on close & open
         self._last_close_timestamp = 0.0
+        self._last_open_timestamp = 0.0
 
     def _get_effective_leverage(self, symbol: str) -> int:
         """Get the true active leverage for this symbol from config (or active open position)."""
@@ -499,10 +500,11 @@ class SymbolWorker(threading.Thread):
 
         # ===== POSITION SYNC CHECK =====
         actual_side = pos.side if (pos.side in ("LONG", "SHORT") and pos.size != 0) else "NONE"
-        is_settling = (time.time() - getattr(self, "_last_close_timestamp", 0.0) < 20.0)
+        is_settling = (time.time() - getattr(self, "_last_close_timestamp", 0.0) < 20.0) or \
+                      (time.time() - getattr(self, "_last_open_timestamp", 0.0) < 25.0)
         if not is_settling and actual_side != self.expected_pos_side:
             if self.expected_pos_side is not None and actual_side == "NONE":
-                # Bot expected a position but it's gone now (user closed or SL/TP hit on exchange)
+                # Bot expected a position but it's gone on exchange (TP hit, SL hit, or cancelled)
                 mp = 0.0
                 try:
                     mp = float(self.engine.trader.get_mark_price(symbol) or 0.0)
@@ -538,12 +540,23 @@ class SymbolWorker(threading.Thread):
                     calc_roe = (calc_pnl / t_margin * 100.0) if t_margin > 0 else 0.0
                     calc_fees = (t_entry + mp) * trade_qty * 0.0006
 
+                # Accurately classify external exit reason
+                open_duration = time.time() - getattr(self, "_last_open_timestamp", 0.0)
+                if abs(calc_pnl) < 0.01 and open_duration < 45.0:
+                    ext_reason = "⚠️ Unfilled Order Cancelled / Expired"
+                elif calc_pnl > 0:
+                    ext_reason = f"🎯 Exchange TP Hit (+${calc_pnl:.2f})"
+                elif calc_pnl < 0:
+                    ext_reason = f"🛡️ Exchange SL Hit (-${abs(calc_pnl):.2f})"
+                else:
+                    ext_reason = "👤 Manual Close (Exchange Exit)"
+
                 if self.engine.history.has_open_trade(symbol):
                     try:
                         self.engine.history.record_close(
                             symbol=symbol,
                             exit_price=mp,
-                            reason="👤 Manual Close (Exchange / SL-TP Hit)",
+                            reason=ext_reason,
                             pnl=calc_pnl,
                             roe_pct=calc_roe,
                             fee_est=calc_fees,
@@ -559,7 +572,7 @@ class SymbolWorker(threading.Thread):
 
                 self.engine._emit("log", {
                     "level": "warn",
-                    "msg": (f"[{symbol}] ⚠️ Position closed (SL/TP hit on exchange or manual close). "
+                    "msg": (f"[{symbol}] ⚠️ External position close detected: {ext_reason}. "
                             f"Bot expected {self.expected_pos_side} but found NONE. "
                             f"Waiting for NEW cross before next trade.")
                 })
@@ -913,7 +926,7 @@ class SymbolWorker(threading.Thread):
             })
             return
 
-        order_type_cfg = cfg.get("order_type", "maker").lower()
+        order_type_cfg = cfg.get("order_type", "market").lower()
 
         if signal == Signal.BUY:
             # Open LONG
@@ -946,6 +959,7 @@ class SymbolWorker(threading.Thread):
             self._log_order(order, f"[{symbol}] OPEN LONG ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
             if order.get("success"):
                 self.trades_today += 1
+                self._last_open_timestamp = time.time()
                 self.last_signal = Signal.BUY
                 self.expected_pos_side = "LONG"
                 self.reversal_pending_side = None
@@ -1027,6 +1041,7 @@ class SymbolWorker(threading.Thread):
             self._log_order(order, f"[{symbol}] OPEN SHORT ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
             if order.get("success"):
                 self.trades_today += 1
+                self._last_open_timestamp = time.time()
                 self.last_signal = Signal.SELL
                 self.expected_pos_side = "SHORT"
                 self.reversal_pending_side = None
