@@ -61,6 +61,10 @@
 
 html, body {
     height: 100%;
+    overflow-x: hidden !important;
+    max-width: 100vw;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 body {
@@ -1558,6 +1562,49 @@ input, select {
         display: flex;
         flex-direction: column;
         gap: 14px;
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .terminal-workspace, .terminal-cockpit, .card, .chart-card, .coin-tabs-card {
+        max-width: 100%;
+        width: 100%;
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .coin-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap;
+        scrollbar-width: none;
+        padding-bottom: 4px;
+        max-width: 100%;
+    }
+    .coin-tabs::-webkit-scrollbar {
+        display: none;
+    }
+    .coin-tab {
+        flex-shrink: 0;
+    }
+
+    .chart-tools-strip {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        max-width: 100%;
+        padding: 6px 8px;
+        flex-wrap: nowrap;
+    }
+    .chart-tools-strip::-webkit-scrollbar {
+        display: none;
+    }
+    .draw-tools-group {
+        flex-wrap: nowrap;
+        flex-shrink: 0;
+    }
+    .draw-actions-group {
+        flex-shrink: 0;
     }
 
     .notif-channels-grid {
