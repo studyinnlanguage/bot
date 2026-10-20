@@ -98,7 +98,8 @@ class SymbolWorker(threading.Thread):
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
         # Per-worker strategy instance — CRITICAL FIX: prevents multi-coin workers
         # from overwriting each other's cross detection and reversal state.
-        self.strategy = EMAQuadStrategy()
+        min_spread = float(self.config.get("min_ema_spread", 0.15))
+        self.strategy = EMAQuadStrategy(min_spread_pct=min_spread)
         # Leverage readiness event — workers wait on this before trading
         self._leverage_ready = leverage_ready
         # Settlement cooldown tracking to prevent race conditions on close
@@ -393,6 +394,15 @@ class SymbolWorker(threading.Thread):
                 # Close position
                 close = self.engine.trader.close_position(symbol)
                 self._log_order(close, f"[{symbol}] {reason}")
+                # Verify if position is already flat on exchange if initial close response was unsuccessful
+                if not close.get("success"):
+                    try:
+                        latest_p = self.engine.trader.get_position(symbol)
+                        if latest_p.side == "NONE" or abs(latest_p.size) <= 0:
+                            close = {"success": True, "message": "Position verified closed on exchange"}
+                    except Exception:
+                        pass
+
                 if close.get("success"):
                     self._last_close_timestamp = time.time()
                     self.trades_today += 1
@@ -443,30 +453,20 @@ class SymbolWorker(threading.Thread):
                     self.tp_stage = 1
                     self.r_distance = 0.0
                     self.initial_sl_price = None
-                    # ===== REVERSAL LOGIC =====
-                    # If EMA55 just flipped (reversal TP), the signal has
-                    # ALREADY crossed to the opposite side. We want the bot
-                    # to immediately open the opposite position on the next
-                    # tick — NOT wait for EMA55 to go to HOLD first.
-                    # So we use reset_for_reversal() instead of reset_cross_state().
+                    # ===== REVERSAL / EXIT LOGIC =====
+                    # Position exit complete. Always require a confirmed fresh crossover
+                    # on a closed candle with minimum spread (>=0.15%) before entering next trade.
+                    # This prevents the whipsaw trap of immediately blindly buying into a chop reversal.
+                    self.waiting_for_new_cross = True
+                    self.reversal_pending_side = None
                     if is_ema_reversal_tp:
                         self.strategy.reset_for_reversal()
-                        # Clear the 30s cross cooldown so the reversal
-                        # is NOT blocked (the EMA55 flip is a real cross,
-                        # not a false positive).
-                        self._last_cross_time = 0
-                        opposite_side = "LONG" if close_side_label == "SHORT" else "SHORT"
-                        # Force immediate re-entry on the next tick, even if the
-                        # exchange hasn't fully cleared the old position yet.
-                        self.reversal_pending_side = opposite_side
                         self.engine._emit("log", {
                             "level": "info",
-                            "msg": (f"[{symbol}] 🔄 EMA55 REVERSAL detected — bot will open "
-                                    f"{opposite_side} on next tick (immediate reversal, no waiting)")
+                            "msg": (f"[{symbol}] 🔄 EMA55 REVERSAL exit processed. "
+                                    f"Position closed @ {pos.mark_price:.4f}. Waiting for fresh candle confirmation.")
                         })
                     else:
-                        # SL or fixed-TP hit: require fresh cross (wait for fresh crossover event)
-                        self.waiting_for_new_cross = True
                         self.strategy.reset_cross_state()
                     # Notification
                     try:
@@ -572,6 +572,11 @@ class SymbolWorker(threading.Thread):
                 self.sl_price = None
                 self.tp_price = None
                 self.tp_stage = 0
+                try:
+                    if hasattr(self.engine.trader, "cancel_open_orders"):
+                        self.engine.trader.cancel_open_orders(symbol)
+                except Exception:
+                    pass
             elif actual_side != "NONE" and self.expected_pos_side != actual_side and self.reversal_pending_side is None:
                 # Genuine position opened externally or on startup
                 self.engine._emit("log", {

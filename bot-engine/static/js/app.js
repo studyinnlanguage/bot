@@ -879,9 +879,9 @@ function initSocket() {
                 if (!sig || sig === 'HOLD') {
                     const e8 = data.ema_8, e13 = data.ema_13, e21 = data.ema_21, e55 = data.ema_55;
                     const sep = data.ema_sep_pct || ((e8 && e55) ? Math.abs(e8 - e55) / e55 * 100 : 0);
-                    if (e8 && e13 && e21 && e55 && sep >= 0.08) {
-                        if (e55 < e8 && e55 < e13 && e55 < e21 && e8 >= e13) sig = 'BUY';
-                        else if (e55 > e8 && e55 > e13 && e55 > e21 && e8 <= e13) sig = 'SELL';
+                    if (e8 && e13 && e21 && e55 && sep >= 0.15) {
+                        if (e8 >= e13 && e13 >= e21 && e21 > e55) sig = 'BUY';
+                        else if (e8 <= e13 && e13 <= e21 && e21 < e55) sig = 'SELL';
                         else sig = 'HOLD';
                     } else {
                         sig = 'HOLD';
@@ -1519,9 +1519,9 @@ function selectSymbol(sym) {
         if (!sig || sig === 'HOLD') {
             const e8 = data.ema_8, e13 = data.ema_13, e21 = data.ema_21, e55 = data.ema_55;
             const sep = data.ema_sep_pct || ((e8 && e55) ? Math.abs(e8 - e55) / e55 * 100 : 0);
-            if (e8 && e13 && e21 && e55 && sep >= 0.08) {
-                if (e55 < e8 && e55 < e13 && e55 < e21 && e8 >= e13) sig = 'BUY';
-                else if (e55 > e8 && e55 > e13 && e55 > e21 && e8 <= e13) sig = 'SELL';
+            if (e8 && e13 && e21 && e55 && sep >= 0.15) {
+                if (e8 >= e13 && e13 >= e21 && e21 > e55) sig = 'BUY';
+                else if (e8 <= e13 && e13 <= e21 && e21 < e55) sig = 'SELL';
                 else sig = 'HOLD';
             } else {
                 sig = 'HOLD';

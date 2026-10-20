@@ -8,4 +8,4 @@ except Exception:
     PrimeXBTTrader = None
     PrimeXBTPosition = None
 from .notifier import Notifier
-from .indicators import IndicatorSet, calculate_ema, calculate_atr
+from .indicators import IndicatorSet, calculate_ema
