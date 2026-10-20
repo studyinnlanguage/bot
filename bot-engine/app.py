@@ -482,52 +482,181 @@ def close_position():
     result = trader.close_position(symbol)
 
     # 3. If closed successfully, record in Trade History & reset worker state
-    if result.get("success") and pos and pos.side != "NONE" and pos.size != 0:
-        try:
-            entry = pos.entry_price or 0.0
-            mark = pos.mark_price or entry
-            size = abs(pos.size)
-            pos_side = pos.side
-            worker = ENGINE.workers.get(symbol)
-            cfg_lev = int(CONFIG.get("leverage", 50))
-            lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else (worker._get_effective_leverage(symbol) if worker else cfg_lev)
-            margin = (entry * size) / lev if (lev > 0 and entry > 0 and size > 0) else 0.0
-            pnl = (mark - entry) * size if pos_side == "LONG" else (entry - mark) * size
-            roe_pct = (pnl / margin * 100.0) if margin > 0 else 0.0
-            fees = (entry + mark) * size * 0.0006
+    if result.get("success"):
+        if pos and pos.side != "NONE" and pos.size != 0:
+            try:
+                entry = pos.entry_price or 0.0
+                mark = pos.mark_price or entry
+                size = abs(pos.size)
+                pos_side = pos.side
+                worker = ENGINE.workers.get(symbol)
+                cfg_lev = int(CONFIG.get("leverage", 50))
+                lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else (worker._get_effective_leverage(symbol) if worker else cfg_lev)
+                margin = (entry * size) / lev if (lev > 0 and entry > 0 and size > 0) else 0.0
+                pnl = (mark - entry) * size if pos_side == "LONG" else (entry - mark) * size
+                roe_pct = (pnl / margin * 100.0) if margin > 0 else 0.0
+                fees = (entry + mark) * size * 0.0006
 
-            if hasattr(ENGINE, "history"):
-                ENGINE.history.record_close(
-                    symbol=symbol,
-                    exit_price=mark,
-                    reason="👤 Manual Close (Bot Dashboard)",
-                    pnl=pnl,
-                    roe_pct=roe_pct,
-                    fee_est=fees,
-                    leverage=lev,
-                    qty=size,
-                )
-                socketio.emit("trades_updated", {
-                    "trades": ENGINE.history.get_trades(limit=50),
-                    "stats": ENGINE.history.get_stats(),
-                })
+                if hasattr(ENGINE, "history"):
+                    ENGINE.history.record_close(
+                        symbol=symbol,
+                        exit_price=mark,
+                        reason="👤 Manual Close (Bot Dashboard)",
+                        pnl=pnl,
+                        roe_pct=roe_pct,
+                        fee_est=fees,
+                        leverage=lev,
+                        qty=size,
+                    )
+                    socketio.emit("trades_updated", {
+                        "trades": ENGINE.history.get_trades(limit=50),
+                        "stats": ENGINE.history.get_stats(),
+                    })
+            except Exception as he:
+                logger.error("Failed to record manual close in history: %s", he)
 
-            # Sync worker state
-            if worker:
-                worker._last_close_timestamp = time.time()
-                worker.expected_pos_side = None
-                worker.waiting_for_new_cross = True
-                worker.strategy.reset_cross_state()
-                worker.sl_price = None
-                worker.tp_price = None
-                worker.tp_stage = 0
-                worker.be_sl_set = False
-                worker.partial_tp_done = False
-        except Exception as he:
-            logger.error("Failed to record manual close in history: %s", he)
+        # Sync worker state completely so worker slot is immediately freed
+        worker = ENGINE.workers.get(symbol)
+        if worker:
+            worker._last_close_timestamp = time.time()
+            worker.expected_pos_side = None
+            worker.position_side = None
+            worker.entry_price = None
+            worker.entry_signal = None
+            worker.ema_reversal_tp_fired = False
+            worker.reversal_pending_side = None
+            worker.waiting_for_new_cross = True
+            worker.strategy.reset_cross_state()
+            worker.sl_price = None
+            worker.tp_price = None
+            worker.tp_stage = 0
+            worker.be_sl_set = False
+            worker.partial_tp_done = False
+
+        # Emit position cleared event immediately to update UI
+        socketio.emit("position", {
+            "symbol": symbol,
+            "side": "NONE",
+            "size": 0.0,
+            "entry_price": 0.0,
+            "mark_price": pos.mark_price if pos else 0.0,
+            "unrealized_pnl": 0.0,
+            "leverage": 1,
+            "tp_stage": 0,
+            "tp_price": 0.0,
+            "sl_price": 0.0,
+            "target_roe": 100.0,
+            "tp_mode": "fixed",
+        })
 
     socketio.emit("log", {"level": "info", "msg": f"Manual close requested for {symbol}: {result}"})
     return jsonify(result)
+
+
+@app.route("/api/close_all", methods=["POST"])
+def close_all_positions():
+    """Emergency manual close for ALL active positions."""
+    trader = ENGINE.trader or getattr(ENGINE, "monitor_trader", None)
+    if not trader:
+        try:
+            from bot.engine import get_trader
+            trader = get_trader(CONFIG)
+            ENGINE.monitor_trader = trader
+        except Exception as te:
+            logger.error("Could not instantiate trader for close_all: %s", te)
+
+    if not trader:
+        return jsonify({"success": False, "error": "Bot not connected to exchange."})
+
+    symbols_to_check = set()
+    # 1. From engine workers
+    for sym, w in getattr(ENGINE, "workers", {}).items():
+        if getattr(w, "position_side", None) in ("LONG", "SHORT") or getattr(w, "expected_pos_side", None) in ("LONG", "SHORT") or getattr(w, "entry_price", 0) > 0:
+            symbols_to_check.add(sym)
+    # 2. From config coins
+    for c in CONFIG.get("coins", []):
+        symbols_to_check.add(c)
+    # 3. From active / default symbol
+    if CONFIG.get("symbol"):
+        symbols_to_check.add(CONFIG.get("symbol"))
+
+    results = {}
+    for sym in symbols_to_check:
+        try:
+            pos = trader.get_position(sym)
+            if pos.side != "NONE" and abs(pos.size) > 0:
+                res = trader.close_position(sym)
+                results[sym] = res
+                if res.get("success"):
+                    # Record history
+                    try:
+                        entry = pos.entry_price or 0.0
+                        mark = pos.mark_price or entry
+                        size = abs(pos.size)
+                        worker = ENGINE.workers.get(sym)
+                        cfg_lev = int(CONFIG.get("leverage", 50))
+                        lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else (worker._get_effective_leverage(sym) if worker else cfg_lev)
+                        margin = (entry * size) / lev if (lev > 0 and entry > 0 and size > 0) else 0.0
+                        pnl = (mark - entry) * size if pos.side == "LONG" else (entry - mark) * size
+                        roe_pct = (pnl / margin * 100.0) if margin > 0 else 0.0
+                        fees = (entry + mark) * size * 0.0006
+                        if hasattr(ENGINE, "history"):
+                            ENGINE.history.record_close(
+                                symbol=sym,
+                                exit_price=mark,
+                                reason="⚡ Manual Close All Positions",
+                                pnl=pnl,
+                                roe_pct=roe_pct,
+                                fee_est=fees,
+                                leverage=lev,
+                                qty=size,
+                            )
+                    except Exception as he:
+                        logger.error("Failed to record close_all history for %s: %s", sym, he)
+
+                    # Reset worker
+                    worker = ENGINE.workers.get(sym)
+                    if worker:
+                        worker._last_close_timestamp = time.time()
+                        worker.expected_pos_side = None
+                        worker.position_side = None
+                        worker.entry_price = None
+                        worker.entry_signal = None
+                        worker.ema_reversal_tp_fired = False
+                        worker.reversal_pending_side = None
+                        worker.waiting_for_new_cross = True
+                        worker.strategy.reset_cross_state()
+                        worker.sl_price = None
+                        worker.tp_price = None
+                        worker.tp_stage = 0
+                        worker.be_sl_set = False
+                        worker.partial_tp_done = False
+
+                    socketio.emit("position", {
+                        "symbol": sym,
+                        "side": "NONE",
+                        "size": 0.0,
+                        "entry_price": 0.0,
+                        "mark_price": pos.mark_price if pos else 0.0,
+                        "unrealized_pnl": 0.0,
+                        "leverage": 1,
+                        "tp_stage": 0,
+                        "tp_price": 0.0,
+                        "sl_price": 0.0,
+                        "target_roe": 100.0,
+                        "tp_mode": "fixed",
+                    })
+        except Exception as e:
+            results[sym] = {"success": False, "error": str(e)}
+
+    if hasattr(ENGINE, "history"):
+        socketio.emit("trades_updated", {
+            "trades": ENGINE.history.get_trades(limit=50),
+            "stats": ENGINE.history.get_stats(),
+        })
+
+    socketio.emit("log", {"level": "warn", "msg": f"⚡ Emergency Close All results: {results}"})
+    return jsonify({"success": True, "results": results})
 
 
 @app.route("/api/trades", methods=["GET"])
