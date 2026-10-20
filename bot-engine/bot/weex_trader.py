@@ -780,14 +780,34 @@ class WEEXFuturesTrader:
         pos = self.get_position(symbol)
         if pos.side == "NONE" or pos.size == 0:
             return {"success": True, "message": "No position to close"}
+        # Cancel open orders first to prevent reduction rejection
+        try:
+            self.cancel_open_orders(symbol)
+        except Exception as e:
+            logger.warning("[%s] WEEX cancel_open_orders notice before close: %s", symbol, e)
         # Closing LONG -> SELL with reduceOnly; closing SHORT -> BUY with reduceOnly
         close_side = "SELL" if pos.side == "LONG" else "BUY"
         qty = abs(pos.size) if quantity is None else min(abs(float(quantity)), abs(pos.size))
-        return self.place_market_order(
+        res = self.place_market_order(
             symbol=symbol,
             side=close_side,
             quantity=qty,
             reduce_only=True,
+            position_side=pos.side,
+        )
+        if res.get("success"):
+            return res
+
+        # Fallback without reduce_only if rejected
+        try:
+            self.cancel_open_orders(symbol)
+        except Exception:
+            pass
+        return self.place_market_order(
+            symbol=symbol,
+            side=close_side,
+            quantity=qty,
+            reduce_only=False,
             position_side=pos.side,
         )
 

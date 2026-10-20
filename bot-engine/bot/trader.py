@@ -479,16 +479,25 @@ class BinanceFuturesTrader:
                 }
                 if reduce_only:
                     kwargs["reduceOnly"] = "true"
+                if position_side:
+                    kwargs["positionSide"] = str(position_side).upper()
                 resp = self.client.new_order(**kwargs)
             else:
-                resp = self.client.futures_create_order(
-                    symbol=symbol, side=side, type="MARKET",
-                    quantity=quantity, reduceOnly=reduce_only,
-                )
+                kwargs = {
+                    "symbol": symbol,
+                    "side": side,
+                    "type": "MARKET",
+                    "quantity": quantity,
+                }
+                if reduce_only:
+                    kwargs["reduceOnly"] = True
+                if position_side:
+                    kwargs["positionSide"] = str(position_side).upper()
+                resp = self.client.futures_create_order(**kwargs)
 
             oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
-            logger.info("Order placed: %s %s qty=%s reduceOnly=%s -> orderId=%s",
-                        side, symbol, quantity, reduce_only, oid)
+            logger.info("Order placed: %s %s qty=%s reduceOnly=%s posSide=%s -> orderId=%s",
+                        side, symbol, quantity, reduce_only, position_side, oid)
             return {"success": True, "order": resp, "quantity": quantity}
         except Exception as e:
             logger.error("Order failed: %s", e)
@@ -496,7 +505,8 @@ class BinanceFuturesTrader:
 
     def place_limit_order(self, symbol: str, side: str, quantity: float,
                           price: float, post_only: bool = True,
-                          reduce_only: bool = False) -> dict:
+                          reduce_only: bool = False,
+                          position_side: str = None) -> dict:
         """
         Place a LIMIT / MAKER order.
         post_only=True enforces Maker order (saves fees: ~0.02% maker vs ~0.06% taker).
@@ -536,35 +546,112 @@ class BinanceFuturesTrader:
                 }
                 if reduce_only:
                     kwargs["reduceOnly"] = "true"
+                if position_side:
+                    kwargs["positionSide"] = str(position_side).upper()
                 resp = self.client.new_order(**kwargs)
             else:
-                resp = self.client.futures_create_order(
-                    symbol=symbol, side=side, type="LIMIT",
-                    quantity=quantity, price=price, timeInForce=time_in_force,
-                    reduceOnly=reduce_only,
-                )
+                kwargs = {
+                    "symbol": symbol,
+                    "side": side,
+                    "type": "LIMIT",
+                    "quantity": quantity,
+                    "price": price,
+                    "timeInForce": time_in_force,
+                }
+                if reduce_only:
+                    kwargs["reduceOnly"] = True
+                if position_side:
+                    kwargs["positionSide"] = str(position_side).upper()
+                resp = self.client.futures_create_order(**kwargs)
 
             oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
-            logger.info("Limit/Maker order placed: %s %s qty=%s price=%s TIF=%s -> orderId=%s",
-                        side, symbol, quantity, price, time_in_force, oid)
+            logger.info("Limit/Maker order placed: %s %s qty=%s price=%s TIF=%s posSide=%s -> orderId=%s",
+                        side, symbol, quantity, price, time_in_force, position_side, oid)
             return {"success": True, "order": resp, "quantity": quantity, "price": price}
         except Exception as e:
             logger.warning("Limit/Maker order failed (%s): %s", side, e)
             return {"success": False, "error": str(e), "quantity": quantity, "price": price}
 
     def close_position(self, symbol: str, quantity: float = None) -> dict:
-        """Close the current position (or partial quantity) for the symbol using reduceOnly market order."""
+        """Close the current position (or partial quantity) for the symbol.
+        1. ALWAYS cancels open orders first to eliminate Binance error -2022 (ReduceOnly rejected).
+        2. Auto-detects Hedge Mode (Dual-Side) vs One-Way Mode.
+        3. Features robust fallback: if reduceOnly is rejected, retries with exact-quantity market exit.
+        """
+        symbol = str(symbol).strip().upper()
         pos = self.get_position(symbol)
-        if pos.side == "NONE" or pos.size == 0:
+        if pos.side == "NONE" or abs(pos.size) <= 0:
             return {"success": True, "message": "No position to close"}
+
+        # 1. ALWAYS cancel all open orders on exchange first!
+        # Existing open SL/TP or limit orders with reduceOnly already reserve position qty.
+        # Without cancelling them first, Binance rejects any new reduce-only market order with -2022.
+        try:
+            self.cancel_open_orders(symbol)
+        except Exception as e:
+            logger.warning("[%s] cancel_open_orders before close notice: %s", symbol, e)
+
         close_side = "SELL" if pos.side == "LONG" else "BUY"
         qty = abs(pos.size) if quantity is None else min(abs(float(quantity)), abs(pos.size))
-        return self.place_market_order(
+
+        # Check if account is in Hedge Mode (Dual-Side Position)
+        is_hedge = False
+        try:
+            if _CONNECTOR == "binance-futures-connector":
+                pm = self.client.get_position_mode()
+            else:
+                pm = self.client.futures_get_position_mode()
+            if isinstance(pm, dict):
+                is_hedge = bool(pm.get("dualSidePosition", False))
+        except Exception as e:
+            logger.debug("[%s] get_position_mode check: %s", symbol, e)
+
+        # 2. Place market order to close
+        # In Hedge mode: reduceOnly is NOT permitted by Binance; positionSide is required.
+        # In One-Way mode: reduceOnly=True is standard.
+        res = self.place_market_order(
             symbol=symbol,
             side=close_side,
             quantity=qty,
-            reduce_only=True,
+            reduce_only=(not is_hedge),
+            position_side=(pos.side if is_hedge else None),
         )
+
+        if res.get("success"):
+            return res
+
+        err_msg = str(res.get("error", ""))
+        logger.warning("[%s] Initial close order failed (%s). Executing aggressive close fallback...", symbol, err_msg)
+
+        # 3. Aggressive Fallback:
+        # If -2022 or reduceOnly error occurred, cancel open orders again
+        try:
+            self.cancel_open_orders(symbol)
+        except Exception:
+            pass
+
+        # Check if position was already closed by an exchange order that filled
+        latest_pos = self.get_position(symbol)
+        if latest_pos.side == "NONE" or abs(latest_pos.size) <= 0:
+            logger.info("[%s] Position verified closed after cancelling open orders", symbol)
+            return {"success": True, "message": "Position is closed"}
+
+        qty = abs(latest_pos.size) if quantity is None else min(abs(float(quantity)), abs(latest_pos.size))
+        close_side = "SELL" if latest_pos.side == "LONG" else "BUY"
+
+        # Retry with reduce_only=False (exact qty market order closes the remaining position)
+        res_fallback = self.place_market_order(
+            symbol=symbol,
+            side=close_side,
+            quantity=qty,
+            reduce_only=False,
+            position_side=(latest_pos.side if is_hedge else None),
+        )
+        if res_fallback.get("success"):
+            logger.info("[%s] Aggressive fallback close succeeded!", symbol)
+            return res_fallback
+
+        return res
 
     def open_long(self, symbol: str, quantity: float,
                   sl_price: float = None, tp_price: float = None,

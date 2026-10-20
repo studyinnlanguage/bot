@@ -337,6 +337,7 @@
                     <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
                     <button type="button" class="btn btn-primary" onclick="if(window.fetchPositions)fetchPositions();">🔄 Refresh Positions</button>
                     <button type="button" class="btn btn-warning" onclick="if(window.closePosition)closePosition();">✕ Close Position (<span id="posBtnSymbol">Selected</span>)</button>
+                    <button type="button" class="btn btn-danger" onclick="if(window.closeAllPositions)closeAllPositions();" title="Emergency close all active trades on exchange">⚡ Close All Positions</button>
                 </div>
             </div>
 
@@ -411,9 +412,12 @@
 
                 <!-- Right: All Watchlist Open Positions Table -->
                 <div class="card positions-table-card">
-                    <div class="card-header">
+                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
                         <h2><span class="card-icon">📊</span> Multi-Coin Watchlist Positions</h2>
-                        <span class="badge-live-stream" id="posCountBadge">0 Active</span>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <span class="badge-live-stream" id="posCountBadge">0 Active</span>
+                            <button type="button" class="btn btn-xs btn-danger" onclick="if(window.closeAllPositions)closeAllPositions();" title="Market close all open trades">⚡ Close All</button>
+                        </div>
                     </div>
                     <div class="card-body" style="padding:0; overflow-x:auto;">
                         <table class="pos-table" id="allPositionsTable">

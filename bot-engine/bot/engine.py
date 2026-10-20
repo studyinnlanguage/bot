@@ -482,7 +482,12 @@ class SymbolWorker(threading.Thread):
                             )
                     except Exception as e:
                         logger.error("SL/TP notification failed: %s", e)
-                # Position closed - emit signal for UI and return
+                else:
+                    logger.warning("[%s] Close order did not succeed: %s. Resetting one-shot flags to allow retry.", symbol, close)
+                    if is_ema_reversal_tp:
+                        self.ema_reversal_tp_fired = False
+
+                # Position closed or exit attempted - emit signal for UI and return
                 self.engine._emit("signal", {
                     "symbol": symbol,
                     "signal": result.signal.value,

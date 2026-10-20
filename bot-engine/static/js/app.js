@@ -1237,6 +1237,12 @@ window.closePositionForSymbol = async function(symbol) {
         const d = await r.json();
         if (d.success) {
             log('success', `[${symbol}] Position closed successfully!`);
+            if (positionsBySymbol[symbol]) {
+                positionsBySymbol[symbol].side = 'NONE';
+                positionsBySymbol[symbol].size = 0;
+                positionsBySymbol[symbol].unrealized_pnl = 0;
+            }
+            if (typeof renderPositionsTable === 'function') renderPositionsTable();
             window.fetchPositions();
             if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         } else {
@@ -1986,6 +1992,12 @@ async function closePosition() {
         const data = await r.json();
         if (data.success) {
             log('success', `[${activeSymbol}] Position close request accepted`);
+            if (positionsBySymbol[activeSymbol]) {
+                positionsBySymbol[activeSymbol].side = 'NONE';
+                positionsBySymbol[activeSymbol].size = 0;
+                positionsBySymbol[activeSymbol].unrealized_pnl = 0;
+            }
+            if (typeof renderPositionsTable === 'function') renderPositionsTable();
             window.fetchPositions();
             if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         } else {
@@ -1995,6 +2007,40 @@ async function closePosition() {
         log('error', `Close error: ${e.message || e}`);
     }
 }
+window.closePosition = closePosition;
+
+window.closeAllPositions = async function() {
+    if (!confirm('Kya aap saari active positions market close karna chahte hain?')) return;
+    log('warn', '⚡ Closing ALL active positions...');
+    try {
+        const r = await fetch('/api/close_all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            log('error', `Close all request returned HTTP ${r.status}`);
+            return;
+        }
+        const data = await r.json();
+        if (data.success) {
+            log('success', '✅ Saari active positions close request successfully process ho gayi!');
+            for (const sym in positionsBySymbol) {
+                positionsBySymbol[sym].side = 'NONE';
+                positionsBySymbol[sym].size = 0;
+                positionsBySymbol[sym].unrealized_pnl = 0;
+            }
+            if (typeof renderPositionsTable === 'function') renderPositionsTable();
+            window.fetchPositions();
+            if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
+        } else {
+            log('error', `Close all failed: ${data.error || 'Unknown error'}`);
+        }
+    } catch (e) {
+        log('error', `Close all error: ${e.message || e}`);
+    }
+};
 
 async function refreshStatus() {
     try {
