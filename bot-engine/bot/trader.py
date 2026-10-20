@@ -436,7 +436,8 @@ class BinanceFuturesTrader:
         return round(rounded, decimals)
 
     def place_market_order(self, symbol: str, side: str, quantity: float,
-                           reduce_only: bool = False) -> dict:
+                           reduce_only: bool = False,
+                           position_side: str = None) -> dict:
         """
         Place a MARKET order. Automatically rounds quantity to the symbol's
         LOT_SIZE step size to avoid Binance error -1111 (Precision over maximum).
@@ -446,6 +447,7 @@ class BinanceFuturesTrader:
             side: "BUY" or "SELL"
             quantity: base-asset quantity (>0)
             reduce_only: if True, only reduces existing position (for exits)
+            position_side: "LONG" or "SHORT" for Hedge Mode, or None for One-Way Mode
 
         Returns:
             dict with success flag and order info.
@@ -760,7 +762,7 @@ class BinanceFuturesTrader:
             return {"success": False, "error": str(e)}
 
     def cancel_open_orders(self, symbol: str) -> dict:
-        """Cancel all open orders for a symbol (used before placing new SL/TP)."""
+        """Cancel all open orders for a symbol (used before placing new SL/TP or closing position)."""
         try:
             if _CONNECTOR == "binance-futures-connector":
                 resp = self.client.cancel_open_orders(symbol=symbol)
@@ -768,8 +770,13 @@ class BinanceFuturesTrader:
                 resp = self.client.futures_cancel_all_open_orders(symbol=symbol)
             return {"success": True, "raw": resp}
         except Exception as e:
-            logger.error("Cancel orders failed: %s", e)
-            return {"success": False, "error": str(e)}
+            err_msg = str(e)
+            if "-2011" in err_msg or "unknown order" in err_msg.lower():
+                # Binance returns -2011 if there are no open orders; that is normal and clean
+                logger.debug("[%s] cancel_open_orders: no open orders found to cancel", symbol)
+                return {"success": True, "message": "No open orders to cancel"}
+            logger.warning("[%s] Cancel orders notice: %s", symbol, e)
+            return {"success": False, "error": err_msg}
 
     # ---------- Helpers ----------
 
