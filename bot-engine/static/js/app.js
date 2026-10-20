@@ -1369,12 +1369,18 @@ window.renderTradeHistoryTable = function() {
         // Reason badge
         let reasonBadge = `<span class="badge-reason">${t.close_reason || (isClosed ? 'Closed' : 'Active')}</span>`;
         if (t.close_reason) {
-            if (t.close_reason.includes('Trailing') || t.close_reason.includes('TP')) {
-                reasonBadge = `<span class="badge-reason badge-reason-trailing">🎯 ${t.close_reason}</span>`;
-            } else if (t.close_reason.includes('SL')) {
-                reasonBadge = `<span class="badge-reason badge-reason-sl">⚡ ${t.close_reason}</span>`;
-            } else if (t.close_reason.includes('Manual')) {
-                reasonBadge = `<span class="badge-reason badge-reason-manual">👤 ${t.close_reason}</span>`;
+            const cr = t.close_reason;
+            if (cr.includes('Trailing') || cr.includes('TP') || cr.includes('Target')) {
+                const icon = cr.startsWith('🎯') ? '' : '🎯 ';
+                reasonBadge = `<span class="badge-reason badge-reason-trailing">${icon}${cr}</span>`;
+            } else if (cr.includes('SL') || cr.includes('REVERSAL')) {
+                const icon = (cr.startsWith('⚡') || cr.startsWith('🛡️')) ? '' : '⚡ ';
+                reasonBadge = `<span class="badge-reason badge-reason-sl">${icon}${cr}</span>`;
+            } else if (cr.includes('Manual')) {
+                const icon = cr.startsWith('👤') ? '' : '👤 ';
+                reasonBadge = `<span class="badge-reason badge-reason-manual">${icon}${cr}</span>`;
+            } else if (cr.includes('Unfilled') || cr.includes('Expired')) {
+                reasonBadge = `<span class="badge-reason" style="background:rgba(255,255,255,0.06); color:var(--text-muted); border-color:var(--border-subtle);">${cr}</span>`;
             }
         }
 
