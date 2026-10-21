@@ -63,6 +63,7 @@ class BinanceFuturesTrader:
         self.client = None
         self._exchange_info_cache: dict = {}  # symbol -> {step_size, min_qty, tick_size}
         self._symbol_leverage: dict[str, int] = {}  # symbol -> last set/confirmed leverage
+        self._symbol_max_notional: dict[str, float] = {}  # symbol -> max allowed notional at current leverage
         self._connect()
 
     def _connect(self):
@@ -332,14 +333,23 @@ class BinanceFuturesTrader:
         try:
             resp = self._call_change_leverage(symbol, leverage)
             actual_lev = leverage
-            if isinstance(resp, dict) and "leverage" in resp:
-                try:
-                    actual_lev = int(resp["leverage"])
-                except (ValueError, TypeError):
-                    actual_lev = leverage
+            max_notional = 0.0
+            if isinstance(resp, dict):
+                if "leverage" in resp:
+                    try:
+                        actual_lev = int(resp["leverage"])
+                    except (ValueError, TypeError):
+                        actual_lev = leverage
+                if "maxNotionalValue" in resp:
+                    try:
+                        max_notional = float(resp["maxNotionalValue"])
+                    except Exception:
+                        pass
             self._symbol_leverage[symbol] = actual_lev
-            logger.info("Leverage set to %dx for %s (resp: %s)", actual_lev, symbol, resp)
-            return {"success": True, "leverage": actual_lev, "raw": resp}
+            if max_notional > 0:
+                self._symbol_max_notional[symbol] = max_notional
+            logger.info("Leverage set to %dx for %s (maxNotional: %s, resp: %s)", actual_lev, symbol, max_notional, resp)
+            return {"success": True, "leverage": actual_lev, "maxNotionalValue": max_notional, "raw": resp}
         except Exception as e:
             msg = str(e)
             # Auto-fix: Leverage too high for this coin → reduce and retry
@@ -351,15 +361,24 @@ class BinanceFuturesTrader:
                     try:
                         resp = self._call_change_leverage(symbol, try_lev)
                         actual_lev = try_lev
-                        if isinstance(resp, dict) and "leverage" in resp:
-                            try:
-                                actual_lev = int(resp["leverage"])
-                            except (ValueError, TypeError):
-                                actual_lev = try_lev
+                        max_notional = 0.0
+                        if isinstance(resp, dict):
+                            if "leverage" in resp:
+                                try:
+                                    actual_lev = int(resp["leverage"])
+                                except (ValueError, TypeError):
+                                    actual_lev = try_lev
+                            if "maxNotionalValue" in resp:
+                                try:
+                                    max_notional = float(resp["maxNotionalValue"])
+                                except Exception:
+                                    pass
                         self._symbol_leverage[symbol] = actual_lev
-                        logger.info("Leverage auto-adjusted to %dx for %s (requested %dx)",
-                                    actual_lev, symbol, leverage)
-                        return {"success": True, "leverage": actual_lev, "raw": resp,
+                        if max_notional > 0:
+                            self._symbol_max_notional[symbol] = max_notional
+                        logger.info("Leverage auto-adjusted to %dx for %s (requested %dx, maxNotional: %s)",
+                                    actual_lev, symbol, leverage, max_notional)
+                        return {"success": True, "leverage": actual_lev, "maxNotionalValue": max_notional, "raw": resp,
                                 "adjusted": True, "original": leverage}
                     except Exception:
                         continue
@@ -375,6 +394,30 @@ class BinanceFuturesTrader:
                 return {"success": True, "leverage": leverage, "raw": msg}
             logger.error("Failed to set leverage for %s: %s", symbol, e)
             return {"success": False, "error": msg}
+
+    def get_max_notional(self, symbol: str) -> float:
+        """Get the maximum allowable position notional value for symbol at current leverage.
+        Used to prevent error -2027: Exceeded maximum allowable position."""
+        symbol = str(symbol).strip().upper()
+        if symbol in self._symbol_max_notional and self._symbol_max_notional[symbol] > 0:
+            return self._symbol_max_notional[symbol]
+        try:
+            for method_name in ("leverage_bracket", "futures_leverage_bracket"):
+                fn = getattr(self.client, method_name, None)
+                if callable(fn):
+                    brackets = fn(symbol=symbol)
+                    if isinstance(brackets, list) and len(brackets) > 0:
+                        b_list = brackets[0].get("brackets", [])
+                        cur_lev = self._symbol_leverage.get(symbol, 50)
+                        for b in b_list:
+                            if b.get("initialLeverage") >= cur_lev:
+                                notional_cap = float(b.get("notionalCap", 0))
+                                if notional_cap > 0:
+                                    self._symbol_max_notional[symbol] = notional_cap
+                                    return notional_cap
+        except Exception as e:
+            logger.debug("[%s] Could not fetch leverage brackets: %s", symbol, e)
+        return self._symbol_max_notional.get(symbol, 0.0)
 
     def get_symbol_filters(self, symbol: str) -> dict:
         """Fetch exchange info filters (LOT_SIZE step, min qty, PRICE_FILTER tick) for a symbol.
@@ -502,6 +545,26 @@ class BinanceFuturesTrader:
                         side, symbol, quantity, reduce_only, position_side, oid)
             return {"success": True, "order": resp, "quantity": quantity}
         except Exception as e:
+            err_msg = str(e)
+            # Auto-handle Binance error -2027: Exceeded maximum allowable position at current leverage
+            if "-2027" in err_msg or "maximum allowable position" in err_msg.lower():
+                for factor in (0.5, 0.25):
+                    retry_qty = self._round_to_step(quantity * factor, step)
+                    if retry_qty >= min_qty:
+                        logger.warning("[%s] Exceeded max allowable position (-2027) -> auto-retrying with safe qty=%s (%.0f%%)",
+                                       symbol, retry_qty, factor * 100)
+                        try:
+                            kwargs["quantity"] = retry_qty
+                            if _CONNECTOR == "binance-futures-connector":
+                                resp = self.client.new_order(**kwargs)
+                            else:
+                                resp = self.client.futures_create_order(**kwargs)
+                            oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
+                            logger.info("Order placed after bracket downscale: %s %s qty=%s -> orderId=%s",
+                                        side, symbol, retry_qty, oid)
+                            return {"success": True, "order": resp, "quantity": retry_qty}
+                        except Exception as e2:
+                            logger.warning("[%s] Retry with qty=%s failed: %s", symbol, retry_qty, e2)
             logger.error("Order failed: %s", e)
             return {"success": False, "error": str(e), "quantity": quantity}
 
