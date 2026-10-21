@@ -96,9 +96,9 @@ class SymbolWorker(threading.Thread):
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
-        # Per-worker strategy instance — CRITICAL FIX: prevents multi-coin workers
-        # from overwriting each other's cross detection and reversal state.
-        min_spread = float(self.config.get("min_ema_spread", 0.15))
+        # Adaptive spread filter: 0.50% for high-beta meme coins, 0.40% for majors/alts
+        default_spread = 0.50 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.40
+        min_spread = float(self.config.get("min_ema_spread", default_spread))
         self.strategy = EMAQuadStrategy(min_spread_pct=min_spread)
         # Leverage readiness event — workers wait on this before trading
         self._leverage_ready = leverage_ready
@@ -958,7 +958,6 @@ class SymbolWorker(threading.Thread):
             actual_qty = order.get("quantity", trade_size)
             self._log_order(order, f"[{symbol}] OPEN LONG ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
             if order.get("success"):
-                self.trades_today += 1
                 self._last_open_timestamp = time.time()
                 self.last_signal = Signal.BUY
                 self.expected_pos_side = "LONG"
@@ -1040,7 +1039,6 @@ class SymbolWorker(threading.Thread):
             actual_qty = order.get("quantity", trade_size)
             self._log_order(order, f"[{symbol}] OPEN SHORT ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
             if order.get("success"):
-                self.trades_today += 1
                 self._last_open_timestamp = time.time()
                 self.last_signal = Signal.SELL
                 self.expected_pos_side = "SHORT"
@@ -2087,8 +2085,21 @@ class BotEngine:
             # and auto-reset so user can start again
             self.is_running = False
             self.workers.clear()
+        # Compute today's completed trades from trade history so count persists even when bot is stopped
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        trades_today_count = 0
+        if hasattr(self, "trade_history") and self.trade_history:
+            with self.trade_history.lock:
+                trades_today_count = sum(
+                    1 for t in self.trade_history.trades
+                    if t.get("status") == "CLOSED" and str(t.get("closed_at", "")).startswith(today_utc)
+                )
+        if trades_today_count == 0 and self.workers:
+            trades_today_count = sum(w.trades_today for w in self.workers.values())
+
         return {
             "running": self.is_running,
+            "trades_today": trades_today_count,
             "exchange": self.config.get("exchange", "binance"),
             "symbols": symbols,
             "timeframe": self.config.get("timeframe"),

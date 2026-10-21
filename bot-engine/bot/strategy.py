@@ -48,7 +48,7 @@ class StrategyResult:
 class EMAQuadStrategy:
     """Quad-EMA crossover strategy with sequential alignment & anti-chop spread guard."""
 
-    def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55, min_spread_pct=0.15):
+    def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55, min_spread_pct=0.40):
         self.indicators = IndicatorSet(ema_short, ema_mid1, ema_mid2, ema_long)
         self.ema_short = ema_short
         self.ema_mid1 = ema_mid1

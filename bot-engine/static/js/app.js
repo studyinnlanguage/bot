@@ -840,14 +840,15 @@ function initSocket() {
                     if (!activeSymbol && coins.length) selectSymbol(coins[0]);
                     if ($('statCoins')) $('statCoins').textContent = coins.length;
                 }
-                // Update trades/stats from workers
-                if (data.workers) {
-                    let totalTrades = 0;
+                // Update trades/stats from status or workers
+                let totalTrades = data.trades_today != null ? data.trades_today : null;
+                if (totalTrades === null && data.workers) {
+                    totalTrades = 0;
                     for (const sym in data.workers) {
                         totalTrades += data.workers[sym].trades_today || 0;
                     }
-                    if ($('statTrades')) $('statTrades').textContent = totalTrades;
                 }
+                if (totalTrades !== null && $('statTrades')) $('statTrades').textContent = totalTrades;
             }
         });
 
@@ -2053,10 +2054,13 @@ async function refreshStatus() {
         const r = await fetch('/api/status');
         const s = await r.json();
         setBotRunning(!!s.running);
-        if (s.workers) {
-            let totalTrades = 0;
+        let totalTrades = s.trades_today != null ? s.trades_today : null;
+        if (totalTrades === null && s.workers) {
+            totalTrades = 0;
             for (const sym in s.workers) totalTrades += s.workers[sym].trades_today || 0;
-            if ($('statTrades')) $('statTrades').textContent = totalTrades;
+        }
+        if (totalTrades !== null && $('statTrades')) $('statTrades').textContent = totalTrades;
+        if (s.workers) {
             // If backend says running but has symbols, sync coins array
             if (s.running && s.symbols && s.symbols.length && coins.length === 0) {
                 coins = [...s.symbols];
@@ -2532,3 +2536,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
     setInterval(refreshBalance, 10000);
 });
+
+window.applyQuickPosLeverage = async function() {
+    const sel = $('quickPosLevSelect');
+    if (!sel) return;
+    const lev = parseInt(sel.value, 10);
+    const sym = activeSymbol || (coins.length ? coins[0] : 'BTCUSDT');
+    if (!lev || isNaN(lev)) return;
+
+    const btn = $('btnQuickSetLev');
+    try {
+        if (btn) { btn.textContent = '...'; btn.disabled = true; }
+        const r = await fetch('/api/leverage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ leverage: lev, symbol: sym })
+        });
+        const res = await r.json();
+        if (res.success) {
+            if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
+            if ($('leverage')) $('leverage').value = lev;
+            if (typeof logMsg === 'function') logMsg(`⚡ Leverage updated to ${lev}x for ${sym}`, 'success');
+        } else {
+            alert(res.error || 'Failed to update leverage');
+        }
+    } catch (e) {
+        console.error('applyQuickPosLeverage error:', e);
+    } finally {
+        if (btn) { btn.textContent = 'Set'; btn.disabled = false; }
+    }
+};

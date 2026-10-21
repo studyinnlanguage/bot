@@ -2429,5 +2429,42 @@ input, select {
     color: var(--text-secondary);
 }
 
-
-
+/* Quick Leverage Selector in Open Position Card */
+.pos-quick-lev-select {
+    background: #141a24;
+    color: var(--gold-primary);
+    border: 1px solid rgba(240, 185, 11, 0.35);
+    border-radius: 4px;
+    padding: 2px 5px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.pos-quick-lev-select:hover, .pos-quick-lev-select:focus {
+    border-color: var(--gold-primary);
+    box-shadow: 0 0 6px rgba(240, 185, 11, 0.3);
+}
+.btn-quick-set-lev {
+    background: linear-gradient(135deg, #f0b90b 0%, #d89e00 100%);
+    color: #0b0e11;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: transform 0.15s, opacity 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.btn-quick-set-lev:hover {
+    transform: scale(1.05);
+    opacity: 0.95;
+}
+.btn-quick-set-lev:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
