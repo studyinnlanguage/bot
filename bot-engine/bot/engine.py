@@ -1271,6 +1271,20 @@ class SymbolWorker(threading.Thread):
             margin = float(cfg.get("amount", 100))
             notional = margin * lev
 
+        # Check Binance leverage bracket limit (prevents error -2027: Exceeded maximum allowable position)
+        max_notional = 0.0
+        try:
+            if hasattr(self.engine.trader, "get_max_notional"):
+                max_notional = float(self.engine.trader.get_max_notional(self.symbol) or 0.0)
+        except Exception:
+            pass
+
+        if max_notional > 0 and notional > (max_notional * 0.95):
+            clamped_notional = max_notional * 0.95
+            logger.info("[%s] ⚠️ Trade notional $%.2f exceeds Binance %dx bracket limit ($%.2f) -> clamped to safe $%.2f",
+                        self.symbol, notional, lev, max_notional, clamped_notional)
+            notional = clamped_notional
+
         # Fetch real step_size from exchange for accurate rounding
         qty_step = 0.001  # safe fallback
         try:
