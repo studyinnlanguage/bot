@@ -186,8 +186,22 @@
                                 <span>Stop Loss (1:1 SL)</span>
                                 <strong id="posCurrentSl" style="color:var(--red-danger)">--</strong>
                             </div>
-                            <div class="pos-row">
-                                <span>Leverage</span><strong id="posLeverage">{{ config.leverage | default(10) }}x</strong>
+                            <div class="pos-row pos-row-leverage">
+                                <span>Leverage</span>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <strong id="posLeverage">{{ config.leverage | default(10) }}x</strong>
+                                    <select id="quickPosLevSelect" class="pos-quick-lev-select" title="Change leverage for active coin">
+                                        <option value="5">5x</option>
+                                        <option value="10">10x</option>
+                                        <option value="20">20x</option>
+                                        <option value="25">25x</option>
+                                        <option value="50" selected>50x</option>
+                                        <option value="75">75x</option>
+                                        <option value="100">100x</option>
+                                        <option value="125">125x</option>
+                                    </select>
+                                    <button type="button" id="btnQuickSetLev" class="btn-quick-set-lev" onclick="applyQuickPosLeverage()" title="Apply leverage">Set</button>
+                                </div>
                             </div>
                             <div class="pos-row">
                                 <span>Est. Fees</span>
