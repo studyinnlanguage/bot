@@ -2468,3 +2468,191 @@ input, select {
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+
+/* ==========================================================================
+   MOBILE SCREEN RESPONSIVENESS & POLISH AUDIT (Mobile-First Polish)
+   ========================================================================== */
+
+@media (max-width: 768px) {
+    html, body {
+        overflow-x: hidden !important;
+        overflow-x: clip !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .app-container {
+        padding: 8px !important;
+        padding-bottom: 76px !important;
+        max-width: 100% !important;
+        overflow-x: clip !important;
+    }
+
+    /* Position & History Card Header on Mobile */
+    .positions-table-card .card-header,
+    .history-card .card-header {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        padding: 10px 14px !important;
+        flex-wrap: nowrap !important;
+    }
+
+    .positions-table-card .card-header h2,
+    .history-card .card-header h2 {
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    /* Close All button compact on mobile */
+    .positions-table-card .btn-danger,
+    .positions-table-card .btn-xs.btn-danger {
+        padding: 5px 10px !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        border-radius: 6px !important;
+        height: auto !important;
+        min-height: auto !important;
+        white-space: nowrap !important;
+        box-shadow: 0 2px 10px rgba(246, 70, 93, 0.35) !important;
+    }
+
+    /* Table Wrappers with Smooth Horizontal Touch Scroll */
+    .pos-table-wrapper,
+    .history-table-wrapper,
+    .card-body[style*="overflow-x:auto"],
+    .card-body[style*="overflow-x: auto"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: thin !important;
+        max-width: 100% !important;
+        border-radius: 0 0 10px 10px !important;
+    }
+
+    /* Compact, High-End Table Cells on Mobile */
+    .pos-table th, .pos-table td,
+    .history-table th, .history-table td {
+        padding: 9px 10px !important;
+        font-size: 11.5px !important;
+        white-space: nowrap !important;
+    }
+
+    /* Sticky Symbol Column so coin name is never cut off on scroll */
+    .pos-table th:first-child,
+    .pos-table td:first-child {
+        position: sticky !important;
+        left: 0 !important;
+        background: #10141e !important;
+        z-index: 2 !important;
+        font-weight: 700 !important;
+        box-shadow: 2px 0 6px rgba(0, 0, 0, 0.45) !important;
+    }
+
+    .history-table th:nth-child(2),
+    .history-table td:nth-child(2) {
+        position: sticky !important;
+        left: 0 !important;
+        background: #10141e !important;
+        z-index: 2 !important;
+        font-weight: 700 !important;
+        box-shadow: 2px 0 6px rgba(0, 0, 0, 0.45) !important;
+    }
+
+    /* Quick Action Strip (Live Terminal / Open Position / etc.) */
+    .mobile-quick-strip {
+        display: flex !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        padding: 6px 4px !important;
+        gap: 8px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+    .mobile-quick-strip::-webkit-scrollbar {
+        display: none !important;
+    }
+    .mobile-quick-strip .ws-tab-btn {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+        padding: 7px 14px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+    }
+
+    /* Sleek Native-Feel Mobile Bottom Navigation */
+    .mobile-bottom-nav {
+        display: flex !important;
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 9999 !important;
+        background: rgba(9, 12, 18, 0.96) !important;
+        backdrop-filter: blur(24px) !important;
+        -webkit-backdrop-filter: blur(24px) !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+        justify-content: space-around !important;
+        align-items: center !important;
+        box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.75) !important;
+        height: auto !important;
+    }
+
+    .mob-nav-item {
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 5px 2px !important;
+        min-width: 0 !important;
+        border-radius: 8px !important;
+        text-decoration: none !important;
+        color: #7b889d !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .mob-nav-item.active {
+        color: #f0b90b !important;
+        background: rgba(240, 185, 11, 0.09) !important;
+    }
+
+    .mob-nav-icon {
+        font-size: 15px !important;
+        line-height: 1 !important;
+        margin-bottom: 2.5px !important;
+    }
+
+    .mob-nav-text {
+        font-size: 9.5px !important;
+        font-weight: 600 !important;
+        line-height: 1 !important;
+        letter-spacing: -0.1px !important;
+        white-space: nowrap !important;
+    }
+
+    /* Top Bar Status Badges on Mobile */
+    .topbar {
+        padding: 8px 12px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+    }
+    .topbar-actions {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+    }
+}

@@ -856,6 +856,9 @@ class SymbolWorker(threading.Thread):
         try:
             filters = self.engine.trader.get_symbol_filters(symbol)
             min_qty = filters.get("min_qty", 0.001)
+            max_qty = filters.get("max_qty", 1e9)
+            if max_qty > 0 and trade_size > max_qty:
+                trade_size = self.engine.trader._round_to_step(max_qty, filters.get("step_size", 0.001))
             if trade_size < min_qty:
                 if self.candles_processed % 12 == 0:
                     self.engine._emit("log", {
@@ -1283,15 +1286,21 @@ class SymbolWorker(threading.Thread):
                         self.symbol, notional, lev, max_notional, clamped_notional)
             notional = clamped_notional
 
-        # Fetch real step_size from exchange for accurate rounding
+        # Fetch real step_size and max_qty from exchange for accurate rounding and clamp
         qty_step = 0.001  # safe fallback
+        max_qty = 1e9
         try:
             filters = self.engine.trader.get_symbol_filters(self.symbol)
             qty_step = filters.get("step_size", 0.001)
+            max_qty = filters.get("max_qty", 1e9)
         except Exception:
             pass
 
-        return self.engine.trader.compute_quantity(notional, price, lev, qty_step=qty_step)
+        qty = self.engine.trader.compute_quantity(notional, price, lev, qty_step=qty_step)
+        if max_qty > 0 and qty > max_qty:
+            logger.info("[%s] Clamping trade size from %s to exchange max_qty %s", self.symbol, qty, max_qty)
+            qty = self.engine.trader._round_to_step(max_qty, qty_step)
+        return qty
 
     def _candles_to_list(self, df, n=200):
         """Convert df candles to list of dicts for UI chart."""

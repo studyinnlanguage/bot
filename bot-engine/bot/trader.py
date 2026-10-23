@@ -448,11 +448,25 @@ class BinanceFuturesTrader:
                 sym_name = s.get("symbol", "").upper()
                 filters = {f["filterType"]: f for f in s.get("filters", [])}
                 lot = filters.get("LOT_SIZE", {})
+                market_lot = filters.get("MARKET_LOT_SIZE", {})
                 price = filters.get("PRICE_FILTER", {})
+                s_step = float(lot.get("stepSize", 0.001))
+                s_min = float(lot.get("minQty", 0.001))
+                s_max = float(lot.get("maxQty", 1e9))
+                if market_lot:
+                    m_max = float(market_lot.get("maxQty", 0))
+                    if m_max > 0 and m_max < s_max:
+                        s_max = m_max
+                    m_min = float(market_lot.get("minQty", 0))
+                    if m_min > 0:
+                        s_min = max(s_min, m_min)
+                    m_step = float(market_lot.get("stepSize", 0))
+                    if m_step > 0:
+                        s_step = m_step
                 self._exchange_info_cache[sym_name] = {
-                    "step_size": float(lot.get("stepSize", 0.001)),
-                    "min_qty": float(lot.get("minQty", 0.001)),
-                    "max_qty": float(lot.get("maxQty", 1e9)),
+                    "step_size": s_step,
+                    "min_qty": s_min,
+                    "max_qty": s_max,
                     "tick_size": float(price.get("tickSize", 0.01)),
                 }
 
@@ -506,7 +520,11 @@ class BinanceFuturesTrader:
             filters = self.get_symbol_filters(symbol)
             step = filters["step_size"]
             min_qty = filters["min_qty"]
+            max_qty = filters.get("max_qty", 1e9)
             quantity = self._round_to_step(quantity, step)
+            if max_qty > 0 and quantity > max_qty:
+                logger.warning("[%s] Order qty %s exceeds max_qty %s -> clamped to %s", symbol, quantity, max_qty, max_qty)
+                quantity = self._round_to_step(max_qty, step)
             if quantity < min_qty:
                 return {"success": False,
                         "error": f"Quantity {quantity} below min_qty {min_qty} for {symbol}"}
@@ -547,7 +565,7 @@ class BinanceFuturesTrader:
         except Exception as e:
             err_msg = str(e)
             # Auto-handle Binance error -2027: Exceeded maximum allowable position at current leverage
-            if "-2027" in err_msg or "maximum allowable position" in err_msg.lower():
+            if "-2027" in err_msg or "-4005" in err_msg or "maximum allowable position" in err_msg.lower() or "quantity greater than max" in err_msg.lower():
                 for factor in (0.5, 0.25):
                     retry_qty = self._round_to_step(quantity * factor, step)
                     if retry_qty >= min_qty:
