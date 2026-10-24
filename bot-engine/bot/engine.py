@@ -201,11 +201,19 @@ class SymbolWorker(threading.Thread):
                     "msg": f"[{self.symbol}] Not enough candles ({len(df) if df is not None else 0}). Need 60+."
                 })
         except Exception as e:
-            logger.error(f"[{self.symbol}] Pre-seed FAILED: {e}")
-            self.engine._emit("log", {
-                "level": "error",
-                "msg": f"[{self.symbol}] Pre-seed failed: {str(e)[:100]}"
-            })
+            err_msg = str(e)
+            logger.error(f"[{self.symbol}] Pre-seed FAILED: {err_msg}")
+            is_invalid_sym = any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"])
+            if is_invalid_sym:
+                self.engine._emit("log", {
+                    "level": "warn",
+                    "msg": f"[{self.symbol}] ⚠️ Symbol not supported on current exchange environment. Skipping."
+                })
+            else:
+                self.engine._emit("log", {
+                    "level": "error",
+                    "msg": f"[{self.symbol}] Pre-seed failed: {err_msg[:100]}"
+                })
 
         while not self.stop_event.is_set():
             if not self.engine.is_running:
@@ -255,6 +263,17 @@ class SymbolWorker(threading.Thread):
         except Exception as e:
             err_msg = str(e)
             logger.error(f"[{symbol}] Failed to fetch klines after retries: {err_msg}")
+            is_invalid_sym = any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"])
+            if is_invalid_sym:
+                if not hasattr(self, "_warned_invalid_sym"):
+                    self._warned_invalid_sym = set()
+                if symbol not in self._warned_invalid_sym:
+                    self._warned_invalid_sym.add(symbol)
+                    self.engine._emit("log", {
+                        "level": "warn",
+                        "msg": f"[{symbol}] ⚠️ Symbol not supported on current exchange environment. Skipping."
+                    })
+                return
             is_rate_limit = any(x in err_msg.lower() for x in ["418", "429", "-1003", "too many requests", "banned"])
             if is_rate_limit:
                 self.engine._emit("log", {
@@ -1835,6 +1854,8 @@ class BotEngine:
                                 "level": "warn",
                                 "msg": f"[{sym}] ⚠️ WEEX leverage notice: {err[:80]}. Continuing with effective leverage."
                             })
+                        elif "-1121" in err or "Invalid symbol" in err:
+                            logger.info(f"[{sym}] Leverage setup skipped: symbol not supported.")
                         elif "-4141" in err or "Symbol is closed" in err or "band" in err:
                             self._emit("log", {
                                 "level": "warn",
@@ -2017,6 +2038,28 @@ class BotEngine:
 
     # ---------- Helpers ----------
 
+    def _clean_sym(self, s: str) -> str:
+        sym = str(s or "").strip().upper()
+        typo_map = {
+            "1000CHEEMUSDT": "1000CHEEMSUSDT",
+            "1000RATUSDT": "1000RATSUSDT",
+            "1000SATUSDT": "1000SATSUSDT",
+            "100000NKUSDT": "1000BONKUSDT",
+            "CHEEMUSDT": "1000CHEEMSUSDT",
+            "CHEEMSUSDT": "1000CHEEMSUSDT",
+            "RATUSDT": "1000RATSUSDT",
+            "SATUSDT": "1000SATSUSDT",
+            "PEPEUSDT": "1000PEPEUSDT",
+            "BONKUSDT": "1000BONKUSDT",
+            "FLOKIUSDT": "1000FLOKIUSDT",
+            "SHIBUSDT": "1000SHIBUSDT",
+            "LUNCUSDT": "1000LUNCUSDT",
+            "BABYDOGEUSDT": "1MBABYDOGEUSDT",
+            "MOGUSDT": "1000000MOGUSDT",
+            "CATUSDT": "1000000CATUSDT",
+        }
+        return typo_map.get(sym, sym)
+
     def _symbols_list(self) -> list:
         """Get list of symbols to trade (supports multi-symbol).
 
@@ -2027,23 +2070,24 @@ class BotEngine:
         Now: reads `config['symbols_list']` (the full list) first,
         falls back to `config['symbol']` (legacy single-string) only if
         symbols_list is missing or empty.
+        Also automatically normalizes common typos so Binance does not error with -1121.
         """
         # Preferred: symbols_list (the full multi-coin list)
         sl = self.config.get("symbols_list")
         if isinstance(sl, list):
-            parts = [str(x).strip().upper() for x in sl if x and str(x).strip()]
+            parts = [self._clean_sym(x) for x in sl if x and str(x).strip()]
             if parts:
                 return parts
         elif isinstance(sl, str) and sl.strip():
-            parts = [x.strip().upper() for x in sl.split(",") if x.strip()]
+            parts = [self._clean_sym(x) for x in sl.split(",") if x.strip()]
             if parts:
                 return parts
         # Legacy fallback: single symbol string
         s = self.config.get("symbol", "BTCUSDT")
         if isinstance(s, list):
-            return [x.strip().upper() for x in s if x and x.strip()]
+            return [self._clean_sym(x) for x in s if x and x.strip()]
         if isinstance(s, str):
-            parts = [x.strip().upper() for x in s.split(",") if x and x.strip()]
+            parts = [self._clean_sym(x) for x in s.split(",") if x and x.strip()]
             return parts if parts else ["BTCUSDT"]
         return ["BTCUSDT"]
 

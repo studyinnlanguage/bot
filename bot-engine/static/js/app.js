@@ -1688,8 +1688,28 @@ async function loadSettings() {
         setAmountMode(amtMode);
 
         // Coins
+        const typoMap = {
+            '1000RATUSDT': '1000RATSUSDT',
+            '1000CHEEMUSDT': '1000CHEEMSUSDT',
+            '1000SATUSDT': '1000SATSUSDT',
+            '100000NKUSDT': '1000BONKUSDT',
+            'RATUSDT': '1000RATSUSDT',
+            'CHEEMUSDT': '1000CHEEMSUSDT',
+            'SATUSDT': '1000SATSUSDT',
+            'BONKUSDT': '1000BONKUSDT',
+            'PEPEUSDT': '1000PEPEUSDT',
+            'FLOKIUSDT': '1000FLOKIUSDT',
+            'SHIBUSDT': '1000SHIBUSDT',
+            'LUNCUSDT': '1000LUNCUSDT',
+            'BABYDOGEUSDT': '1MBABYDOGEUSDT',
+            'MOGUSDT': '1000000MOGUSDT',
+            'CATUSDT': '1000000CATUSDT'
+        };
         const savedCoins = Array.isArray(cfg.symbols_list) ? cfg.symbols_list : (cfg.symbol ? [cfg.symbol] : ['BTCUSDT']);
-        coins = savedCoins.map(s => String(s).toUpperCase());
+        coins = savedCoins.map(s => {
+            const sym = String(s).toUpperCase().trim();
+            return typoMap[sym] || sym;
+        });
         if (coins.length === 0) coins = ['BTCUSDT'];
         if (!activeSymbol) activeSymbol = coins[0];
         renderCoinChips();
@@ -1770,10 +1790,15 @@ function setExchange(exchange) {
         if (exchange === 'primexbt') {
             coins = ['XAU/USD', 'BTC/USD', 'ETH/USD'];
         } else if (exchange === 'weex' && testnet) {
-            coins = coins.map(c => (c.endsWith('USDT') && !c.endsWith('SUSDT')) ? c.replace('USDT', 'SUSDT') : c);
+            coins = coins.map(c => (c.endsWith('USDT') && !c.endsWith('SUSDT')) ? c.replace(/USDT$/, 'SUSDT') : c);
             if (coins.some(c => c.includes('/') || !c.endsWith('USDT'))) coins = ['BTCSUSDT'];
         } else {
-            coins = coins.map(c => c.endsWith('SUSDT') ? c.replace('SUSDT', 'USDT') : c);
+            const genuineSCoins = ['1000RATSUSDT', '1000SATSUSDT', '1000CHEEMSUSDT', 'RATSUSDT', 'SATSUSDT', 'CHEEMSUSDT'];
+            coins = coins.map(c => {
+                if (genuineSCoins.includes(c)) return c;
+                if (c.endsWith('SUSDT')) return c.replace(/SUSDT$/, 'USDT');
+                return c;
+            });
             if (coins.some(c => c.includes('/') || !c.endsWith('USDT'))) coins = ['BTCUSDT'];
         }
         if (coins.length === 0) {
