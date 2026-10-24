@@ -41,10 +41,11 @@ function log(level, msg) {
 
 function updateSlot(name, value, cls = null) {
     document.querySelectorAll(`[data-slot="${name}"]`).forEach(el => {
-        el.textContent = value;
+        if (value !== undefined && value !== null) el.textContent = value;
         if (cls) {
-            el.classList.remove('up', 'down', 'gold', 'live', 'off', 'running');
-            el.classList.add(cls);
+            el.classList.remove('up', 'down', 'gold', 'live', 'off', 'running', 'amber');
+            const tokens = String(cls).split(/\s+/).filter(Boolean);
+            if (tokens.length) el.classList.add(...tokens);
         }
     });
 }
@@ -1873,8 +1874,10 @@ function setExchange(exchange) {
     if (passGroup) {
         if (exchange === 'weex') {
             passGroup.classList.remove('hidden');
+            passGroup.style.display = '';
         } else {
             passGroup.classList.add('hidden');
+            passGroup.style.display = 'none';
         }
     }
     // Update API Key / Secret / Coin placeholders based on exchange
@@ -2556,6 +2559,16 @@ function attachListeners() {
     document.querySelectorAll('.exchange-btn').forEach(btn => {
         btn.addEventListener('click', () => setExchange(btn.dataset.exchange));
     });
+
+    // Environment change
+    const testnetSelect = $('testnet');
+    if (testnetSelect) {
+        testnetSelect.addEventListener('change', () => {
+            const ex = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
+            updateEnvBadge(testnetSelect.value === 'true', ex);
+            saveSettings();
+        });
+    }
 
     // Amount mode toggle
     document.querySelectorAll('.toggle-btn').forEach(btn => {

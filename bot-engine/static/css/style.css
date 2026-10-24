@@ -614,6 +614,173 @@ svg { display: block; }
 .mobile-quick-strip .mob-coin { font: 800 13px var(--mono); color: var(--gold); }
 .mobile-quick-strip .mob-price { font: 700 12px var(--mono); color: var(--t1); margin-left: 6px; }
 
+/* ============================================================
+   EXCHANGE TOGGLE, LEVERAGE, COIN CHIPS & SIZING
+   ============================================================ */
+.exchange-toggle {
+    display: flex;
+    background: #0B0E13;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 3px;
+    gap: 4px;
+}
+.exchange-btn {
+    flex: 1;
+    padding: 9px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: var(--t2);
+    font: 700 11px var(--font);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+}
+.exchange-btn:hover:not(.active) {
+    color: var(--t1);
+    background: rgba(255, 255, 255, 0.05);
+}
+.exchange-btn.active {
+    background: linear-gradient(135deg, var(--gold-hi), var(--gold));
+    color: #120e03;
+    font-weight: 800;
+    box-shadow: 0 2px 12px rgba(240, 185, 11, 0.35);
+}
+.exchange-btn[data-exchange="weex"].active {
+    background: linear-gradient(135deg, #2ae79d, #0ecb81);
+    color: #041a10;
+    box-shadow: 0 2px 12px rgba(14, 203, 129, 0.35);
+}
+.exchange-btn[data-exchange="primexbt"].active {
+    background: linear-gradient(135deg, #60a5fa, #2563eb);
+    color: #ffffff;
+    box-shadow: 0 2px 12px rgba(37, 99, 235, 0.35);
+}
+
+/* Sizing Toggle Group */
+.toggle-group {
+    display: flex;
+    background: #0B0E13;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 3px;
+    gap: 4px;
+}
+.toggle-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: var(--t2);
+    font: 700 11px var(--font);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+}
+.toggle-btn:hover:not(.active) {
+    color: var(--t1);
+    background: rgba(255, 255, 255, 0.05);
+}
+.toggle-btn.active {
+    background: #18202A;
+    color: var(--gold);
+    border: 1px solid rgba(240, 185, 11, 0.3);
+    font-weight: 800;
+}
+
+/* Quick Leverage Presets */
+.quick-leverage {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+.quick-leverage .btn {
+    padding: 6px 11px;
+    font: 700 11px var(--mono);
+    border-radius: 7px;
+    background: #0B0E13;
+    border: 1px solid var(--border);
+    color: var(--t2);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.quick-leverage .btn:hover {
+    border-color: var(--gold);
+    color: var(--t1);
+}
+.quick-leverage .btn.active {
+    background: var(--gold);
+    color: #120e03;
+    border-color: var(--gold);
+    font-weight: 800;
+}
+
+/* Coin Chips */
+.coin-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    min-height: 4px;
+}
+.coin-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: #0E131B;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: 700 11px var(--mono);
+    color: var(--t2);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.coin-chip:hover {
+    border-color: rgba(240, 185, 11, 0.4);
+    color: var(--t1);
+    transform: translateY(-1px);
+}
+.coin-chip.active {
+    background: linear-gradient(135deg, var(--gold-hi), var(--gold));
+    color: #120e03;
+    border-color: transparent;
+    font-weight: 800;
+    box-shadow: 0 2px 10px rgba(240, 185, 11, 0.3);
+}
+.coin-chip .remove {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 800;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+.coin-chip .remove:hover {
+    opacity: 1;
+    color: var(--down);
+}
+
+/* Table Wrappers with Smooth Touch Scroll */
+.history-table-wrapper,
+.positions-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+.history-table-wrapper::-webkit-scrollbar,
+.positions-table-wrapper::-webkit-scrollbar {
+    height: 6px;
+}
+.history-table-wrapper::-webkit-scrollbar-thumb,
+.positions-table-wrapper::-webkit-scrollbar-thumb {
+    background: #1B222D;
+    border-radius: 4px;
+}
+
 /* Responsive Media Queries */
 @media (max-width: 1023px) {
     .sidebar { display: none; }
@@ -626,12 +793,21 @@ svg { display: block; }
     .terminal-grid { flex-direction: column; }
     .terminal-right { width: 100%; }
     .cfg-grid { grid-template-columns: 1fr; }
-    .tr { grid-template-columns: 1fr 1fr 1fr 1.2fr; gap: 6px; }
-    .tr > span:nth-child(3), .tr > span:nth-child(4), .tr > span:nth-child(7) { display: none; }
+    .tr { min-width: 620px; }
+    .tr-hist { min-width: 660px; }
 }
 @media (max-width: 600px) {
     .statrow .stat { min-width: 100%; }
     .chead { flex-direction: column; align-items: flex-start; gap: 8px; }
     .chead .px { margin-left: 0; text-align: left; }
     .legend { gap: 8px; }
+    .topbar { padding: 8px 12px; }
+    .content-area { padding: 10px 10px 84px; }
+    .cfg-card { padding: 14px; }
 }
+@media (max-width: 380px) {
+    .topbar .brand span { display: none; }
+    .topbar .sp { gap: 6px; }
+    .content-area { padding: 6px 6px 84px; }
+}
+
