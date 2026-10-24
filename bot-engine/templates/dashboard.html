@@ -346,8 +346,8 @@
                     <div class="thead2">
                         <span class="label">Closed Trades Audit</span>
                         <div style="margin-left:auto; display:flex; gap:8px;">
-                            <button type="button" class="btn btn-ghost" id="refreshHistoryBtn" style="padding:6px 12px; font-size:10px;">↻ Refresh</button>
-                            <button type="button" class="btn btn-ghost red" id="clearHistoryBtn" style="padding:6px 12px; font-size:10px;">Clear Audit</button>
+                            <button type="button" class="btn btn-ghost" id="refreshHistoryBtn" onclick="if(window.fetchTradeHistory)window.fetchTradeHistory(true)" style="padding:6px 12px; font-size:10px;">↻ Refresh</button>
+                            <button type="button" class="btn btn-ghost red" id="clearHistoryBtn" onclick="if(window.clearTradeHistory)window.clearTradeHistory()" style="padding:6px 12px; font-size:10px;">Clear Audit</button>
                         </div>
                     </div>
 
@@ -383,20 +383,32 @@
                  TAB 4: ALERTS & NOTIFICATION CHANNELS
                  ======================================================== -->
             <section class="ws-tab-pane" data-ws-tab="alerts">
-                <div class="card stat" style="padding:16px 20px;">
+                <div class="card stat" style="padding:16px 20px; margin-bottom:14px;">
                     <div class="spread">
                         <div>
                             <span class="label">Alerts &amp; Dispatch Feed</span>
-                            <div style="font:800 16px var(--font); margin-top:4px;">Real-Time Execution Logs</div>
+                            <div style="font:800 16px var(--font); margin-top:4px;">Real-Time Signal &amp; Execution Audit</div>
                         </div>
-                        <div style="display:flex; gap:6px;">
-                            <button type="button" class="btn btn-ghost" onclick="switchWorkspaceTab('config')">Configure Telegram / SMTP</button>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <span class="chip green" id="alertEngineStatusChip" style="font-weight:700;">● DISPATCH ACTIVE</span>
+                            <button type="button" class="btn btn-ghost" id="btnTestAlertsInTab" onclick="if(window.sendTestNotification)window.sendTestNotification()" style="padding:6px 14px; font-size:11px;">⚡ Test Notification</button>
+                            <button type="button" class="btn btn-ghost red" onclick="if(window.clearAlerts)window.clearAlerts()" style="padding:6px 12px; font-size:11px;">Clear Alerts</button>
                         </div>
                     </div>
                 </div>
 
-                <div id="alertsFeedList" style="display:flex; flex-direction:column; gap:8px;">
-                    <div class="empty" data-empty>NO RECENT ALERTS</div>
+                <!-- Filter Chips -->
+                <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:10px;">
+                    <button type="button" class="coin-tab active" data-alert-filter="all" onclick="filterAlerts('all')">All Alerts</button>
+                    <button type="button" class="coin-tab" data-alert-filter="fill" onclick="filterAlerts('fill')">Trade Fills</button>
+                    <button type="button" class="coin-tab" data-alert-filter="tp" onclick="filterAlerts('tp')">TP / SL Hits</button>
+                    <button type="button" class="coin-tab" data-alert-filter="signal" onclick="filterAlerts('signal')">Indicator Signals</button>
+                    <button type="button" class="coin-tab" data-alert-filter="system" onclick="filterAlerts('system')">System / Engine</button>
+                </div>
+
+                <!-- Live Alerts List -->
+                <div id="alertsFeedList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:20px;">
+                    <div class="empty" data-empty>NO RECENT ALERTS RECORDED</div>
                 </div>
             </section>
 
@@ -512,7 +524,7 @@
                             <input type="number" id="amount" class="form-input" value="100" min="1" step="1">
                         </div>
 
-                        <div class="form-group hidden" id="percentAmountGroup" style="display:none;">
+                        <div class="form-group" id="percentAmountGroup" style="display:none;">
                             <label class="label">Wallet Allocation % (per trade)</label>
                             <input type="number" id="amountPct" class="form-input" value="10" min="1" max="100" step="1">
                             <div class="hint" style="font-size:10.5px; color:var(--t3); margin-top:4px;">Bot dynamically computes USDT size based on current available balance.</div>
@@ -675,60 +687,120 @@
 <!-- ============================================================
      PROFILE & REFERRAL PROGRAM MODAL
      ============================================================ -->
-<div class="modal-overlay" id="profileReferralModal" onclick="if(event.target===this)closeProfileModal()">
-    <div class="modal-card">
-        <button type="button" class="modal-close-btn" onclick="closeProfileModal()">&times;</button>
-        
-        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
-            <div class="avatar-btn" id="modalUserAvatar" style="width:44px; height:44px; font-size:16px;">👤</div>
-            <div>
-                <div style="font:800 15px var(--font);" id="modalUserName">Trader</div>
-                <div class="t2" style="font:600 11px var(--mono);" id="modalUserEmail">--</div>
+<div class="ref-modal-overlay modal-overlay" id="profileReferralModal" onclick="if(event.target===this)closeProfileModal()">
+    <div class="ref-modal-card modal-card">
+        <!-- Header -->
+        <div class="ref-modal-header">
+            <div class="ref-modal-title">
+                <div class="ref-avatar" id="modalUserAvatar">👤</div>
+                <div>
+                    <div style="font-size:16px; font-weight:800; color:#fff;" id="modalUserName">Trader</div>
+                    <div style="font-size:11.5px; color:var(--t2); font-family:var(--mono);" id="modalUserEmail">user@example.com</div>
+                </div>
             </div>
-            <span class="chip amber" id="modalPlanBadge" style="margin-left:auto;">ACTIVE LICENSE</span>
-        </div>
-
-        <!-- Referral Stats Strip -->
-        <div class="statrow" style="margin-bottom:16px;">
-            <div class="card stat" style="padding:10px 14px;">
-                <div class="label">Referrals</div>
-                <div class="v num" id="statRefUsers">0</div>
-            </div>
-            <div class="card stat" style="padding:10px 14px;">
-                <div class="label">Total Earned</div>
-                <div class="v num gold" id="statRefEarned">$0.00</div>
-            </div>
-            <div class="card stat" style="padding:10px 14px;">
-                <div class="label">Available Payout</div>
-                <div class="v num up" id="statRefAvailable">$0.00</div>
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span id="modalPlanBadge" class="chip green" style="font-weight:700; padding:4px 10px;">ACTIVE LICENSE</span>
+                <button type="button" class="ref-modal-close" onclick="closeProfileModal()">&times;</button>
             </div>
         </div>
 
-        <!-- 1-Click Copy Links -->
-        <div class="form-group" style="margin-bottom:12px;">
-            <label class="label">Your Referral Code</label>
-            <div style="display:flex; gap:6px;">
-                <input type="text" id="modalRefCode" class="form-input" readonly style="font-weight:800; color:var(--gold);">
-                <button type="button" class="btn btn-ghost" id="btnCopyCode" onclick="copyRefCode()">Copy</button>
-            </div>
+        <!-- Tab Buttons -->
+        <div class="ref-modal-tabs">
+            <button type="button" class="ref-tab-btn active" id="tabBtnRefLink" onclick="switchRefTab('link')">🔗 Referral Link</button>
+            <button type="button" class="ref-tab-btn" id="tabBtnRefTree" onclick="switchRefTab('tree')">👥 Referral Tree (<span id="tabCountInvited">0</span>)</button>
+            <button type="button" class="ref-tab-btn" id="tabBtnRefPayout" onclick="switchRefTab('payout')">💰 Payout &amp; Wallet</button>
         </div>
 
-        <div class="form-group" style="margin-bottom:14px;">
-            <label class="label">Your Referral Link (20% Recurring Commission)</label>
-            <div style="display:flex; gap:6px;">
-                <input type="text" id="modalRefLink" class="form-input" readonly>
-                <button type="button" class="btn btn-gold" id="btnCopyLink" onclick="copyRefLink()">Copy Link</button>
-            </div>
-        </div>
+        <!-- Modal Body -->
+        <div class="ref-modal-body">
+            <!-- TAB 1: Link & Code -->
+            <div id="refTabContentLink">
+                <!-- Quick Stats -->
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-bottom:18px;">
+                    <div class="ref-stat-box">
+                        <div style="font-size:10.5px; color:var(--t3); text-transform:uppercase; font-weight:700;">Total Invited</div>
+                        <div class="ref-stat-val gold" id="statRefUsers">0</div>
+                    </div>
+                    <div class="ref-stat-box">
+                        <div style="font-size:10.5px; color:var(--t3); text-transform:uppercase; font-weight:700;">Total Earned</div>
+                        <div class="ref-stat-val up" id="statRefEarned">$0.00</div>
+                    </div>
+                    <div class="ref-stat-box">
+                        <div style="font-size:10.5px; color:var(--t3); text-transform:uppercase; font-weight:700;">Available Payout</div>
+                        <div class="ref-stat-val up" id="statRefAvailable">$0.00</div>
+                    </div>
+                </div>
 
-        <!-- Payout Request Input -->
-        <div class="card" style="padding:14px; margin-top:14px; background:#0D1117;">
-            <div class="label" style="margin-bottom:6px;">Request Commission Payout</div>
-            <div style="display:flex; gap:6px;">
-                <input type="text" id="modalPayoutWalletInput" class="form-input" placeholder="Your USDT TRC20 or BEP20 Wallet Address">
-                <button type="button" class="btn btn-gold" id="btnRequestWithdrawal" onclick="requestPayout()">Withdraw</button>
+                <!-- Referral Link -->
+                <div style="margin-bottom:14px;">
+                    <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--t2); margin-bottom:6px; font-weight:700;">Your Shareable Referral Link</label>
+                    <div class="ref-link-box">
+                        <input type="text" id="modalRefLink" readonly style="flex:1; background:transparent; border:none; color:#fff; font-size:12px; font-family:var(--mono); outline:none;">
+                        <button type="button" class="btn btn-gold btn-sm" id="btnCopyLink" onclick="copyModalText('modalRefLink', 'btnCopyLink')">📋 Copy Link</button>
+                    </div>
+                </div>
+
+                <!-- Referral Code & Share -->
+                <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:18px;">
+                    <div style="flex:1; min-width:200px;">
+                        <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--t2); margin-bottom:6px; font-weight:700;">Your Referral Code</label>
+                        <div class="ref-link-box" style="justify-content:space-between;">
+                            <strong id="modalRefCode" style="font-family:var(--mono); color:var(--gold); font-size:16px; letter-spacing:1px;">--</strong>
+                            <button type="button" class="btn btn-ghost btn-sm" id="btnCopyCode" onclick="copyDirectText(document.getElementById('modalRefCode').textContent, 'btnCopyCode')">Copy</button>
+                        </div>
+                    </div>
+                    <div style="flex:1; min-width:200px;">
+                        <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--t2); margin-bottom:6px; font-weight:700;">Quick Share</label>
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" onclick="shareViaWhatsApp()" class="btn btn-sm" style="flex:1; background:#25D366; color:#080b11; font-weight:700; border:none; border-radius:6px; cursor:pointer; padding:8px 12px;">💬 WhatsApp</button>
+                            <button type="button" onclick="shareViaTelegram()" class="btn btn-sm" style="flex:1; background:#0088cc; color:#fff; font-weight:700; border:none; border-radius:6px; cursor:pointer; padding:8px 12px;">✈️ Telegram</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Commission Structure -->
+                <div style="background:rgba(240,185,11,0.06); border:1px dashed rgba(240,185,11,0.3); border-radius:10px; padding:14px; font-size:11.5px; line-height:1.6;">
+                    <div style="font-weight:700; color:var(--gold); margin-bottom:6px; font-size:12px;">🎁 Instant Commission Structure</div>
+                    <div>&bull; <strong>1-Year License ($79):</strong> Jab bhi aapka refer kiya hua dost 1-Year plan activate karega, aapko direct <strong>$10 USDT</strong> milega.</div>
+                    <div>&bull; <strong>Lifetime License ($500):</strong> Jab koi Lifetime plan activate karega, aapko direct <strong>$50 USDT</strong> milega.</div>
+                </div>
             </div>
-            <div class="t3" style="font:600 9px var(--font); margin-top:6px;">Minimum withdrawal $10 USDT. Instant admin reconciliation.</div>
+
+            <!-- TAB 2: Tree & Invited Users -->
+            <div id="refTabContentTree" style="display:none;">
+                <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+                    <span>Your Referral Network</span>
+                    <span style="font-size:11px; color:var(--t3);">Direct Referral Tree</span>
+                </div>
+                <div id="refUsersList">
+                    <div style="text-align:center; padding:32px; color:var(--t3); font-size:13px;">Loading referral tree...</div>
+                </div>
+            </div>
+
+            <!-- TAB 3: Payout Wallet & Withdrawal -->
+            <div id="refTabContentPayout" style="display:none;">
+                <!-- Wallet Address Card -->
+                <div style="background:#080A0E; border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:16px;">
+                    <div style="font-size:13px; font-weight:700; color:var(--gold); margin-bottom:6px;">💰 Enter Your USDT Payout Wallet</div>
+                    <div style="font-size:11.5px; color:var(--t2); margin-bottom:12px;">Referral commission receive karne ke liye apna USDT (TRC20 ya BEP20) wallet address yahan save karein:</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+                        <input type="text" id="modalPayoutWalletInput" class="form-input" placeholder="T... (TRC20) ya 0x... (BEP20)" style="flex:1; min-width:240px; font-family:var(--mono);">
+                        <button type="button" class="btn btn-gold btn-sm" onclick="saveModalPayoutWallet()">💾 Save Wallet</button>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
+                        <div style="font-size:12px; color:var(--t2);">
+                            Available Balance: <strong id="modalAvailBalanceText" style="color:var(--up); font-size:14px;">$0.00 USDT</strong>
+                        </div>
+                        <button type="button" id="btnRequestWithdrawal" class="btn btn-gold btn-sm" style="font-weight:800; padding:8px 18px;" onclick="requestModalPayout()">⚡ Request Withdrawal</button>
+                    </div>
+                </div>
+
+                <!-- Withdrawal History -->
+                <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:10px;">Withdrawal &amp; Payout History</div>
+                <div id="modalPayoutHistoryList">
+                    <div style="text-align:center; padding:20px; color:var(--t3); font-size:12px;">No withdrawal requests yet.</div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -777,28 +849,102 @@
 
     function openProfileModal() {
         const modal = document.getElementById('profileReferralModal');
-        if (modal) modal.classList.add('open');
-        if (typeof window.fetchReferralData === 'function') window.fetchReferralData();
+        if (modal) {
+            modal.classList.add('open');
+            modal.classList.add('active');
+        }
+        if (typeof window.fetchReferralInfo === 'function') window.fetchReferralInfo();
+        else if (typeof window.fetchReferralData === 'function') window.fetchReferralData();
     }
     function closeProfileModal() {
         const modal = document.getElementById('profileReferralModal');
-        if (modal) modal.classList.remove('open');
+        if (modal) {
+            modal.classList.remove('open');
+            modal.classList.remove('active');
+        }
     }
 
-    function copyRefCode() {
-        const input = document.getElementById('modalRefCode');
-        if (input) {
-            navigator.clipboard.writeText(input.value);
-            alert('Referral Code copied to clipboard: ' + input.value);
-        }
+    function switchRefTab(tab) {
+        const linkTab = document.getElementById('refTabContentLink');
+        const treeTab = document.getElementById('refTabContentTree');
+        const payoutTab = document.getElementById('refTabContentPayout');
+        if (linkTab) linkTab.style.display = (tab === 'link' ? 'block' : 'none');
+        if (treeTab) treeTab.style.display = (tab === 'tree' ? 'block' : 'none');
+        if (payoutTab) payoutTab.style.display = (tab === 'payout' ? 'block' : 'none');
+
+        const btnLink = document.getElementById('tabBtnRefLink');
+        const btnTree = document.getElementById('tabBtnRefTree');
+        const btnPayout = document.getElementById('tabBtnRefPayout');
+        if (btnLink) btnLink.classList.toggle('active', tab === 'link');
+        if (btnTree) btnTree.classList.toggle('active', tab === 'tree');
+        if (btnPayout) btnPayout.classList.toggle('active', tab === 'payout');
     }
-    function copyRefLink() {
+
+    function copyModalText(inputId, btnId) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        navigator.clipboard.writeText(input.value).then(() => {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                const orig = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 1500);
+            }
+        });
+    }
+
+    function copyDirectText(text, btnId) {
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                const orig = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 1500);
+            }
+        });
+    }
+
+    function shareViaWhatsApp() {
         const input = document.getElementById('modalRefLink');
-        if (input) {
-            navigator.clipboard.writeText(input.value);
-            alert('Referral Link copied to clipboard!');
+        const link = input ? input.value : window.location.origin;
+        const text = encodeURIComponent('Join me on Binance Futures Automated Bot! Use my referral link: ' + link);
+        window.open('https://api.whatsapp.com/send?text=' + text, '_blank');
+    }
+
+    function shareViaTelegram() {
+        const input = document.getElementById('modalRefLink');
+        const link = input ? input.value : window.location.origin;
+        const text = encodeURIComponent('Join me on Binance Futures Automated Bot! Use my referral link:');
+        window.open('https://t.me/share/url?url=' + encodeURIComponent(link) + '&text=' + text, '_blank');
+    }
+
+    async function saveModalPayoutWallet() {
+        if (typeof window.saveModalPayoutWallet === 'function') {
+            await window.saveModalPayoutWallet();
         }
     }
+
+    async function requestModalPayout() {
+        if (typeof window.requestModalPayout === 'function') {
+            await window.requestModalPayout();
+        }
+    }
+
+    function filterAlerts(filter) {
+        document.querySelectorAll('[data-alert-filter]').forEach(b => {
+            b.classList.toggle('active', b.dataset.alertFilter === filter);
+        });
+        if (typeof window.filterAlertsUI === 'function') {
+            window.filterAlertsUI(filter);
+        }
+    }
+
+    // Auto-load referral info for topbar badge and modal
+    window.addEventListener('DOMContentLoaded', () => {
+        if (typeof window.fetchReferralInfo === 'function') {
+            window.fetchReferralInfo();
+        }
+    });
 </script>
 </body>
 </html>

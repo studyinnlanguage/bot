@@ -995,6 +995,15 @@ function initSocket() {
             if (prevSignal !== data.signal && data.signal !== 'HOLD') {
                 log(data.signal === 'BUY' ? 'success' : 'warn',
                     `[${sym}] SIGNAL: ${data.signal} - ${data.reason}`);
+                if (typeof window.pushAlert === 'function') {
+                    window.pushAlert({
+                        type: 'signal',
+                        title: `${sym} ${data.signal} Signal`,
+                        message: data.reason || `EMA crossover triggered ${data.signal} signal on ${sym}`,
+                        symbol: sym,
+                        side: data.signal
+                    });
+                }
             }
             // Update coin tab
             const tab = document.querySelector(`.coin-tab[data-symbol="${sym}"]`);
@@ -1436,6 +1445,27 @@ window.fetchTradeHistory = async function(force = false) {
             window.tradeHistoryData = d.trades || [];
             window.tradeHistoryStats = d.stats || {};
             window.renderTradeHistoryUI();
+            if (window.alertsList && window.alertsList.length === 0 && d.trades && d.trades.length > 0) {
+                d.trades.slice(0, 10).forEach(t => {
+                    const net = Number(t.net_pnl != null ? t.net_pnl : (t.pnl - (t.fee || 0))) || 0;
+                    const cr = (t.close_reason || t.reason || 'Closed').toUpperCase();
+                    const isTp = cr.includes('TP');
+                    const isSl = cr.includes('SL');
+                    const closeDate = t.closed_at ? new Date(t.closed_at) : (t.opened_at ? new Date(t.opened_at) : null);
+                    const timeStr = closeDate ? closeDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--';
+                    window.alertsList.push({
+                        id: 'hist_' + (t.id || Math.random()),
+                        type: isTp ? 'tp' : (isSl ? 'sl' : 'fill'),
+                        title: `${t.symbol} ${cr}`,
+                        message: `Exit at $${fmt(t.exit_price || t.close_price)} | Net PnL: ${fmtSigned(net)}`,
+                        symbol: t.symbol,
+                        time: timeStr,
+                        pnl: net,
+                        side: t.side
+                    });
+                });
+                if (typeof window.renderAlerts === 'function') window.renderAlerts();
+            }
         }
     } catch (e) {
         console.warn('fetchTradeHistory error:', e);
@@ -1551,13 +1581,13 @@ window.renderTradeHistoryTable = function() {
 
         html += `
         <div class="tr-hist">
-            <span class="tm num">${timeDisplay}</span>
-            <span><strong style="color:var(--gold); font-size:12px;">${t.symbol}</strong> <i class="${sideCls}" style="margin-left:4px;">${t.side}</i></span>
-            <span class="num t2">${Math.abs(t.qty || t.size || 0).toFixed(4)}</span>
-            <span class="num">$${fmt(t.entry_price)} → $${fmt(t.exit_price || t.close_price)}</span>
-            <span class="num ${gross >= 0 ? 'up' : 'down'}">${fmtSigned(gross)}</span>
-            <span class="num down">${fmtUsd(fee)}</span>
-            <span style="text-align:right;">
+            <span class="col-time tm num">${timeDisplay}</span>
+            <span class="col-symbol"><strong style="color:var(--gold); font-size:12px;">${t.symbol}</strong> <i class="${sideCls}" style="margin-left:4px;">${t.side}</i></span>
+            <span class="col-size num t2"><small class="m-lbl">Size: </small>${Math.abs(t.qty || t.size || 0).toFixed(4)}</span>
+            <span class="col-prices num">$${fmt(t.entry_price)} → $${fmt(t.exit_price || t.close_price)}</span>
+            <span class="col-gross num ${gross >= 0 ? 'up' : 'down'}"><small class="m-lbl">Gross: </small>${fmtSigned(gross)}</span>
+            <span class="col-fee num down"><small class="m-lbl">Fee: </small>${fmtUsd(fee)}</span>
+            <span class="col-net" style="text-align:right;">
                 <b class="num ${pnlCls}">${fmtSigned(net)}</b>
                 ${reasonBadge}
             </span>
@@ -1643,7 +1673,7 @@ function renderCoinTabs() {
     const container = $('coinTabs');
     if (!container) return;
     if (coins.length === 0) {
-        container.innerHTML = '<span class="hint-inline">No coins added yet. Add coins from settings panel.</span>';
+        container.innerHTML = '<span class="hint-inline" style="color:var(--t3); font-size:11px; padding:6px 0;">No coins in watchlist. Add coins in Bot Settings.</span>';
         return;
     }
     container.innerHTML = '';
@@ -1653,8 +1683,12 @@ function renderCoinTabs() {
         tab.dataset.symbol = sym;
         const sig = signalsBySymbol[sym];
         if (sig) tab.classList.add(`signal-${sig.toLowerCase()}`);
-        tab.innerHTML = `${sym}<span class="signal-dot"></span>`;
-        tab.addEventListener('click', () => selectSymbol(sym));
+        tab.innerHTML = `<span>${sym}</span><span class="signal-dot"></span>`;
+        tab.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            selectSymbol(sym);
+        });
         container.appendChild(tab);
     });
 }
@@ -1790,13 +1824,10 @@ function setAmountMode(mode) {
     document.querySelectorAll('.toggle-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);
     });
-    if (mode === 'percent') {
-        $('fixedAmountGroup').classList.add('hidden');
-        $('percentAmountGroup').classList.remove('hidden');
-    } else {
-        $('fixedAmountGroup').classList.remove('hidden');
-        $('percentAmountGroup').classList.add('hidden');
-    }
+    const fixEl = $('fixedAmountGroup');
+    const pctEl = $('percentAmountGroup');
+    if (fixEl) fixEl.style.display = (mode === 'percent' ? 'none' : 'block');
+    if (pctEl) pctEl.style.display = (mode === 'percent' ? 'block' : 'none');
 }
 
 // ===== Settings Load/Save =====
@@ -1816,6 +1847,8 @@ async function loadSettings() {
                 $('posLeverage').textContent = `${savedLev}x`;
             }
         }
+        const savedMode = cfg.amount_mode || (cfg.amount_pct ? 'percent' : 'fixed');
+        setAmountMode(savedMode);
         if ($('amount')) $('amount').value = cfg.amount || 100;
         if ($('amountPct')) $('amountPct').value = cfg.amount_pct || 10;
         const slVal = cfg.stop_loss_pct || 2;
@@ -2290,6 +2323,23 @@ function attachListeners() {
     if (mobStart) mobStart.addEventListener('click', startBot);
     if (mobStop) mobStop.addEventListener('click', stopBot);
 
+    // History controls
+    const refHistBtn = $('refreshHistoryBtn');
+    if (refHistBtn) {
+        refHistBtn.addEventListener('click', async () => {
+            refHistBtn.textContent = '↻ Fetching...';
+            if (typeof window.fetchTradeHistory === 'function') {
+                try { await window.fetchTradeHistory(true); } finally { refHistBtn.textContent = '↻ Refresh'; }
+            }
+        });
+    }
+    const clrHistBtn = $('clearHistoryBtn');
+    if (clrHistBtn) {
+        clrHistBtn.addEventListener('click', () => {
+            if (typeof window.clearTradeHistory === 'function') window.clearTradeHistory();
+        });
+    }
+
     // Test Connection button - checks API credentials
     const testConnBtn = $('testConnBtn');
     if (testConnBtn) {
@@ -2754,54 +2804,350 @@ window.applyQuickPosLeverage = async function() {
     }
 };
 
-window.fetchReferralData = async function() {
+// ==========================================================================
+// Alerts & Signal Dispatch System
+// ==========================================================================
+window.alertsList = [];
+window.activeAlertFilter = 'all';
+
+window.pushAlert = function(item) {
+    if (!item) return;
+    const alertObj = {
+        id: 'alert_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        type: item.type || 'info', // 'fill', 'tp', 'sl', 'signal', 'system'
+        title: item.title || 'Notification',
+        message: item.message || '',
+        symbol: item.symbol || '',
+        time: item.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        pnl: item.pnl != null ? Number(item.pnl) : null,
+        side: item.side || null
+    };
+    window.alertsList.unshift(alertObj);
+    if (window.alertsList.length > 80) window.alertsList.pop();
+    window.renderAlerts();
+};
+
+window.filterAlertsUI = function(filter) {
+    window.activeAlertFilter = filter || 'all';
+    window.renderAlerts();
+};
+
+window.clearAlerts = function() {
+    window.alertsList = [];
+    window.renderAlerts();
+    log('info', '🧹 Alerts feed cleared.');
+};
+
+window.sendTestNotification = async function() {
+    const btn = $('btnTestAlertsInTab') || $('testNotificationBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+    try {
+        log('info', '⚡ Sending test notification dispatch...');
+        const r = await fetch('/api/test_notification', { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            log('success', `✅ Notification sent: ${d.message || 'Success'}`);
+            window.pushAlert({
+                type: 'system',
+                title: 'Test Notification Delivered',
+                message: d.message || 'Notification channels successfully tested.'
+            });
+            alert('✅ Test Notification delivered successfully!\n' + (d.message || ''));
+        } else {
+            log('warn', `⚠️ Test notification: ${d.error || 'Failed'}`);
+            window.pushAlert({
+                type: 'system',
+                title: 'Test Dispatch Warning',
+                message: d.error || 'Check Bot Settings notification checkboxes.'
+            });
+            alert('Notification notice: ' + (d.error || 'No channels enabled. Enable Telegram/Email/WhatsApp in Bot Settings.'));
+        }
+    } catch (e) {
+        log('error', `Test error: ${e.message || e}`);
+        alert('Test error: ' + (e.message || e));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Test Notification'; }
+    }
+};
+
+window.renderAlerts = function() {
+    const feed = $('alertsFeedList');
+    const mini = $('miniAlertsList');
+    const badge = $('alertsCountBadge');
+
+    const filtered = window.alertsList.filter(a => {
+        if (window.activeAlertFilter === 'all') return true;
+        if (window.activeAlertFilter === 'fill') return a.type === 'fill';
+        if (window.activeAlertFilter === 'tp') return a.type === 'tp' || a.type === 'sl';
+        if (window.activeAlertFilter === 'signal') return a.type === 'signal';
+        if (window.activeAlertFilter === 'system') return a.type === 'system';
+        return true;
+    });
+
+    if (badge) {
+        if (window.alertsList.length > 0) {
+            badge.textContent = window.alertsList.length;
+            badge.style.display = 'inline-block';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    // 1. Render Main Alerts Feed
+    if (feed) {
+        if (filtered.length === 0) {
+            feed.innerHTML = '<div class="empty" data-empty>NO ALERTS RECORDED FOR THIS FILTER</div>';
+        } else {
+            let html = '';
+            filtered.forEach(a => {
+                let icoCls = 'dim';
+                let iconChar = '🔔';
+                if (a.type === 'tp' || (a.pnl != null && a.pnl > 0)) { icoCls = 'up'; iconChar = '🎯'; }
+                else if (a.type === 'sl' || (a.pnl != null && a.pnl < 0)) { icoCls = 'warn'; iconChar = '🛑'; }
+                else if (a.type === 'signal') { icoCls = 'gold'; iconChar = '⚡'; }
+                else if (a.type === 'fill') { icoCls = 'gold'; iconChar = '📦'; }
+
+                html += `
+                <div class="card acard">
+                    <div class="aico ${icoCls}">${iconChar}</div>
+                    <div class="abody">
+                        <div class="spread">
+                            <span class="atitle" style="color:var(--t1);">${a.title}</span>
+                            <span class="atime">${a.time}</span>
+                        </div>
+                        <div class="ades">${a.message}</div>
+                        ${a.symbol ? `<div style="margin-top:4px;"><span class="chip dim" style="font-size:9.5px; font-family:var(--mono);">${a.symbol}</span></div>` : ''}
+                    </div>
+                </div>`;
+            });
+            feed.innerHTML = html;
+        }
+    }
+
+    // 2. Render Mini Alerts (Terminal Right Column)
+    if (mini) {
+        const miniList = window.alertsList.slice(0, 4);
+        if (miniList.length === 0) {
+            mini.innerHTML = '<div class="empty" style="padding:14px; font-size:11px;">NO RECENT SIGNALS</div>';
+        } else {
+            let mHtml = '';
+            miniList.forEach(a => {
+                let color = 'var(--t2)';
+                if (a.type === 'tp' || (a.pnl != null && a.pnl > 0)) color = 'var(--up)';
+                else if (a.type === 'sl' || (a.pnl != null && a.pnl < 0)) color = 'var(--down)';
+                else if (a.type === 'signal') color = 'var(--gold)';
+
+                mHtml += `
+                <div style="padding:8px 10px; border-bottom:1px solid #141A22; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="font-weight:700; font-size:11px; color:${color};">${a.title}</div>
+                        <div style="font-size:10px; color:var(--t3);">${a.time}</div>
+                    </div>
+                    ${a.symbol ? `<span class="chip dim" style="font-size:9px;">${a.symbol}</span>` : ''}
+                </div>`;
+            });
+            mini.innerHTML = mHtml;
+        }
+    }
+};
+
+// ==========================================================================
+// Account, Referral Tree & Payout Management
+// ==========================================================================
+window._refDataCache = null;
+
+window.fetchReferralInfo = async function() {
     try {
         const res = await fetch('/api/user/referral');
         if (!res.ok) return;
         const d = await res.json();
-        if (d.success) {
-            if ($('modalUserName')) $('modalUserName').textContent = d.user?.name || d.user?.email || 'Trader';
-            if ($('modalUserEmail')) $('modalUserEmail').textContent = d.user?.email || '--';
-            const initial = (d.user?.name || d.user?.email || 'U')[0].toUpperCase();
-            if ($('accountBtnInitial')) $('accountBtnInitial').textContent = initial;
-            if ($('modalUserAvatar')) $('modalUserAvatar').textContent = initial;
-            if ($('modalRefCode')) $('modalRefCode').value = d.referral_code || '--';
-            if ($('modalRefLink')) $('modalRefLink').value = d.referral_link || `${window.location.origin}/?ref=${d.referral_code || ''}`;
-            if ($('statRefUsers')) $('statRefUsers').textContent = d.referrals_count || 0;
-            if ($('statRefEarned')) $('statRefEarned').textContent = '$' + (Number(d.commissions_earned || 0)).toFixed(2);
-            if ($('statRefAvailable')) $('statRefAvailable').textContent = '$' + (Number(d.payout_balance || 0)).toFixed(2);
-            if ($('modalPayoutWalletInput') && d.payout_wallet) $('modalPayoutWalletInput').value = d.payout_wallet;
+        if (!d.success) return;
+        window._refDataCache = d;
+
+        // User Name & Email resolution
+        const userName = d.user_name || d.user_email || d.user?.name || d.user?.email || 'Trader';
+        const userEmail = d.user_email || d.user?.email || '--';
+        const initial = userName.charAt(0).toUpperCase();
+
+        if ($('modalUserName')) $('modalUserName').textContent = userName;
+        if ($('modalUserEmail')) $('modalUserEmail').textContent = userEmail;
+        if ($('modalUserAvatar')) $('modalUserAvatar').textContent = initial;
+        if ($('accountBtnInitial')) $('accountBtnInitial').textContent = initial;
+        if ($('accountBtnText')) $('accountBtnText').textContent = userName;
+
+        // Plan badge
+        const sub = d.subscription || {};
+        const planText = sub.plan ? (sub.plan.toUpperCase() + (sub.status === 'active' ? ' (ACTIVE)' : '')) : 'ACTIVE LICENSE';
+        if ($('modalPlanBadge')) $('modalPlanBadge').textContent = planText;
+
+        // Referral Code & Share Link
+        const refCode = d.referral_code || '--';
+        const refLink = d.referral_link || `${window.location.origin}/?ref=${refCode}`;
+        if ($('modalRefCode')) $('modalRefCode').textContent = refCode;
+        if ($('modalRefLink')) $('modalRefLink').value = refLink;
+
+        // Counters & Earnings
+        const count = d.referral_count || d.referrals_count || 0;
+        const earnings = Number(d.referral_earnings || d.commissions_earned || 0);
+        const avail = Number(d.available_balance != null ? d.available_balance : (d.payout_balance || 0));
+
+        if ($('statRefUsers')) $('statRefUsers').textContent = count;
+        if ($('tabCountInvited')) $('tabCountInvited').textContent = count;
+        if ($('statRefEarned')) $('statRefEarned').textContent = '$' + earnings.toFixed(2);
+        if ($('statRefAvailable')) $('statRefAvailable').textContent = '$' + avail.toFixed(2);
+        if ($('modalAvailBalanceText')) $('modalAvailBalanceText').textContent = '$' + avail.toFixed(2) + ' USDT';
+
+        // Payout Wallet input
+        const walletInput = $('modalPayoutWalletInput');
+        if (walletInput && d.payout_wallet) {
+            walletInput.value = d.payout_wallet;
+        }
+
+        // Render Referral Network Tree
+        window.renderReferralTree(d.referred_users || []);
+
+        // Render Withdrawal & Payout History Audit
+        window.renderPayoutHistory(d.payout_requests || []);
+    } catch (e) {
+        console.warn('fetchReferralInfo error:', e);
+    }
+};
+window.fetchReferralData = window.fetchReferralInfo;
+
+window.renderReferralTree = function(users) {
+    const container = $('refUsersList');
+    if (!container) return;
+    if (!users || users.length === 0) {
+        container.innerHTML = `
+        <div style="text-align:center; padding:32px 16px; color:var(--t3); font-size:12px;">
+            <div style="font-size:24px; margin-bottom:8px;">👥</div>
+            <strong style="color:var(--t2);">No invited users yet</strong><br>
+            Share your referral link to invite fellow traders and earn direct USDT commissions!
+        </div>`;
+        return;
+    }
+    let html = '';
+    users.forEach(u => {
+        const dateStr = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
+        const isActive = u.has_license;
+        const bonus = Number(u.bonus_earned || 0);
+        const displayName = escapeHtml(u.name || u.email);
+        const avatarLetter = (u.name || u.email || 'U').charAt(0).toUpperCase();
+
+        html += `
+        <div class="ref-tree-node">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div style="width:34px; height:34px; border-radius:8px; background:rgba(240,185,11,0.15); color:var(--gold); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px;">${avatarLetter}</div>
+                <div>
+                    <div style="font-weight:700; color:#fff; font-size:12.5px;">${displayName}</div>
+                    <div style="font-size:11px; color:var(--t3); font-family:var(--mono);">${escapeHtml(u.email)} • Joined ${dateStr}</div>
+                </div>
+            </div>
+            <div style="text-align:right;">
+                ${isActive
+                    ? `<span class="chip green" style="font-size:10px; padding:2px 8px;">🟢 Bot Active</span>`
+                    : `<span class="chip dim" style="font-size:10px; padding:2px 8px;">Registered</span>`
+                }
+                ${bonus > 0 ? `<div style="color:var(--up); font-size:11.5px; font-weight:800; margin-top:3px; font-family:var(--mono);">+${bonus.toFixed(2)} USDT</div>` : ''}
+            </div>
+        </div>`;
+    });
+    container.innerHTML = html;
+};
+
+window.renderPayoutHistory = function(payouts) {
+    const container = $('modalPayoutHistoryList');
+    if (!container) return;
+    if (!payouts || payouts.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--t3); font-size:12px;">No withdrawal requests recorded yet.</div>';
+        return;
+    }
+    let html = '';
+    payouts.forEach(p => {
+        const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString() : '';
+        const isPaid = (p.status || '').toLowerCase() === 'paid';
+        html += `
+        <div class="ref-tree-node">
+            <div>
+                <div style="font-weight:700; font-size:12px; color:#fff;">${escapeHtml(p.id)} • ${dateStr}</div>
+                <div style="font-family:var(--mono); font-size:11px; color:var(--t2);">${escapeHtml(p.wallet_address || '')}</div>
+                ${p.tx_hash ? `<div style="font-size:10px; color:var(--up); font-family:var(--mono);">Tx: ${escapeHtml(p.tx_hash)}</div>` : ''}
+            </div>
+            <div style="text-align:right;">
+                <div style="font-weight:800; color:${isPaid ? 'var(--up)' : 'var(--gold)'}; font-size:13px; font-family:var(--mono);">$${Number(p.amount || 0).toFixed(2)} USDT</div>
+                <span class="chip ${isPaid ? 'green' : 'amber'}" style="font-size:9.5px; padding:2px 6px;">${(p.status || 'pending').toUpperCase()}</span>
+            </div>
+        </div>`;
+    });
+    container.innerHTML = html;
+};
+
+window.saveModalPayoutWallet = async function() {
+    const input = $('modalPayoutWalletInput');
+    const wallet = input ? input.value.trim() : '';
+    if (!wallet || wallet.length < 10) {
+        alert('Please enter a valid USDT TRC20 or BEP20 wallet address.');
+        return;
+    }
+    try {
+        const r = await fetch('/api/user/payout-wallet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wallet_address: wallet })
+        });
+        const res = await r.json();
+        if (res.success) {
+            alert('Payout wallet saved successfully!');
+            window.fetchReferralInfo();
+        } else {
+            alert('Failed: ' + (res.error || 'Unknown error'));
         }
     } catch (e) {
-        // Silently skip if running in standalone engine mode
+        alert('Network error saving wallet address.');
     }
 };
 
-window.requestPayout = async function() {
-    const wallet = $('modalPayoutWalletInput')?.value.trim();
+window.requestModalPayout = async function() {
+    const input = $('modalPayoutWalletInput');
+    const wallet = input ? input.value.trim() : '';
     if (!wallet) {
-        alert('Please enter your USDT payout wallet address.');
+        alert('Please enter and save your USDT payout wallet address first.');
         return;
     }
+    const avail = window._refDataCache ? Number(window._refDataCache.available_balance || 0) : 0;
+    if (avail <= 0) {
+        alert('You have no available referral balance to withdraw at this time.');
+        return;
+    }
+    if (!confirm(`Withdraw $${avail.toFixed(2)} USDT to wallet address:\n${wallet}?`)) return;
+
     const btn = $('btnRequestWithdrawal');
     try {
-        if (btn) { btn.textContent = 'Processing...'; btn.disabled = true; }
-        const res = await fetch('/api/user/request-payout', {
+        if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
+        const r = await fetch('/api/user/request-payout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ wallet: wallet })
+            body: JSON.stringify({ wallet_address: wallet })
         });
-        const d = await res.json();
-        if (d.success) {
-            alert('Withdrawal request submitted successfully! Admin will process your transfer.');
-            window.fetchReferralData();
+        const res = await r.json();
+        if (res.success) {
+            alert(res.message || 'Withdrawal request submitted! Admin will process payout transfer.');
+            window.fetchReferralInfo();
         } else {
-            alert(d.error || 'Failed to submit withdrawal request.');
+            alert('Failed: ' + (res.error || 'Unknown error'));
         }
     } catch (e) {
-        alert('Error submitting withdrawal: ' + (e.message || e));
+        alert('Network error submitting withdrawal request.');
     } finally {
-        if (btn) { btn.textContent = 'Withdraw'; btn.disabled = false; }
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Request Withdrawal'; }
     }
 };
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
 
