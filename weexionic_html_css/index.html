@@ -1,0 +1,53 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WEEXIONIC UI KIT — HTML/CSS (No Fake Data)</title>
+<style>
+:root{--bg:#0A0C10;--card:#131922;--bd:#1D2530;--gold:#F0B90B;--t1:#EDF0F4;--t2:#8D97A5;--t3:#5B6472}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--t1);font-family:Inter,-apple-system,'Segoe UI',sans-serif;padding:48px 24px;min-height:100vh}
+.wrap{max-width:860px;margin:0 auto}
+h1{font-size:26px;font-weight:800;letter-spacing:-.01em}
+h1 span{color:var(--gold)}
+.sub{color:var(--t2);font-size:13.5px;line-height:1.7;margin-top:10px;max-width:640px}
+.badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--gold);background:rgba(240,185,11,.1);border:1px solid rgba(240,185,11,.35);margin-top:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:30px}
+h2{font-size:11px;font-weight:800;letter-spacing:.22em;color:var(--t3);margin:26px 0 12px}
+a.pg{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:15px 17px;color:var(--t1);text-decoration:none;transition:border-color .15s}
+a.pg:hover{border-color:rgba(240,185,11,.5)}
+a.pg .n{font-weight:800;font-size:13px}
+a.pg .d{font-size:10.5px;color:var(--t3);margin-top:3px;letter-spacing:.04em}
+a.pg .no{font-family:ui-monospace,monospace;font-size:11px;font-weight:700;color:var(--gold);background:rgba(240,185,11,.08);border:1px solid rgba(240,185,11,.25);border-radius:8px;padding:5px 8px;flex:none}
+.note{background:var(--card);border:1px dashed var(--bd);border-radius:14px;padding:16px 18px;margin-top:26px;font-size:12px;line-height:1.8;color:var(--t2)}
+.note b{color:var(--t1)}
+.note code{font-family:ui-monospace,monospace;font-size:11px;color:var(--gold);background:rgba(240,185,11,.07);padding:1px 6px;border-radius:6px}
+</style></head><body>
+<div class="wrap">
+  <h1>WEEXIONIC <span>UI KIT</span> — HTML/CSS</h1>
+  <p class="sub">Approved Obsidian × Gold design, production-clean HTML/CSS. Zero fake data — har dynamic value <b>data-slot</b> marker ke saath <b>--</b> hai. Tum apna backend/service connect karoge, bas.</p>
+  <span class="badge">NO FAKE DATA · NO CHARTS.JS · SLOTS + TEMPLATES + EMPTY STATES</span>
+
+  <h2>MOBILE — 390PX</h2>
+  <div class="grid">
+    <a class="pg" href="mobile/01_terminal.html"><span class="no">01</span><span><span class="n">Terminal</span><span class="d">EQUITY · CHART · SIGNAL · ENGINE CONTROL</span></span></a>
+    <a class="pg" href="mobile/02_positions.html"><span class="no">02</span><span><span class="n">Positions</span><span class="d">SL→TP LANES · RISK METER · SESSION</span></span></a>
+    <a class="pg" href="mobile/03_history.html"><span class="no">03</span><span><span class="n">History</span><span class="d">NET PnL · WIN RATE · CLOSED TRADES</span></span></a>
+    <a class="pg" href="mobile/04_alerts.html"><span class="no">04</span><span><span class="n">Alerts</span><span class="d">SIGNAL / RISK / SYSTEM FEED</span></span></a>
+    <a class="pg" href="mobile/05_landing.html"><span class="no">05</span><span><span class="n">Landing + APK</span><span class="d">HERO · STATS · TICKER · APK BUTTON</span></span></a>
+  </div>
+
+  <h2>DESKTOP — 1440PX</h2>
+  <div class="grid">
+    <a class="pg" href="desktop/06_desktop_terminal.html"><span class="no">06</span><span><span class="n">Terminal</span><span class="d">SIDEBAR · STAT ROW · CHART · SLOT QUEUE · TABLE</span></span></a>
+    <a class="pg" href="desktop/07_desktop_positions.html"><span class="no">07</span><span><span class="n">Positions</span><span class="d">OPEN + CLOSED TABLES · PnL CURVE</span></span></a>
+    <a class="pg" href="desktop/08_desktop_landing.html"><span class="no">08</span><span><span class="n">Landing + APK</span><span class="d">SPLIT HERO · TICKER · STRATEGY · LICENSE</span></span></a>
+    <a class="pg" href="desktop/10_desktop_history.html"><span class="no">10</span><span><span class="n">History</span><span class="d">NET AFTER FEES · EXIT REASONS · AUDIT VIEW</span></span></a>
+  </div>
+
+  <div class="note">
+    <b>Kaise connect karna hai?</b> → <code>BINDING_GUIDE.md</code> kholo (package root).<br>
+    Rule #1: <code>data-slot</code> = single value · <code>data-list + template</code> = repeating rows · <code>.empty</code> = khali state.<br>
+    Rule #2: Backend band karke pages kholo — sab jagah sirf <b>--</b> aur empty states dikhne chahiye. Agar koi number dikhe to wo fake hai, report karo.<br>
+    Rule #3: PnL hamesha <b>NET AFTER FEES</b> (exchange-filled only — audit F-01).
+  </div>
+</div>
+</body></html>

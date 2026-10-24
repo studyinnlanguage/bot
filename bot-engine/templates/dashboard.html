@@ -2,1375 +2,750 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#070a0f">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="theme-color" content="#0A0C10">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Weexionic Trading Bot">
+    <title>WEEXIONIC · Quant Engine Terminal</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/weexionic-logo.png') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/weexionic-logo.png') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <title>WEEXIONIC TRADING BOT - Pro Futures Terminal</title>
+    <!-- Obsidian x Gold Design System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Local libraries (no CDN required - works offline) -->
+    <!-- Local offline libraries -->
     <script src="{{ url_for('static', filename='lib/socket.io.min.js') }}"></script>
     <script src="{{ url_for('static', filename='lib/lightweight-charts.js') }}"></script>
 </head>
-<body data-mob-tab="terminal" data-active-tab="terminal">
-    <!-- Top Navigation Header -->
-    <header class="topbar">
-        <div class="brand">
-            <div class="logo-wrapper">
-                <img src="{{ url_for('static', filename='img/weexionic-logo.png') }}" class="brand-logo-img" alt="Weexionic">
+<body data-active-tab="terminal" data-mob-tab="terminal">
+<div class="app-container">
+    <!-- Desktop Left Sidebar -->
+    <aside class="sidebar">
+        <div class="sbrand">
+            <svg width="34" height="34" viewBox="0 0 40 40"><defs><linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE07A"/><stop offset=".55" stop-color="#F0B90B"/><stop offset="1" stop-color="#B98B00"/></linearGradient></defs><path d="M20 2 35 10.7v18.6L20 38 5 29.3V10.7z" fill="none" stroke="url(#wg)" stroke-width="2.4"/><path d="M12 13l4.4 12 3.6-9 3.6 9L28 13" fill="none" stroke="url(#wg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div>
+                <b>WEEXIONIC</b>
+                <span>QUANT ENGINE</span>
             </div>
-            <div class="brand-text">
-                <h1>WEEXIONIC</h1>
+        </div>
+
+        <div class="slabel">TRADING</div>
+        <button type="button" class="sitem ws-tab-btn active" data-tab="terminal">
+            <svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5"/><path d="M12.8 14.5H16"/></svg>
+            Terminal
+        </button>
+        <button type="button" class="sitem ws-tab-btn" data-tab="position">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 3.5l8 4.5-8 4.5L4 8z"/><path d="M4 12.7l8 4.5 8-4.5"/><path d="M4 16.6L12 21l8-4.4"/></svg>
+            Positions
+        </button>
+        <button type="button" class="sitem ws-tab-btn" data-tab="history">
+            <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>
+            History
+        </button>
+        <button type="button" class="sitem ws-tab-btn" data-tab="alerts">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg>
+            Alerts
+            <span class="cnt" id="alertsCountBadge" data-slot="alerts.unread" style="display:none;">0</span>
+        </button>
+        <button type="button" class="sitem ws-tab-btn" data-tab="logs">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9"/></svg>
+            Activity Logs
+        </button>
+
+        <div class="slabel">SYSTEM</div>
+        <button type="button" class="sitem ws-tab-btn" data-tab="config">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16"/><circle cx="9.5" cy="8" r="2.2" fill="#0B0E13"/><path d="M4 16h16"/><circle cx="14.5" cy="16" r="2.2" fill="#0B0E13"/></svg>
+            Bot Settings
+        </button>
+        <button type="button" class="sitem" onclick="openProfileModal()">
+            <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>
+            Account &amp; Referral
+        </button>
+
+        <div class="seng">
+            <div class="row">
+                <span class="pill off" id="sidebarStatusPill" data-slot="engine.status"><i class="dot"></i>STOPPED</span>
+                <span class="chip amber" data-slot="engine.version">v4.3</span>
+            </div>
+            <div class="up-str num" id="sidebarUptime" data-slot="engine.uptimeEnv">UPTIME -- · TESTNET</div>
+        </div>
+    </aside>
+
+    <!-- Main Stage Content Area -->
+    <div class="main-stage">
+        <!-- Desktop Header / Topbar -->
+        <header class="topbar">
+            <div>
+                <h1 id="pageTitle">Terminal</h1>
+                <div class="st" id="pageSubtitle">USDT-M FUTURES · 1M / 5M EXECUTION</div>
+            </div>
+
+            <div class="sp">
+                <!-- Environment Chip -->
+                <span class="chip amber" id="envBadge">
+                    <span id="exchangeBadge">BINANCE FUTURES</span> · <span id="modeBadge" data-slot="engine.env">TESTNET</span>
+                </span>
+                <!-- Connection Status Pill -->
+                <span class="pill off" id="botStatusPill" data-slot="conn.status">
+                    <i class="dot"></i><span id="botStatusText">STOPPED</span>
+                </span>
+                <!-- Live UTC Clock -->
+                <div class="live-clock-badge" id="liveClock">--:--:-- UTC</div>
+                <!-- Profile / Referral Avatar -->
+                <button type="button" class="avatar-btn" id="userAccountBtn" onclick="openProfileModal()" title="Account & Referral">
+                    <span id="accountBtnInitial" data-slot="user.initial">👤</span>
+                </button>
+                <!-- Legal & Risk Link -->
+                <a href="/legal" target="_blank" class="mbtn" title="Legal Hub & Risk Disclaimer">🛡️ Legal</a>
+                <!-- Logout Button -->
+                <a href="/?logout=1" class="mbtn danger" title="Logout" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>window.location.href='/?logout=1');return false;">⏻</a>
+            </div>
+        </header>
+
+        <!-- Mobile Quick Strip -->
+        <div class="mobile-quick-strip" id="mobQuickStrip">
+            <div>
+                <span class="mob-coin" id="mobCoin">BTCUSDT</span>
+                <span class="mob-price" id="mobPrice">$--</span>
+                <span class="mob-pnl num" id="mobPnl" style="margin-left:8px;">--%</span>
+            </div>
+            <div style="display:flex; gap:6px;">
+                <button type="button" class="btn btn-gold" id="mobQuickStartBtn" style="padding:6px 12px; font-size:10px;">▶ START</button>
+                <button type="button" class="btn btn-ghost red" id="mobQuickStopBtn" style="padding:6px 12px; font-size:10px;">⏹ STOP</button>
             </div>
         </div>
-        <div class="topbar-actions">
-            <div class="live-clock" id="liveClock">--:--:-- UTC</div>
-            <div class="env-badge" id="envBadge">
-                <span id="exchangeBadge">BINANCE</span>
-                <span style="color:#5e6673">|</span>
-                <span id="modeBadge">TESTNET</span>
-            </div>
-            <div class="status-pill" id="botStatusPill">
-                <span class="dot"></span>
-                <span id="botStatusText">STOPPED</span>
-            </div>
-            <button id="userAccountBtn" class="btn-account" onclick="openProfileModal()" title="My Account & Referral Portal">
-                <span class="account-icon">👤</span>
-                <span id="accountBtnText">Account & Referral</span>
-            </button>
-            <a href="/legal" target="_blank" class="btn-account" style="text-decoration:none; color:var(--text-secondary); background:rgba(255,255,255,0.04); border:1px solid var(--border-subtle);" title="Legal, Risk Disclaimer & Policies">
-                <span>🛡️</span>
-                <span>Legal &amp; Risk</span>
-            </a>
-            <a href="/?logout=1" class="btn-logout" title="Logout from bot" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>window.location.href='/?logout=1');return false;">⏻</a>
-        </div>
-    </header>
 
-    <!-- Navigation / Workspace Tab Strip (Desktop & Mobile) -->
-    <nav class="workspace-nav" id="workspaceNav">
-        <div class="workspace-tabs">
-            <button type="button" class="ws-tab-btn active" data-tab="terminal">
-                <span class="ws-tab-icon">📈</span>
-                <span class="ws-tab-label">Live Terminal</span>
-            </button>
-            <button type="button" class="ws-tab-btn" data-tab="position">
-                <span class="ws-tab-icon">🎯</span>
-                <span class="ws-tab-label">Open Position</span>
-            </button>
-            <button type="button" class="ws-tab-btn" data-tab="history">
-                <span class="ws-tab-icon">📜</span>
-                <span class="ws-tab-label">Trade History</span>
-            </button>
-            <button type="button" class="ws-tab-btn" data-tab="config">
-                <span class="ws-tab-icon">⚙️</span>
-                <span class="ws-tab-label">Bot Strategy &amp; Settings</span>
-            </button>
-            <button type="button" class="ws-tab-btn" data-tab="alerts">
-                <span class="ws-tab-icon">🔔</span>
-                <span class="ws-tab-label">Alerts &amp; Channels</span>
-            </button>
-            <button type="button" class="ws-tab-btn" data-tab="logs">
-                <span class="ws-tab-icon">📋</span>
-                <span class="ws-tab-label">Activity Logs</span>
-            </button>
-        </div>
-        <div class="ws-quick-actions">
-            <button type="button" class="btn btn-sm btn-ghost-settings" onclick="switchWorkspaceTab('config')">
-                <span>⚙️ Quick Config</span>
-            </button>
-        </div>
-    </nav>
+        <!-- Main Workspace Body -->
+        <main class="content-area">
+            <!-- ========================================================
+                 TAB 1: LIVE TERMINAL
+                 ======================================================== -->
+            <section class="ws-tab-pane active" data-ws-tab="terminal">
+                <!-- 4 Top Stat Cards -->
+                <div class="statrow">
+                    <div class="card stat">
+                        <span class="label">Total Equity · USDT-M</span>
+                        <div class="v num" id="statBalance" data-slot="account.equity">--</div>
+                        <div class="s num" id="statBalanceSub" data-slot="account.change24h">-- TODAY · --</div>
+                    </div>
+                    <div class="card stat">
+                        <span class="label">Unrealized PnL</span>
+                        <div class="v num" id="posPnl" data-slot="positions.unrealizedPnl">--</div>
+                        <div class="s num" id="posRoe" data-slot="positions.roeSlots">--% ROE · -- SLOTS</div>
+                    </div>
+                    <div class="card stat">
+                        <span class="label">Margin Used</span>
+                        <div class="v num" id="statMarginUsed" data-slot="account.marginUsed">--</div>
+                        <div class="s" id="statMarginAlloc" data-slot="account.marginAllocPct">--% ALLOCATED</div>
+                    </div>
+                    <div class="card stat">
+                        <span class="label">Open Risk</span>
+                        <div class="v num gold" id="statOpenRisk" data-slot="account.openRiskPct">--%</div>
+                        <div class="s" id="engineRiskGuard" data-slot="engine.riskGuard">RISK GUARD: STRICT 1:1</div>
+                    </div>
+                </div>
 
-    <!-- Mobile Quick Status & Action Strip (Visible on mobile/tablet) -->
-    <div class="mobile-quick-strip" id="mobQuickStrip">
-        <div class="mob-quick-coin">
-            <span id="mobCoin">BTCUSDT</span>
-            <span class="mob-quick-price" id="mobPrice">$--</span>
-        </div>
-        <div class="mob-quick-pnl pnl-zero" id="mobPnl">$0.00 (0.00%)</div>
-        <div class="mob-quick-btn-group">
-            <button onclick="openProfileModal()" class="btn btn-sm btn-ref-mob" title="Account & Referral">👤 Ref</button>
-            <button id="mobQuickStartBtn" class="btn btn-sm btn-success">▶ Start</button>
-            <button id="mobQuickStopBtn" class="btn btn-sm btn-danger" disabled>■ Stop</button>
-        </div>
-    </div>
-
-    <!-- MAIN APP CONTAINER -->
-    <main class="app-container">
-
-        <!-- ============================================================== -->
-        <!-- TAB 1: LIVE TRADING TERMINAL                                    -->
-        <!-- ============================================================== -->
-        <div class="ws-tab-pane active" data-ws-tab="terminal">
-            <div class="terminal-grid">
-                
-                <!-- LEFT COCKPIT: Controls + Account Performance + Open Position -->
-                <aside class="terminal-cockpit">
-                    
-                    <!-- 1. Engine Controls Card -->
-                    <section class="card controls-card" data-tab-section="controls">
-                        <div class="card-header">
-                            <h2><span class="card-icon">⚡</span> Bot Engine Controls</h2>
-                            <button type="button" class="btn btn-xs btn-outline-config" onclick="switchWorkspaceTab('config')" title="Configure Bot Parameters">⚙️ Settings</button>
-                        </div>
-                        <div class="card-body">
-                            <div class="btn-group">
-                                <button id="startBtn" class="btn btn-success btn-lg">▶ START BOT</button>
-                                <button id="stopBtn" class="btn btn-danger btn-lg" disabled>■ STOP BOT</button>
-                            </div>
-                            <button id="testConnBtn" class="btn btn-block btn-test-conn">🔌 TEST CONNECTION (Check API Keys)</button>
-                            <button id="closeBtn" class="btn btn-warning btn-block" style="margin-top:8px">✕ Close Position (Selected Coin)</button>
-                            <button id="forceStopBtn" class="btn btn-block btn-emergency" style="margin-top:8px">⚠ FORCE RESET (if stuck)</button>
-                        </div>
-                    </section>
-
-                    <!-- 2. Account Performance Card -->
-                    <section class="card stats-card" data-tab-section="position">
-                        <div class="card-header">
-                            <h2><span class="card-icon">📊</span> Account Performance</h2>
-                        </div>
-                        <div class="card-body stats-grid">
-                            <div class="stat">
-                                <div class="stat-label">USDT Balance</div>
-                                <div class="stat-value" id="statBalance">--</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-label">Active Coins</div>
-                                <div class="stat-value" id="statCoins">0</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-label">Trades Today</div>
-                                <div class="stat-value" id="statTrades">0</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-label">Active Symbol</div>
-                                <div class="stat-value" id="statSymbol" style="font-size:14px">--</div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <!-- 3. Open Position Card (Live Cockpit Integration) -->
-                    <section class="card position-card" id="positionCard" data-tab-section="position">
-                        <div class="card-header">
-                            <h2><span class="card-icon">🎯</span> Open Position &bull; <span id="positionSymbol">--</span></h2>
-                        </div>
-                        <div class="card-body position-grid">
-                            <div class="pos-row">
-                                <span>Trade Side</span><strong id="posSide">NONE</strong>
-                            </div>
-                            <div class="pos-row">
-                                <span>Position Size</span><strong id="posSize">0.0000</strong>
-                            </div>
-                            <div class="pos-row">
-                                <span>Entry Price</span><strong id="posEntry">--</strong>
-                            </div>
-                            <div class="pos-row">
-                                <span>Mark Price</span><strong id="posMark">--</strong>
-                            </div>
-                            <div class="pos-row">
-                                <span>Unrealized PnL</span>
-                                <strong id="posPnl" class="pnl-zero">$0.00</strong>
-                            </div>
-                            <div class="pos-row">
-                                <span>Take Profit (1:1 Target)</span>
-                                <strong id="posTrailingTp" style="color:var(--green-success)">--</strong>
-                            </div>
-                            <div class="pos-row">
-                                <span>Stop Loss (1:1 SL)</span>
-                                <strong id="posCurrentSl" style="color:var(--red-danger)">--</strong>
-                            </div>
-                            <div class="pos-row pos-row-leverage">
-                                <span>Leverage</span>
-                                <div style="display:flex; align-items:center; gap:6px;">
-                                    <strong id="posLeverage">{{ config.leverage | default(10) }}x</strong>
-                                    <select id="quickPosLevSelect" class="pos-quick-lev-select" title="Change leverage for active coin">
-                                        <option value="5">5x</option>
-                                        <option value="10">10x</option>
-                                        <option value="20">20x</option>
-                                        <option value="25">25x</option>
-                                        <option value="50" selected>50x</option>
-                                        <option value="75">75x</option>
-                                        <option value="100">100x</option>
-                                        <option value="125">125x</option>
-                                    </select>
-                                    <button type="button" id="btnQuickSetLev" class="btn-quick-set-lev" onclick="applyQuickPosLeverage()" title="Apply leverage">Set</button>
+                <!-- Main Terminal Grid (Chart & Signal left / Engine Control right) -->
+                <div class="terminal-grid">
+                    <div class="terminal-left">
+                        <!-- Chart Card -->
+                        <div class="card chartcard">
+                            <div class="chead">
+                                <div>
+                                    <span class="sym" id="chartTitle" data-slot="chart.symbol">BTCUSDT</span>
+                                    <span class="chip amber" id="chartLeverageChip" style="margin-left:8px;" data-slot="chart.leverage">PERP · 125x</span>
+                                </div>
+                                <div class="px">
+                                    <div class="num gold" id="indPrice" style="font:800 16px var(--font)" data-slot="chart.price">$--</div>
+                                    <div class="num" id="indPriceChange" style="font:700 9.5px var(--font); text-align:right;" data-slot="chart.changePct">--%</div>
                                 </div>
                             </div>
-                            <div class="pos-row">
-                                <span>Est. Fees</span>
-                                <strong id="posFees" style="color:var(--gold-primary)">--</strong>
+
+                            <!-- Coin Selector Chips -->
+                            <div class="coin-chips-strip" id="coinTabs">
+                                <!-- Populated dynamically from watchlist -->
                             </div>
-                        </div>
-                    </section>
 
-                </aside>
+                            <!-- Timeframe Buttons -->
+                            <div class="tfrow">
+                                <span class="tf" data-tf="1m">1m</span>
+                                <span class="tf on" data-tf="5m">5m</span>
+                                <span class="tf" data-tf="15m">15m</span>
+                                <span class="tf" data-tf="1h">1h</span>
+                                <span class="tf" data-tf="4h">4h</span>
+                                <span class="tf" style="margin-left:auto; color:var(--t3); cursor:default;">QUAD-EMA OVERLAY</span>
+                            </div>
 
-                <!-- RIGHT WORKSPACE: Watchlist Tabs + Chart + Indicators + Live Stream -->
-                <section class="terminal-workspace">
-                    
-                    <!-- Coin Watchlist Tabs -->
-                    <div class="card coin-tabs-card" data-tab-section="terminal">
-                        <div class="card-body coin-tabs" id="coinTabs">
-                            <span class="hint-inline">No coins added yet. Add coins from settings panel.</span>
-                        </div>
-                    </div>
+                            <!-- Real Candlestick Chart Container -->
+                            <div id="chartCanvasContainer" style="position:relative; width:100%; height:360px; min-height:300px;">
+                                <div id="chart" style="width:100%; height:100%;"></div>
+                                <canvas id="drawingCanvas" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:10;"></canvas>
+                            </div>
 
-                    <!-- Interactive Price Chart Card with TradingView-style Drawing Tools -->
-                    <div class="card chart-card" data-tab-section="terminal">
-                        <div class="card-header chart-header-row">
-                            <h2 id="chartTitle"><span class="card-icon">📈</span> Price Chart - Select a coin</h2>
+                            <!-- Legend -->
                             <div class="legend">
-                                <span class="legend-item"><span class="legend-color" style="background:#2196f3"></span>EMA 8</span>
-                                <span class="legend-item"><span class="legend-color" style="background:#ff9800"></span>EMA 13</span>
-                                <span class="legend-item"><span class="legend-color" style="background:#ab47bc"></span>EMA 21</span>
-                                <span class="legend-item"><span class="legend-color" style="background:#f44336"></span>EMA 55</span>
+                                <span class="li"><i class="sw" style="background:#F0B90B"></i>EMA 8</span>
+                                <span class="li"><i class="sw" style="background:#4EA8FF"></i>EMA 13</span>
+                                <span class="li"><i class="sw" style="background:#9F7BFF"></i>EMA 21</span>
+                                <span class="li"><i class="sw" style="background:#8D97A5"></i>EMA 55</span>
+                                <span class="li" style="margin-left:auto; color:var(--t3);">DISCIPLINE: 1:1 TP/SL</span>
                             </div>
                         </div>
 
-                        <!-- TradingView Drawing Tools Strip -->
-                        <div class="chart-tools-strip" id="chartToolsStrip">
-                            <div class="draw-tools-group">
-                                <button type="button" class="draw-btn active" data-tool="cursor" title="Pointer (Pan & Zoom chart)">
-                                    <span>🖱️</span> <span>Pointer</span>
-                                </button>
-                                <button type="button" class="draw-btn" data-tool="trendline" title="Trendline (Click point 1, drag/click point 2)">
-                                    <span>📏</span> <span>Trendline</span>
-                                </button>
-                                <button type="button" class="draw-btn" data-tool="horizontal" title="Horizontal Line (Click on level)">
-                                    <span>➖</span> <span>Horiz Line</span>
-                                </button>
-                                <button type="button" class="draw-btn" data-tool="rectangle" title="Rectangle (Range / Zone)">
-                                    <span>🔲</span> <span>Rectangle</span>
-                                </button>
-                                <button type="button" class="draw-btn" data-tool="text" title="Text Note (Click to place)">
-                                    <span>📝</span> <span>Text</span>
-                                </button>
+                        <!-- Trend & Signal Card -->
+                        <div class="card signal-card">
+                            <div style="flex:1;">
+                                <div class="label">EMA Trend · <span id="signalTfBadge" data-slot="signal.tf">5m</span></div>
+                                <div class="t1x" id="indSignal" data-slot="signal.bias">SCANNING</div>
                             </div>
-                            <div class="draw-actions-group">
-                                <div class="draw-color-wrap" title="Drawing Color">
-                                    <input type="color" id="drawColorInput" value="#f0b90b" class="draw-color-inp">
-                                </div>
-                                <button type="button" class="draw-btn btn-danger-soft" id="clearDrawingsBtn" title="Clear all drawings on this chart">
-                                    <span>🗑️</span> <span>Clear</span>
-                                </button>
+                            <div>
+                                <div class="label">Last Cross</div>
+                                <div class="meta" id="signalCrossInfo" data-slot="signal.crossInfo">--</div>
                             </div>
-                        </div>
-
-                        <div class="card-body chart-body-box">
-                            <div class="chart-canvas-container" id="chartCanvasContainer" style="position:relative; width:100%; height:100%;">
-                                <div id="chart"></div>
-                                <canvas id="drawingCanvas" class="drawing-overlay-canvas"></canvas>
-                                <div id="drawingContextMenu" class="drawing-delete-popover" style="display:none;">
-                                    <button type="button" id="btnDeleteSelectedDrawing" class="btn-del-item">
-                                        <span>🗑️ Delete</span>
-                                    </button>
-                                </div>
+                            <div>
+                                <div class="label">Fees Today</div>
+                                <div class="meta num" id="signalFeesToday" data-slot="fees.today">-- TAKER / -- MAKER</div>
+                            </div>
+                            <div class="ring" id="signalStrengthRing" data-slot="signal.strengthPct">
+                                <b class="num" id="signalStrengthPct">--%</b>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Live Indicators & EMA Stack Visualizer -->
-                    <div class="card indicators-card" data-tab-section="terminal">
-                        <div class="card-header">
-                            <h2><span class="card-icon">⚡</span> Live Technical Indicators &bull; <span id="indicatorsSymbol">--</span></h2>
-                        </div>
-                        <div class="card-body">
-                            <div class="indicators-grid">
-                                <div class="indicator">
-                                    <div class="ind-label">Mark Price</div>
-                                    <div class="ind-value" id="indPrice">--</div>
-                                </div>
-                                <div class="indicator" style="border-left-color:#2196f3">
-                                    <div class="ind-label" style="color:#2196f3">EMA 8</div>
-                                    <div class="ind-value" id="indEma8">--</div>
-                                </div>
-                                <div class="indicator" style="border-left-color:#ff9800">
-                                    <div class="ind-label" style="color:#ff9800">EMA 13</div>
-                                    <div class="ind-value" id="indEma13">--</div>
-                                </div>
-                                <div class="indicator" style="border-left-color:#ab47bc">
-                                    <div class="ind-label" style="color:#ab47bc">EMA 21</div>
-                                    <div class="ind-value" id="indEma21">--</div>
-                                </div>
-                                <div class="indicator" style="border-left-color:#f44336">
-                                    <div class="ind-label" style="color:#f44336">EMA 55</div>
-                                    <div class="ind-value" id="indEma55">--</div>
-                                </div>
-                                <div class="indicator">
-                                    <div class="ind-label">Signal</div>
-                                    <div class="ind-value" id="indSignal">--</div>
-                                </div>
+                    <!-- Right Column: Engine Control, Slot Queue & Alerts -->
+                    <div class="terminal-right">
+                        <!-- Engine Control -->
+                        <div class="card engc">
+                            <div class="spread" style="margin-bottom:12px;">
+                                <span class="label">Engine Control</span>
+                                <span class="chip dim" id="engineSlotInfo" data-slot="engine.slotInfo">3 SLOTS · 125x CAP</span>
+                            </div>
+                            <button type="button" class="btn btn-gold" id="startBtn" style="width:100%;">
+                                <svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M12 3.5v8"/><path d="M7.2 6.3a7 7 0 1 0 9.6 0"/></svg>
+                                <span id="startBtnText">START ENGINE</span>
+                            </button>
+                            <button type="button" id="stopBtn" style="display:none;"></button>
+                            
+                            <div class="btnrow">
+                                <button type="button" class="btn btn-ghost red" id="btnFlattenAll" onclick="closeAllPositions()" style="flex:1; font-size:10px; padding:10px 0;">FLATTEN ALL</button>
+                                <button type="button" class="btn btn-ghost" id="forceStopBtn" style="flex:1; font-size:10px; padding:10px 0;">FORCE RESET</button>
                             </div>
 
-                            <!-- EMA Stack Visualizer -->
-                            <div class="ema-stack-viz">
-                                <div class="ema-stack-title">EMA Stack Order (Top ➔ Bottom)</div>
-                                <div id="emaStackList" class="ema-stack-list">
-                                    <div class="ema-stack-empty">Waiting for candlestick data...</div>
+                            <!-- Slot Queue List -->
+                            <div class="slotq" id="slotQueueContainer" data-list="slotQueue">
+                                <div class="label" style="margin-top:14px; margin-bottom:6px;">Trading Slots (Watchlist)</div>
+                                <div id="slotQueueList">
+                                    <!-- Populated dynamically -->
+                                    <div class="sq"><i class="dot" style="background:var(--t3)"></i><span>BTCUSDT</span><span class="st8">IDLE</span></div>
                                 </div>
-                                <div class="ema-stack-rule" id="emaStackRule">Strategy: EMA55 at BOTTOM = BUY LONG | EMA55 at TOP = SELL SHORT</div>
+                            </div>
+                        </div>
+
+                        <!-- Mini Recent Alerts -->
+                        <div class="card" style="padding:16px;">
+                            <div class="spread" style="margin-bottom:10px;">
+                                <span class="label">Recent Signals &amp; Alerts</span>
+                                <button type="button" class="chip dim" onclick="switchWorkspaceTab('alerts')">VIEW ALL</button>
+                            </div>
+                            <div id="miniAlertsList" data-list="recentAlerts">
+                                <div class="empty" data-empty style="padding:14px;">NO RECENT SIGNALS</div>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Compact Terminal Activity Logs -->
-                    <div class="card terminal-logs-card" data-tab-section="terminal">
-                        <div class="card-header">
-                            <h2><span class="card-icon">📋</span> Activity Logs (Live Stream)</h2>
-                            <div style="display:flex;gap:8px;">
-                                <button type="button" class="btn btn-xs" onclick="switchWorkspaceTab('logs')">Expanded View ↗</button>
-                                <button id="clearLogs" class="btn btn-xs">Clear</button>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div id="logs" class="logs-container"></div>
+                <!-- Open Positions Table -->
+                <div class="card tablec">
+                    <div class="thead2">
+                        <span class="label">Open Positions · <span id="posCountBadge" data-slot="positions.openCount">0</span> SLOTS</span>
+                        <div class="tfilters" style="margin-left:auto; display:flex; gap:6px;">
+                            <span class="chip amber">STRICT 1:1 RR</span>
+                            <button type="button" class="btn btn-ghost red" onclick="closeAllPositions()" style="padding:4px 10px; font-size:9px;">Close All</button>
                         </div>
                     </div>
-
-                </section>
-            </div>
-        </div>
-
-        <!-- ============================================================== -->
-        <!-- TAB: LIVE OPEN POSITIONS & RISK MONITOR                         -->
-        <!-- ============================================================== -->
-        <div class="ws-tab-pane" data-ws-tab="position">
-            <div class="config-view-header">
-                <div>
-                    <h2>🎯 Live Open Positions &amp; Risk Monitor</h2>
-                    <p class="section-desc">Real-time futures positions, strict 1:1 profit targets, stop loss, and unrealized PnL.</p>
-                </div>
-                <div class="config-actions">
-                    <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
-                    <button type="button" class="btn btn-primary" onclick="if(window.fetchPositions)fetchPositions();">🔄 Refresh Positions</button>
-                    <button type="button" class="btn btn-warning" onclick="if(window.closePosition)closePosition();">✕ Close Position (<span id="posBtnSymbol">Selected</span>)</button>
-                    <button type="button" class="btn btn-danger" onclick="if(window.closeAllPositions)closeAllPositions();" title="Emergency close all active trades on exchange">⚡ Close All Positions</button>
-                </div>
-            </div>
-
-            <!-- Position Overview Highlights -->
-            <div class="pos-tab-metrics-grid">
-                <div class="pos-metric-card">
-                    <div class="pos-metric-label">Active Symbol</div>
-                    <div class="pos-metric-value" id="posTabActiveSym">--</div>
-                    <div class="pos-metric-sub" id="posTabExchange">BINANCE FUTURES</div>
-                </div>
-                <div class="pos-metric-card">
-                    <div class="pos-metric-label">Position Side</div>
-                    <div class="pos-metric-value" id="posTabSide">NONE</div>
-                    <div class="pos-metric-sub" id="posTabLeverage">10x Leverage</div>
-                </div>
-                <div class="pos-metric-card">
-                    <div class="pos-metric-label">Unrealized PnL</div>
-                    <div class="pos-metric-value pnl-zero" id="posTabPnl">$0.00</div>
-                    <div class="pos-metric-sub" id="posTabRoe">ROE: 0.00%</div>
-                </div>
-                <div class="pos-metric-card">
-                    <div class="pos-metric-label">1:1 Target (TP / SL)</div>
-                    <div class="pos-metric-value" id="posTabStage">1:1 Auto</div>
-                    <div class="pos-metric-sub" id="posTabTpTarget">Target: --</div>
-                </div>
-            </div>
-
-            <!-- Detailed Grid: Focus Position Card + Monitored Positions Table -->
-            <div class="pos-tab-main-grid">
-                <!-- Left: Full Active Position Specs -->
-                <div class="card position-focus-card">
-                    <div class="card-header">
-                        <h2><span class="card-icon">🎯</span> Active Position Specs &bull; <span id="posFocusSymbol">--</span></h2>
-                        <span id="posFocusBadge" class="pos-badge-none">NO POSITION</span>
+                    <div class="tr h">
+                        <span>Symbol</span>
+                        <span>Side / Lev</span>
+                        <span>Size</span>
+                        <span>Entry</span>
+                        <span>Mark Price</span>
+                        <span>PnL (ROE)</span>
+                        <span>TP / SL</span>
+                        <span style="text-align:right">Actions</span>
                     </div>
-                    <div class="card-body position-grid">
-                        <div class="pos-row">
-                            <span>Trade Direction</span><strong id="posFocusSide">NONE</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Contract Size</span><strong id="posFocusSize">0.0000</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Entry Price</span><strong id="posFocusEntry">--</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Mark / Index Price</span><strong id="posFocusMark">--</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Unrealized PnL ($)</span><strong id="posFocusPnl" class="pnl-zero">$0.00</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Estimated ROE (%)</span><strong id="posFocusRoe">0.00%</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Take Profit (1:1 Target)</span><strong id="posFocusTrailingTp" style="color:var(--green-success)">--</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Stop Loss (1:1 SL)</span><strong id="posFocusCurrentSl" style="color:var(--red-danger)">--</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Configured Leverage</span><strong id="posFocusLeverage">{{ config.leverage | default(10) }}x</strong>
-                        </div>
-                        <div class="pos-row">
-                            <span>Est. Round-Trip Fees</span><strong id="posFocusFees" style="color:var(--gold-primary)">--</strong>
+                    <div id="positionsTableBody" data-list="positions">
+                        <div class="empty" data-empty id="positionsEmpty">NO OPEN POSITIONS</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================
+                 TAB 2: OPEN POSITIONS (Dedicated View)
+                 ======================================================== -->
+            <section class="ws-tab-pane" data-ws-tab="position">
+                <div class="card stat" style="padding:18px 22px;">
+                    <div class="spread">
+                        <span class="label">Unrealized PnL · Active Slots</span>
+                        <span class="chip dim" id="posFocusRiskLabel" data-slot="positions.riskLabel">RISK: LOW</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:8px;">
+                        <div>
+                            <div class="num" id="posFocusTotalPnl" style="font:800 28px var(--font); color:var(--up);" data-slot="positions.unrealizedPnl">--</div>
+                            <div class="t2 num" id="posFocusRoeMargin" style="font:600 11px var(--font); margin-top:2px;" data-slot="positions.roeMargin">--% ROE · MARGIN $--</div>
                         </div>
                     </div>
-                    <div class="card-footer" style="padding:14px 20px; border-top:1px solid var(--border-subtle); display:flex; justify-content:flex-end; gap:10px;">
-                        <button type="button" class="btn btn-warning" onclick="if(window.closePosition)closePosition();" style="width:100%;">✕ Close This Position</button>
+                    <div class="meter" style="margin-top:12px;">
+                        <div class="spread"><span class="label">Risk Exposure</span><span class="label gold" id="posFocusRiskPct" data-slot="positions.riskPct">--%</span></div>
+                        <div class="mbar"><i id="posFocusRiskBar" data-slot="positions.riskBar" style="width:0%"></i></div>
                     </div>
                 </div>
 
-                <!-- Right: All Watchlist Open Positions Table -->
-                <div class="card positions-table-card">
-                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                        <h2><span class="card-icon">📊</span> Multi-Coin Watchlist Positions</h2>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <span class="badge-live-stream" id="posCountBadge">0 Active</span>
-                            <button type="button" class="btn btn-xs btn-danger" onclick="if(window.closeAllPositions)closeAllPositions();" title="Market close all open trades">⚡ Close All</button>
+                <!-- Position Cards with SL/TP Lanes -->
+                <div id="detailedPositionsList" style="display:flex; flex-direction:column; gap:12px;">
+                    <div class="empty" data-empty>NO OPEN POSITIONS</div>
+                </div>
+            </section>
+
+            <!-- ========================================================
+                 TAB 3: TRADE HISTORY (Audit & Net PnL)
+                 ======================================================== -->
+            <section class="ws-tab-pane" data-ws-tab="history">
+                <div class="statrow">
+                    <div class="card stat" style="display:flex; align-items:center; gap:16px;">
+                        <div class="dwrap" id="hStatWinRateRing" style="width:68px; height:68px; flex:none;">
+                            <b class="num" id="hStatWinRate">--%</b>
+                            <span style="position:absolute; bottom:2px; font:700 7px var(--font); color:var(--t3); letter-spacing:.1em;">WIN RATE</span>
+                        </div>
+                        <div>
+                            <div class="label">NET PnL · Realized</div>
+                            <div class="num" id="hStatNetPnl" style="font:800 20px var(--font); margin-top:2px;">--</div>
+                            <div class="t2 num" id="hStatWinLoss" style="font:600 9.5px var(--font); margin-top:3px;">--W · --L FILLED TRADES</div>
                         </div>
                     </div>
-                    <div class="card-body" style="padding:0; overflow-x:auto;">
-                        <table class="pos-table" id="allPositionsTable">
-                            <thead>
-                                <tr>
-                                    <th>Symbol</th>
-                                    <th>Side</th>
-                                    <th>Size</th>
-                                    <th>Entry</th>
-                                    <th>Mark</th>
-                                    <th>Unrealized PnL</th>
-                                    <th>1:1 Take Profit</th>
-                                    <th>1:1 Stop Loss</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="positionsTableBody">
-                                <tr>
-                                    <td colspan="9" style="text-align:center; padding:32px; color:var(--text-secondary);">
-                                        Checking open positions...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <div class="card stat">
+                        <div class="label">Gross PnL</div>
+                        <div class="v num" id="hStatGrossPnl">--</div>
+                        <div class="s" style="color:var(--t3)">EXCHANGE FILLS</div>
+                    </div>
+                    <div class="card stat">
+                        <div class="label">Total Commission Fees</div>
+                        <div class="v num down" id="hStatTotalFees">--</div>
+                        <div class="s" style="color:var(--t3)">MAKER / TAKER TOTAL</div>
+                    </div>
+                    <div class="card stat">
+                        <div class="label">Total Trades</div>
+                        <div class="v num" id="hStatTotalTrades">--</div>
+                        <div class="s" id="hStatAvgPnl">AVG: --</div>
                     </div>
                 </div>
 
-                <!-- Recent Closed Trades Quick Summary Card -->
-                <div class="card positions-table-card" style="margin-top:20px; grid-column:1 / -1;">
-                    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                        <h2><span class="card-icon">📜</span> Recent Closed Trades</h2>
-                        <button type="button" class="btn btn-xs btn-outline-config" onclick="switchWorkspaceTab('history')">View Full History →</button>
+                <!-- History Table Card -->
+                <div class="card tablec">
+                    <div class="thead2">
+                        <span class="label">Closed Trades Audit</span>
+                        <div style="margin-left:auto; display:flex; gap:8px;">
+                            <button type="button" class="btn btn-ghost" id="refreshHistoryBtn" style="padding:6px 12px; font-size:10px;">↻ Refresh</button>
+                            <button type="button" class="btn btn-ghost red" id="clearHistoryBtn" style="padding:6px 12px; font-size:10px;">Clear Audit</button>
+                        </div>
                     </div>
-                    <div class="card-body" style="padding:0; overflow-x:auto;">
-                        <table class="pos-table" id="recentTradesTable">
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Symbol</th>
-                                    <th>Side</th>
-                                    <th>Entry ➔ Exit</th>
-                                    <th>Realized PnL</th>
-                                    <th>Exit Reason</th>
-                                    <th>Est Fees</th>
-                                </tr>
-                            </thead>
-                            <tbody id="recentTradesTableBody">
-                                <tr>
-                                    <td colspan="7" style="text-align:center; padding:24px; color:var(--text-secondary);">
-                                        No closed trades yet.
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+
+                    <div class="tr-hist h">
+                        <span>Time (UTC)</span>
+                        <span>Symbol / Side</span>
+                        <span>Size</span>
+                        <span>Entry / Exit</span>
+                        <span>Gross PnL</span>
+                        <span>Fee</span>
+                        <span style="text-align:right;">Net PnL / Reason</span>
                     </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- ============================================================== -->
-        <!-- TAB: TRADE HISTORY & REALIZED PNL                              -->
-        <!-- ============================================================== -->
-        <div class="ws-tab-pane" data-ws-tab="history">
-            <div class="history-view-header">
-                <div>
-                    <h2><span class="card-icon">📜</span> Bot Trade History &amp; Performance</h2>
-                    <p class="section-desc">Complete record of every trade executed by the bot (including 1:1 TP exits, 1:1 SL triggers, EMA flip reversals, and manual closes).</p>
-                </div>
-                <div class="history-header-actions">
-                    <button type="button" class="btn btn-secondary" onclick="if(window.fetchTradeHistory)window.fetchTradeHistory(true)" id="refreshHistoryBtn">🔄 Refresh</button>
-                    <button type="button" class="btn btn-outline-danger" onclick="if(window.clearTradeHistory)window.clearTradeHistory()" id="clearHistoryBtn">🗑️ Clear History</button>
-                </div>
-            </div>
+                    <div id="tradeHistoryTableBody">
+                        <div class="empty" data-empty>NO CLOSED TRADES RECORDED</div>
+                    </div>
 
-            <!-- Trade History KPI Stats Row -->
-            <div class="history-stats-grid">
-                <div class="history-stat-card">
-                    <div class="h-stat-label">Total Trades</div>
-                    <div class="h-stat-val" id="hStatTotalTrades">0</div>
-                    <div class="h-stat-sub" id="hStatWinLoss">0 Wins &bull; 0 Losses</div>
-                </div>
-                <div class="history-stat-card">
-                    <div class="h-stat-label">Win Rate</div>
-                    <div class="h-stat-val h-stat-winrate" id="hStatWinRate">0.0%</div>
-                    <div class="h-stat-sub">Based on realized PnL</div>
-                </div>
-                <div class="history-stat-card">
-                    <div class="h-stat-label">Net Realized PnL</div>
-                    <div class="h-stat-val" id="hStatNetPnl">$0.00</div>
-                    <div class="h-stat-sub" id="hStatGrossPnl">Gross: $0.00</div>
-                </div>
-                <div class="history-stat-card">
-                    <div class="h-stat-label">Estimated Fees</div>
-                    <div class="h-stat-val" id="hStatTotalFees" style="color:var(--text-secondary);">$0.00</div>
-                    <div class="h-stat-sub">Round-trip commission</div>
-                </div>
-                <div class="history-stat-card">
-                    <div class="h-stat-label">Best / Worst Trade</div>
-                    <div class="h-stat-val" id="hStatBestWorst" style="font-size:15px;">+$0.00 / -$0.00</div>
-                    <div class="h-stat-sub" id="hStatAvgPnl">Avg: $0.00 / trade</div>
-                </div>
-            </div>
-
-            <!-- Filters & Trade History Table Card -->
-            <div class="card history-table-card">
-                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                    <h2><span class="card-icon">📋</span> Executed Trades Log</h2>
-                    <div class="history-filter-controls">
-                        <select id="historyFilterSymbol" class="history-select" onchange="if(window.renderTradeHistoryTable)window.renderTradeHistoryTable()">
-                            <option value="ALL">All Symbols</option>
-                        </select>
-                        <select id="historyFilterStatus" class="history-select" onchange="if(window.renderTradeHistoryTable)window.renderTradeHistoryTable()">
-                            <option value="ALL">All Statuses</option>
-                            <option value="CLOSED" selected>Closed Trades</option>
-                            <option value="OPEN">Open Positions</option>
-                        </select>
+                    <div class="tfoot-strip">
+                        <span>TODAY: <b id="histFootCount">0 TRADES</b></span>
+                        <span>GROSS: <b id="histFootGross">$0.00</b></span>
+                        <span>FEES: <b id="histFootFees" class="down">$0.00</b></span>
+                        <div class="net">
+                            <span>NET AFTER FEES:</span>
+                            <b id="histFootNet" class="gold" style="font-size:13px;">$0.00</b>
+                        </div>
                     </div>
                 </div>
-                <div class="card-body" style="padding:0; overflow-x:auto;">
-                    <table class="pos-table history-table" id="tradeHistoryTable">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Symbol</th>
-                                <th>Side</th>
-                                <th>Type</th>
-                                <th>Size / Lev</th>
-                                <th>Entry Price</th>
-                                <th>Exit Price</th>
-                                <th>Realized PnL</th>
-                                <th>Exit Reason</th>
-                                <th>Est Fees</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tradeHistoryTableBody">
-                            <tr>
-                                <td colspan="10" style="text-align:center; padding:36px; color:var(--text-secondary);">
-                                    No closed trades yet.
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+            </section>
 
-        <!-- ============================================================== -->
-        <!-- TAB 2: BOT STRATEGY & CONFIGURATION                             -->
-        <!-- ============================================================== -->
-        <div class="ws-tab-pane" data-ws-tab="config">
-            <div class="config-view-header">
-                <div>
-                    <h2>⚙️ Bot Engine Configuration &amp; Strategy</h2>
-                    <p class="section-desc">Manage API credentials, exchange connectivity, multi-coin watchlist, leverage and strict 1:1 risk parameters.</p>
-                </div>
-                <div class="config-actions">
-                    <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
-                    <button id="saveSettings" class="btn btn-primary btn-save-glow">💾 Save All Settings</button>
-                </div>
-            </div>
-
-            <div class="config-grid">
-                
-                <!-- Left: Exchange Credentials & Watchlist -->
-                <section class="card settings-card" data-tab-section="controls">
-                    <div class="card-header">
-                        <h2><span class="card-icon">🔐</span> Exchange Credentials &amp; Watchlist</h2>
+            <!-- ========================================================
+                 TAB 4: ALERTS & NOTIFICATION CHANNELS
+                 ======================================================== -->
+            <section class="ws-tab-pane" data-ws-tab="alerts">
+                <div class="card stat" style="padding:16px 20px;">
+                    <div class="spread">
+                        <div>
+                            <span class="label">Alerts &amp; Dispatch Feed</span>
+                            <div style="font:800 16px var(--font); margin-top:4px;">Real-Time Execution Logs</div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="btn btn-ghost" onclick="switchWorkspaceTab('config')">Configure Telegram / SMTP</button>
+                        </div>
                     </div>
-                    <div class="card-body">
-                        <!-- Exchange Selector -->
+                </div>
+
+                <div id="alertsFeedList" style="display:flex; flex-direction:column; gap:8px;">
+                    <div class="empty" data-empty>NO RECENT ALERTS</div>
+                </div>
+            </section>
+
+            <!-- ========================================================
+                 TAB 5: BOT CONFIGURATION & STRATEGY SETTINGS
+                 ======================================================== -->
+            <section class="ws-tab-pane" data-ws-tab="config">
+                <div class="cfg-grid">
+                    <!-- Card 1: API & Exchange Connection -->
+                    <div class="card cfg-card">
+                        <h3>🔑 Exchange Credentials</h3>
                         <div class="form-group">
-                            <label>Select Exchange</label>
-                            <div class="exchange-toggle">
-                                <button type="button" class="exchange-btn active" data-exchange="binance">Binance Futures</button>
-                                <button type="button" class="exchange-btn" data-exchange="weex">WEEX Futures</button>
-                                <button type="button" class="exchange-btn" data-exchange="primexbt">PrimeXBT</button>
-                            </div>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Environment</label>
-                                <select id="testnet">
-                                    <option value="true" selected>Demo / Testnet (Safe Practice)</option>
-                                    <option value="false">Mainnet (Real Trading)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Trade Mode</label>
-                                <select id="mode">
-                                    <option value="both">Both (Long &amp; Short)</option>
-                                    <option value="long">Long Only</option>
-                                    <option value="short">Short Only</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label>API Key</label>
-                            <input type="password" id="apiKey" placeholder="Enter Exchange API Key" autocomplete="off">
-                        </div>
-                        <div class="form-group">
-                            <label>API Secret</label>
-                            <input type="password" id="apiSecret" placeholder="Enter Exchange API Secret" autocomplete="off">
-                        </div>
-                        <div class="form-group hidden" id="passphraseGroup">
-                            <label>Passphrase (WEEX only)</label>
-                            <input type="password" id="apiPassphrase" placeholder="WEEX API Passphrase" autocomplete="off">
-                        </div>
-
-                        <!-- Multi-Coin Selector -->
-                        <div class="form-group" style="margin-top:16px;">
-                            <label style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
-                                <span>Coins (Watchlist)</span>
-                                <span style="display:inline-flex;gap:6px">
-                                    <button type="button" id="loadTopCoinsBtn" class="btn btn-xs btn-outline-success">+ Top 10</button>
-                                    <button type="button" id="loadAllCoinsBtn" class="btn btn-xs btn-outline-muted">Load All Coins</button>
-                                </span>
-                            </label>
-                            <div class="coin-input-row">
-                                <input type="text" id="coinInput" placeholder="BTCUSDT, SOLUSDT, ETHUSDT..." list="coinSuggestions">
-                                <button id="addCoinBtn" class="btn btn-sm btn-primary">+ Add</button>
-                            </div>
-                            <datalist id="coinSuggestions">
-                                <!-- Dynamically populated from exchange API -->
-                            </datalist>
-                            <div id="coinChips" class="coin-chips"></div>
-                            <div class="hint">Click coin chip to select active chart view; click &times; to remove from active trading pool.</div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Right: Strategy & Automated 1:1 Risk Management -->
-                <section class="card strategy-card" data-tab-section="controls">
-                    <div class="card-header">
-                        <h2><span class="card-icon">🎯</span> Trading Strategy &amp; Automated 1:1 Risk</h2>
-                    </div>
-                    <div class="card-body">
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Strategy Timeframe</label>
-                                <select id="timeframe">
-                                    <option value="1m">1m (Scalping)</option>
-                                    <option value="5m">5m (High Frequency)</option>
-                                    <option value="15m">15m (Short-Term)</option>
-                                    <option value="1h">1h (Day Trading)</option>
-                                    <option value="4h">4h (Swing)</option>
-                                    <option value="1d" selected>1d (Recommended Trend)</option>
-                                    <option value="1w">1w (Macro)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Leverage (1-<span id="maxLevLabel">125</span>x)</label>
-                                <input type="number" id="leverage" value="10" min="1" max="500">
-                            </div>
-                        </div>
-
-                        <!-- Quick Leverage Buttons -->
-                        <div class="form-group">
-                            <label>Quick Leverage Presets</label>
-                            <div class="quick-leverage">
-                                <button class="btn btn-sm" data-lev="5">5x</button>
-                                <button class="btn btn-sm" data-lev="10">10x</button>
-                                <button class="btn btn-sm" data-lev="20">20x</button>
-                                <button class="btn btn-sm" data-lev="50">50x</button>
-                                <button class="btn btn-sm" data-lev="75">75x</button>
-                                <button class="btn btn-sm" data-lev="100">100x</button>
-                                <button class="btn btn-sm" data-lev="125">125x</button>
-                                <button class="btn btn-sm weex-only" data-lev="200" style="display:none">200x</button>
-                                <button class="btn btn-sm weex-only" data-lev="300" style="display:none">300x</button>
-                                <button class="btn btn-sm weex-only" data-lev="400" style="display:none">400x</button>
-                                <button class="btn btn-sm weex-only" data-lev="500" style="display:none">500x</button>
-                                <button class="btn btn-sm primexbt-only" data-lev="200" style="display:none">200x</button>
-                                <button class="btn btn-sm primexbt-only" data-lev="500" style="display:none">500x</button>
-                                <button class="btn btn-sm primexbt-only" data-lev="1000" style="display:none">1000x</button>
-                            </div>
-                            <button type="button" id="maxLeverageBtn" class="btn btn-block btn-max-lev" style="margin-top:8px">⚡ SET 100x LEVERAGE</button>
-                        </div>
-
-                        <!-- Amount Mode Toggle -->
-                        <div class="form-group">
-                            <label>Position Sizing Mode</label>
-                            <div class="toggle-group">
-                                <button type="button" class="toggle-btn active" data-mode="fixed">Fixed USDT</button>
-                                <button type="button" class="toggle-btn" data-mode="percent">% of Wallet Balance</button>
-                            </div>
-                        </div>
-                        <div class="form-group" id="fixedAmountGroup">
-                            <label>Order Investment Amount (USDT)</label>
-                            <input type="number" id="amount" value="100" min="1" step="1">
-                        </div>
-                        <div class="form-group hidden" id="percentAmountGroup">
-                            <label>Wallet Allocation % (per trade)</label>
-                            <input type="number" id="amountPct" value="10" min="1" max="100" step="1">
-                            <div class="hint">Bot dynamically computes USDT size based on current available balance.</div>
-                        </div>
-
-                        <!-- Automated 1:1 Risk & Profit Settings -->
-                        <div class="form-group">
-                            <label>Automated 1:1 Risk &amp; Target % (SL &amp; TP Distance)</label>
-                            <div style="display:flex; align-items:center; gap:10px;">
-                                <input type="number" id="stopLossPct" value="2" min="0.5" max="20" step="0.5" required style="flex:1;">
-                                <input type="hidden" id="takeProfitPct" value="2">
-                                <input type="hidden" id="tpMode" value="fixed">
-                                <span class="badge" style="background:rgba(14,203,129,0.15); color:var(--green-success); border:1px solid rgba(14,203,129,0.3); font-weight:700; padding:10px 14px; border-radius:8px; white-space:nowrap;">
-                                    ⚡ AUTO: 1:1 ACTIVE
-                                </span>
-                            </div>
-                            <div class="hint" style="margin-top:6px;">
-                                🎯 <b>Fully Automated 1:1 Risk-to-Reward:</b> Take Profit (+<span id="autoTpDisplay">2.0</span>%) &amp; Stop Loss (-<span id="autoSlDisplay">2.0</span>%) are symmetrically locked. If trend flips opposite, bot cuts trade instantly and auto-reverses!
-                            </div>
-                        </div>
-
-                        <!-- Concurrent Active Trades / Coins Selection (1, 2, or 3) -->
-                        <div class="form-group" style="margin-top:16px;">
-                            <label style="display:flex; justify-content:space-between; align-items:center;">
-                                <span>Simultaneous Active Coin Trades</span>
-                                <span class="badge" style="background:rgba(240,185,11,0.15); color:var(--gold-primary); border:1px solid rgba(240,185,11,0.3); font-size:11px; padding:3px 8px; border-radius:6px;">Choice: 1, 2, or 3 Coins</span>
-                            </label>
-                            <select id="maxConcurrentTrades" style="width:100%; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); border-radius:8px; font-weight:600;">
-                                <option value="1">1 Coin at a time (Conservative - 1 Active Trade Max)</option>
-                                <option value="2">2 Coins at a time (Balanced - 2 Active Trades Max)</option>
-                                <option value="3" selected>3 Coins at a time (Recommended - 3 Active Trades Max)</option>
+                            <label class="label">Exchange</label>
+                            <select id="exchangeSelect" class="form-select" onchange="setExchange(this.value)">
+                                <option value="binance" selected>Binance USDT-M Futures</option>
                             </select>
-                            <div class="hint" style="margin-top:6px;">
-                                🪙 User can choose to trade 1, 2, or up to 3 coins simultaneously at one time.
+                        </div>
+
+                        <div class="form-group">
+                            <label class="label">API Key</label>
+                            <input type="text" id="apiKey" class="form-input" placeholder="Binance API Key" autocomplete="off">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="label">API Secret</label>
+                            <input type="password" id="apiSecret" class="form-input" placeholder="Binance API Secret" autocomplete="off">
+                        </div>
+
+                        <div class="form-group" id="passphraseGroup" style="display:none;">
+                            <label class="label">Passphrase</label>
+                            <input type="password" id="apiPassphrase" class="form-input" placeholder="API Passphrase (if required)">
+                        </div>
+
+                        <div class="spread" style="margin-top:6px;">
+                            <label class="label" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                <input type="checkbox" id="testnet" style="accent-color:var(--gold); width:16px; height:16px;">
+                                <span>Use Binance Testnet</span>
+                            </label>
+                            <button type="button" class="btn btn-ghost" id="testConnBtn" style="padding:6px 12px; font-size:10px;">Test API Keys</button>
+                        </div>
+                    </div>
+
+                    <!-- Card 2: Leverage & Risk Discipline -->
+                    <div class="card cfg-card">
+                        <h3>⚡ Leverage &amp; Risk Guard</h3>
+                        <div class="form-group">
+                            <div class="spread">
+                                <label class="label">Leverage</label>
+                                <span class="label gold" id="maxLevLabel">125x</span>
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <input type="range" id="leverage" min="1" max="125" value="125" style="flex:1; accent-color:var(--gold);">
+                                <button type="button" class="btn btn-ghost" id="maxLeverageBtn" style="padding:5px 9px; font-size:10px;">MAX</button>
                             </div>
                         </div>
 
-                        <div class="hint-card" style="margin-top:12px; border-left:4px solid var(--green-success);">
-                            <b>🤖 100% AUTOMATED EXECUTION:</b> 
-                            Strict 1:1 Take Profit + 1:1 Stop Loss + Instant EMA55 Opposite Flip Reversal. Zero manual switching needed — the engine runs hands-free on auto mode.
+                        <div class="form-group">
+                            <label class="label">Trading Mode</label>
+                            <select id="mode" class="form-select">
+                                <option value="both" selected>Both Long &amp; Short</option>
+                                <option value="long">Long Only</option>
+                                <option value="short">Short Only</option>
+                            </select>
                         </div>
 
-                    </div>
-                </section>
-            </div>
-        </div>
+                        <div class="form-group">
+                            <label class="label">Timeframe</label>
+                            <select id="timeframe" class="form-select">
+                                <option value="1m">1 Minute</option>
+                                <option value="5m" selected>5 Minutes (Recommended)</option>
+                                <option value="15m">15 Minutes</option>
+                                <option value="1h">1 Hour</option>
+                            </select>
+                        </div>
 
-        <!-- ============================================================== -->
-        <!-- TAB 3: ALERTS & NOTIFICATIONS                                  -->
-        <!-- ============================================================== -->
-        <div class="ws-tab-pane" data-ws-tab="alerts">
-            <div class="config-view-header">
-                <div>
-                    <h2>🔔 Real-Time Trade Alerts &amp; Notifications</h2>
-                    <p class="section-desc">Receive instant entry, 1:1 TP hit, stop loss trigger, reversal flip, and error notifications across your communication channels.</p>
-                </div>
-                <div class="config-actions">
-                    <button id="testNotificationBtn" class="btn btn-primary">⚡ Test All Configured Channels</button>
-                </div>
-            </div>
-
-            <div class="notif-channels-grid">
-                
-                <!-- Telegram Channel -->
-                <div class="card notif-card">
-                    <div class="card-header">
-                        <label class="notif-toggle-header">
-                            <input type="checkbox" id="telegramEnabled">
-                            <span class="notif-header-title">📱 Telegram Bot Alerts</span>
-                        </label>
-                        <span class="channel-status-tag">Instant Push</span>
-                    </div>
-                    <div class="card-body">
-                        <div class="form-group">
-                            <label>Telegram Bot Token</label>
-                            <input type="text" id="telegramBotToken" placeholder="e.g. 8344811500:AAH1TWZ...">
-                        </div>
-                        <div class="form-group">
-                            <label>Your Numeric Chat ID</label>
-                            <input type="text" id="telegramChatId" placeholder="e.g. 123456789">
-                        </div>
-                        <div class="setup-guide-box">
-                            <strong>Setup Steps:</strong><br>
-                            1. Open Telegram, message <a href="https://t.me/BotFather" target="_blank">@BotFather</a> &rarr; <code>/newbot</code> &rarr; copy the <strong>Bot Token</strong><br>
-                            2. Send <code>/start</code> to your newly created bot<br>
-                            3. Message <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> &rarr; copy your numeric <strong>Chat ID</strong>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Email Channel -->
-                <div class="card notif-card">
-                    <div class="card-header">
-                        <label class="notif-toggle-header">
-                            <input type="checkbox" id="emailEnabled">
-                            <span class="notif-header-title">📧 Email SMTP Alerts</span>
-                        </label>
-                        <span class="channel-status-tag">Direct Mail</span>
-                    </div>
-                    <div class="card-body">
-                        <div class="form-group">
-                            <label>Sender Gmail</label>
-                            <input type="email" id="emailSender" placeholder="you@gmail.com">
-                        </div>
-                        <div class="form-group">
-                            <label>Gmail 16-Char App Password</label>
-                            <input type="password" id="emailPassword" placeholder="xxxx xxxx xxxx xxxx (Not your Gmail password)">
-                        </div>
-                        <div class="form-group">
-                            <label>Receiver Email</label>
-                            <input type="email" id="emailReceiver" placeholder="receiver@example.com">
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>SMTP Server</label>
-                                <input type="text" id="emailSmtpServer" placeholder="smtp.gmail.com" value="smtp.gmail.com">
+                        <div class="spread" style="gap:12px;">
+                            <div class="form-group" style="flex:1;">
+                                <label class="label">Stop Loss %</label>
+                                <input type="number" id="stopLossPct" class="form-input" value="2" step="0.1" min="0.5" max="10">
                             </div>
-                            <div class="form-group">
-                                <label>Port</label>
-                                <input type="number" id="emailSmtpPort" placeholder="587" value="587">
+                            <div class="form-group" style="flex:1;">
+                                <label class="label">Take Profit % (1:1)</label>
+                                <input type="number" id="takeProfitPct" class="form-input" value="2" step="0.1" min="0.5" max="10" readonly style="opacity:0.75;">
                             </div>
                         </div>
-                        <div class="setup-guide-box">
-                            <strong>⚠️ Gmail App Password Guide:</strong><br>
-                            Go to <a href="https://myaccount.google.com/security" target="_blank">Google Account &rarr; Security</a> &rarr; 2-Step Verification &rarr; App passwords &rarr; Generate 16-character password.
-                        </div>
                     </div>
-                </div>
 
-                <!-- WhatsApp Channel -->
-                <div class="card notif-card">
-                    <div class="card-header">
-                        <label class="notif-toggle-header">
-                            <input type="checkbox" id="whatsappEnabled">
-                            <span class="notif-header-title">💬 WhatsApp Alerts</span>
-                        </label>
-                        <span class="channel-status-tag">CallMeBot API</span>
-                    </div>
-                    <div class="card-body">
+                    <!-- Card 3: Position Sizing & Coins Watchlist -->
+                    <div class="card cfg-card">
+                        <h3>🎯 Coins &amp; Order Sizing</h3>
                         <div class="form-group">
-                            <label>Phone Number (with Country Code, no +)</label>
-                            <input type="text" id="whatsappPhone" placeholder="e.g. 923001234567">
+                            <label class="label">Order Sizing Mode</label>
+                            <select id="amountMode" class="form-select" onchange="setAmountMode(this.value)">
+                                <option value="fixed" selected>Fixed USDT per trade</option>
+                                <option value="percent">% of Total Wallet Balance</option>
+                            </select>
                         </div>
+
+                        <div class="form-group" id="fixedAmountGroup">
+                            <label class="label">Trade Amount (USDT)</label>
+                            <input type="number" id="amount" class="form-input" value="100" min="5" step="1">
+                        </div>
+
+                        <div class="form-group" id="percentAmountGroup" style="display:none;">
+                            <label class="label">Wallet Balance %</label>
+                            <input type="number" id="amountPct" class="form-input" value="10" min="1" max="100" step="1">
+                        </div>
+
                         <div class="form-group">
-                            <label>CallMeBot API Key</label>
-                            <input type="password" id="whatsappApikey" placeholder="CallMeBot API Key">
+                            <label class="label">Max Concurrent Coins (1 - 3)</label>
+                            <input type="number" id="maxConcurrentTrades" class="form-input" value="3" min="1" max="3">
                         </div>
-                        <div class="setup-guide-box">
-                            <strong>Setup Steps:</strong><br>
-                            1. Add <strong>+34 644 79 33 67</strong> to your WhatsApp contacts<br>
-                            2. Send message: <code>I allow callmebot to send me messages</code><br>
-                            3. CallMeBot will reply with your API key instantly.
+
+                        <div class="form-group">
+                            <label class="label">Add Symbol to Watchlist</label>
+                            <div style="display:flex; gap:6px;">
+                                <input type="text" id="coinInput" class="form-input" placeholder="e.g. BTCUSDT, ETHUSDT" style="text-transform:uppercase;">
+                                <button type="button" class="btn btn-ghost" id="addCoinBtn" onclick="addCoin()">+ Add</button>
+                            </div>
+                        </div>
+
+                        <!-- Active Coin Chips -->
+                        <div id="coinChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;"></div>
+
+                        <div style="display:flex; gap:8px; margin-top:4px;">
+                            <button type="button" class="btn btn-ghost" id="loadTopCoinsBtn" style="flex:1; font-size:10px; padding:8px 0;">Top 10 Coins</button>
+                            <button type="button" class="btn btn-ghost" id="loadAllCoinsBtn" style="flex:1; font-size:10px; padding:8px 0;">All US-M Pairs</button>
+                        </div>
+                    </div>
+
+                    <!-- Card 4: Dispatch & Notifications -->
+                    <div class="card cfg-card">
+                        <h3>🔔 Notification Channels</h3>
+                        <!-- Telegram -->
+                        <div class="form-group">
+                            <label class="label" style="display:flex; align-items:center; gap:8px;">
+                                <input type="checkbox" id="telegramEnabled" style="accent-color:var(--gold);">
+                                <span>Telegram Dispatch</span>
+                            </label>
+                            <input type="text" id="telegramBotToken" class="form-input" placeholder="Bot Token" style="margin-top:4px;">
+                            <input type="text" id="telegramChatId" class="form-input" placeholder="Chat ID" style="margin-top:4px;">
+                        </div>
+
+                        <!-- Email SMTP -->
+                        <div class="form-group" style="margin-top:8px;">
+                            <label class="label" style="display:flex; align-items:center; gap:8px;">
+                                <input type="checkbox" id="emailEnabled" style="accent-color:var(--gold);">
+                                <span>Email (SMTP) Alerts</span>
+                            </label>
+                            <input type="email" id="emailSender" class="form-input" placeholder="Sender Email" style="margin-top:4px;">
+                            <input type="password" id="emailPassword" class="form-input" placeholder="App Password" style="margin-top:4px;">
+                            <input type="email" id="emailReceiver" class="form-input" placeholder="Receiver Email" style="margin-top:4px;">
+                        </div>
+
+                        <!-- WhatsApp -->
+                        <div class="form-group" style="margin-top:8px;">
+                            <label class="label" style="display:flex; align-items:center; gap:8px;">
+                                <input type="checkbox" id="whatsappEnabled" style="accent-color:var(--gold);">
+                                <span>WhatsApp Dispatch</span>
+                            </label>
+                            <input type="text" id="whatsappPhone" class="form-input" placeholder="Phone (+1234567890)" style="margin-top:4px;">
+                            <input type="password" id="whatsappApikey" class="form-input" placeholder="CallMeBot API Key" style="margin-top:4px;">
+                        </div>
+
+                        <div style="display:flex; gap:8px; margin-top:10px;">
+                            <button type="button" class="btn btn-ghost" id="testNotificationBtn" style="flex:1; font-size:10px;">Test Notification</button>
+                            <button type="button" class="btn btn-gold" id="saveSettings" style="flex:1.2; font-size:11px;">💾 SAVE CONFIG</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================
+                 TAB 6: ACTIVITY LOGS
+                 ======================================================== -->
+            <section class="ws-tab-pane" data-ws-tab="logs">
+                <div class="card stat" style="padding:16px 20px;">
+                    <div class="spread">
+                        <div>
+                            <span class="label">Live Console Output</span>
+                            <div style="font:800 16px var(--font); margin-top:4px;">Process &amp; Strategy Audit Stream</div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" class="btn btn-ghost red" id="clearLogs" style="padding:6px 12px; font-size:10px;">Clear Console</button>
                         </div>
                     </div>
                 </div>
 
-            </div>
-        </div>
-
-        <!-- ============================================================== -->
-        <!-- TAB 4: EXPANDED ACTIVITY LOGS                                   -->
-        <!-- ============================================================== -->
-        <div class="ws-tab-pane" data-ws-tab="logs">
-            <div class="config-view-header">
-                <div>
-                    <h2>📋 Bot Engine Activity Console &amp; Audit Logs</h2>
-                    <p class="section-desc">Real-time execution telemetry, indicator calculations, order events, and risk audit logs.</p>
+                <div class="log-box" id="logs">
+                    <!-- Streaming log entries -->
+                    <div class="log-entry info"><span class="log-time">--:--:--</span><span class="log-msg">Weexionic Engine Interface Loaded.</span></div>
                 </div>
-                <div class="config-actions">
-                    <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
-                    <button id="clearLogsFull" class="btn btn-sm" onclick="const l=document.getElementById('logs'); if(l) l.innerHTML='';">Clear Console</button>
-                </div>
-            </div>
+                <div id="logsFullscreenClone" style="display:none;"></div>
+            </section>
+        </main>
+    </div>
+</div>
 
-            <div class="card expanded-logs-card">
-                <div class="card-header">
-                    <h2><span class="card-icon">💻</span> Terminal Stream</h2>
-                    <span class="badge-live-stream">● LIVE SOCKET</span>
-                </div>
-                <div class="card-body">
-                    <div class="logs-container logs-fullscreen" id="logsFullscreenClone">
-                        <!-- Cloned or synced logs stream -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </main>
-
-    <!-- Mobile Segmented Bottom Navigation Bar -->
-    <nav class="mobile-bottom-nav" id="mobileNav">
+<!-- ============================================================
+     MOBILE BOTTOM DOCK NAVIGATION
+     ============================================================ -->
+<nav class="mob-nav-dock">
+    <div class="mob-nav-list">
         <button type="button" class="mob-nav-item active" data-tab="terminal">
-            <span class="mob-nav-icon">📈</span>
-            <span class="mob-nav-text">Terminal</span>
+            <svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5"/><path d="M12.8 14.5H16"/></svg>
+            Terminal
         </button>
         <button type="button" class="mob-nav-item" data-tab="position">
-            <span class="mob-nav-icon">🎯</span>
-            <span class="mob-nav-text">Position</span>
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 3.5l8 4.5-8 4.5L4 8z"/><path d="M4 12.7l8 4.5 8-4.5"/><path d="M4 16.6L12 21l8-4.4"/></svg>
+            Positions
         </button>
         <button type="button" class="mob-nav-item" data-tab="history">
-            <span class="mob-nav-icon">📜</span>
-            <span class="mob-nav-text">History</span>
-        </button>
-        <button type="button" class="mob-nav-item" data-tab="config">
-            <span class="mob-nav-icon">⚙️</span>
-            <span class="mob-nav-text">Settings</span>
+            <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>
+            History
         </button>
         <button type="button" class="mob-nav-item" data-tab="alerts">
-            <span class="mob-nav-icon">🔔</span>
-            <span class="mob-nav-text">Alerts</span>
+            <svg class="ic" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg>
+            Alerts
         </button>
-        <button type="button" class="mob-nav-item" data-tab="logs">
-            <span class="mob-nav-icon">📋</span>
-            <span class="mob-nav-text">Logs</span>
+        <button type="button" class="mob-nav-item" data-tab="config">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16"/><circle cx="9.5" cy="8" r="2.2" fill="#0B0E13"/><path d="M4 16h16"/><circle cx="14.5" cy="16" r="2.2" fill="#0B0E13"/></svg>
+            Config
         </button>
-        <button type="button" class="mob-nav-item" onclick="openProfileModal()">
-            <span class="mob-nav-icon">👤</span>
-            <span class="mob-nav-text">Account</span>
-        </button>
-    </nav>
+    </div>
+</nav>
 
-    <!-- Account & Referral Portal Modal -->
-    <div class="ref-modal-overlay" id="profileReferralModal" onclick="if(event.target===this)closeProfileModal()">
-        <div class="ref-modal-card">
-            <!-- Header -->
-            <div class="ref-modal-header">
-                <div class="ref-modal-title">
-                    <div class="ref-avatar" id="modalUserAvatar">👤</div>
-                    <div>
-                        <div style="font-size:16px; font-weight:700; color:#fff;" id="modalUserName">My Account</div>
-                        <div style="font-size:12px; color:var(--text-secondary);" id="modalUserEmail">Loading account details...</div>
-                    </div>
-                </div>
-                <div style="display:flex; align-items:center; gap:12px;">
-                    <span id="modalPlanBadge" style="background:rgba(14,203,129,0.15); color:var(--green-success); border:1px solid rgba(14,203,129,0.3); font-size:11px; font-weight:700; padding:4px 10px; border-radius:12px;">Active</span>
-                    <button class="ref-modal-close" onclick="closeProfileModal()">&times;</button>
-                </div>
+<!-- ============================================================
+     PROFILE & REFERRAL PROGRAM MODAL
+     ============================================================ -->
+<div class="modal-overlay" id="profileReferralModal" onclick="if(event.target===this)closeProfileModal()">
+    <div class="modal-card">
+        <button type="button" class="modal-close-btn" onclick="closeProfileModal()">&times;</button>
+        
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+            <div class="avatar-btn" id="modalUserAvatar" style="width:44px; height:44px; font-size:16px;">👤</div>
+            <div>
+                <div style="font:800 15px var(--font);" id="modalUserName">Trader</div>
+                <div class="t2" style="font:600 11px var(--mono);" id="modalUserEmail">--</div>
             </div>
+            <span class="chip amber" id="modalPlanBadge" style="margin-left:auto;">ACTIVE LICENSE</span>
+        </div>
 
-            <!-- Tab Buttons -->
-            <div class="ref-modal-tabs">
-                <button class="ref-tab-btn active" id="tabBtnRefLink" onclick="switchRefTab('link')">🔗 Referral Link</button>
-                <button class="ref-tab-btn" id="tabBtnRefTree" onclick="switchRefTab('tree')">👥 Referral Tree (<span id="tabCountInvited">0</span>)</button>
-                <button class="ref-tab-btn" id="tabBtnRefPayout" onclick="switchRefTab('payout')">💰 Payout &amp; Wallet</button>
+        <!-- Referral Stats Strip -->
+        <div class="statrow" style="margin-bottom:16px;">
+            <div class="card stat" style="padding:10px 14px;">
+                <div class="label">Referrals</div>
+                <div class="v num" id="statRefUsers">0</div>
             </div>
-
-            <!-- Modal Body -->
-            <div class="ref-modal-body">
-                <!-- TAB 1: Link & Code -->
-                <div id="refTabContentLink">
-                    <!-- Quick Stats -->
-                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-bottom:20px;">
-                        <div class="ref-stat-box">
-                            <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600;">Total Invited</div>
-                            <div class="ref-stat-val" id="statRefUsers" style="color:var(--gold-primary);">0</div>
-                        </div>
-                        <div class="ref-stat-box">
-                            <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600;">Total Earned</div>
-                            <div class="ref-stat-val" id="statRefEarned" style="color:var(--green-success);">$0.00</div>
-                        </div>
-                        <div class="ref-stat-box">
-                            <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600;">Available</div>
-                            <div class="ref-stat-val" id="statRefAvailable" style="color:#2196f3;">$0.00</div>
-                        </div>
-                    </div>
-
-                    <!-- Referral Link -->
-                    <div style="margin-bottom:16px;">
-                        <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px; font-weight:700;">Your Shareable Referral Link</label>
-                        <div class="ref-link-box">
-                            <input type="text" id="modalRefLink" readonly style="flex:1; background:transparent; border:none; color:#fff; font-size:12px; font-family:var(--font-mono); outline:none;">
-                            <button class="btn btn-sm btn-success" id="btnCopyLink" onclick="copyModalText('modalRefLink', 'btnCopyLink')">📋 Copy Link</button>
-                        </div>
-                    </div>
-
-                    <!-- Referral Code & Share -->
-                    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px;">
-                        <div style="flex:1; min-width:200px;">
-                            <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px; font-weight:700;">Your Referral Code</label>
-                            <div class="ref-link-box" style="justify-content:space-between;">
-                                <strong id="modalRefCode" style="font-family:var(--font-mono); color:var(--gold-primary); font-size:16px; letter-spacing:1px;">--</strong>
-                                <button class="btn btn-sm" id="btnCopyCode" onclick="copyDirectText(document.getElementById('modalRefCode').textContent, 'btnCopyCode')">Copy</button>
-                            </div>
-                        </div>
-                        <div style="flex:1; min-width:200px;">
-                            <label style="display:block; font-size:11px; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px; font-weight:700;">Quick Share</label>
-                            <div style="display:flex; gap:8px;">
-                                <button onclick="shareViaWhatsApp()" class="btn btn-sm" style="flex:1; background:#25D366; color:#080b11; font-weight:700;">💬 WhatsApp</button>
-                                <button onclick="shareViaTelegram()" class="btn btn-sm" style="flex:1; background:#0088cc; color:#fff; font-weight:700;">✈️ Telegram</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Commission Structure -->
-                    <div style="background:rgba(14,203,129,0.06); border:1px dashed rgba(14,203,129,0.3); border-radius:12px; padding:16px; font-size:12px; line-height:1.6;">
-                        <div style="font-weight:700; color:var(--green-success); margin-bottom:6px; font-size:13px;">🎁 Instant Commission Structure</div>
-                        <div>&bull; <strong>1-Year License ($79):</strong> Jab bhi aapka refer kiya hua dost 1-Year plan activate karega, aapko direct <strong>$10 USDT</strong> milega.</div>
-                        <div>&bull; <strong>Lifetime License ($500):</strong> Jab koi Lifetime plan activate karega, aapko direct <strong>$50 USDT</strong> milega.</div>
-                    </div>
-                </div>
-
-                <!-- TAB 2: Tree & Invited Users -->
-                <div id="refTabContentTree" style="display:none;">
-                    <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
-                        <span>Your Referral Network</span>
-                        <span style="font-size:11px; color:var(--text-secondary);">Direct Referral Tree</span>
-                    </div>
-                    <div id="refUsersList">
-                        <div style="text-align:center; padding:32px; color:var(--text-secondary); font-size:13px;">Loading referral tree...</div>
-                    </div>
-                </div>
-
-                <!-- TAB 3: Payout Wallet & Withdrawal -->
-                <div id="refTabContentPayout" style="display:none;">
-                    <div style="background:rgba(240,185,11,0.08); border:1px solid rgba(240,185,11,0.25); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:12px; color:#eaecef; line-height:1.5;">
-                        <strong style="color:var(--gold-primary);">⚡ Payout Notice:</strong> Referral commissions are credited instantly. When you submit a withdrawal request, funds are reviewed and transferred to your USDT wallet within <strong>1 to 3 business days</strong>.
-                    </div>
-                    <!-- Wallet Address Card -->
-                    <div style="background:#0a0e16; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; margin-bottom:16px;">
-                        <div style="font-size:13px; font-weight:700; color:var(--gold-primary); margin-bottom:6px;">💰 Enter Your USDT Payout Wallet</div>
-                        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Referral commission receive karne ke liye apna USDT (TRC20 ya BEP20) wallet address yahan save karein:</div>
-                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-                            <input type="text" id="modalPayoutWalletInput" placeholder="T... (TRC20) ya 0x... (BEP20)" style="flex:1; min-width:240px; background:#121826; border:1px solid rgba(255,255,255,0.12); color:#fff; padding:10px 14px; border-radius:8px; font-size:13px; font-family:var(--font-mono); outline:none;">
-                            <button class="btn btn-sm btn-success" onclick="saveModalPayoutWallet()">💾 Save Wallet</button>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.06);">
-                            <div style="font-size:12px; color:var(--text-secondary);">
-                                Available Balance: <strong id="modalAvailBalanceText" style="color:var(--green-success); font-size:14px;">$0.00 USDT</strong>
-                            </div>
-                            <button id="btnRequestWithdrawal" class="btn btn-sm" style="background:var(--gold-gradient); color:#080b11; font-weight:800; padding:8px 18px;" onclick="requestModalPayout()">⚡ Request Withdrawal</button>
-                        </div>
-                    </div>
-
-                    <!-- Withdrawal History -->
-                    <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:10px;">Withdrawal &amp; Payout History</div>
-                    <div id="modalPayoutHistoryList">
-                        <div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:12px;">No withdrawal requests yet.</div>
-                    </div>
-                </div>
+            <div class="card stat" style="padding:10px 14px;">
+                <div class="label">Total Earned</div>
+                <div class="v num gold" id="statRefEarned">$0.00</div>
             </div>
+            <div class="card stat" style="padding:10px 14px;">
+                <div class="label">Available Payout</div>
+                <div class="v num up" id="statRefAvailable">$0.00</div>
+            </div>
+        </div>
+
+        <!-- 1-Click Copy Links -->
+        <div class="form-group" style="margin-bottom:12px;">
+            <label class="label">Your Referral Code</label>
+            <div style="display:flex; gap:6px;">
+                <input type="text" id="modalRefCode" class="form-input" readonly style="font-weight:800; color:var(--gold);">
+                <button type="button" class="btn btn-ghost" id="btnCopyCode" onclick="copyRefCode()">Copy</button>
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+            <label class="label">Your Referral Link (20% Recurring Commission)</label>
+            <div style="display:flex; gap:6px;">
+                <input type="text" id="modalRefLink" class="form-input" readonly>
+                <button type="button" class="btn btn-gold" id="btnCopyLink" onclick="copyRefLink()">Copy Link</button>
+            </div>
+        </div>
+
+        <!-- Payout Request Input -->
+        <div class="card" style="padding:14px; margin-top:14px; background:#0D1117;">
+            <div class="label" style="margin-bottom:6px;">Request Commission Payout</div>
+            <div style="display:flex; gap:6px;">
+                <input type="text" id="modalPayoutWalletInput" class="form-input" placeholder="Your USDT TRC20 or BEP20 Wallet Address">
+                <button type="button" class="btn btn-gold" id="btnRequestWithdrawal" onclick="requestPayout()">Withdraw</button>
+            </div>
+            <div class="t3" style="font:600 9px var(--font); margin-top:6px;">Minimum withdrawal $10 USDT. Instant admin reconciliation.</div>
         </div>
     </div>
+</div>
 
-    <!-- Scripts -->
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-    <script>
-        // ---- Global Workspace Tab Switching System ----
-        function switchWorkspaceTab(tab) {
-            if (!tab) return;
-            // Update workspace top tabs
-            document.querySelectorAll('.ws-tab-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tab);
-            });
-            // Update panes
-            document.querySelectorAll('.ws-tab-pane').forEach(pane => {
-                pane.classList.toggle('active', pane.dataset.wsTab === tab);
-            });
-            // Update mobile bottom nav
-            document.querySelectorAll('.mob-nav-item').forEach(item => {
-                item.classList.toggle('active', item.dataset.tab === tab);
-            });
-            document.body.dataset.activeTab = tab;
-            document.body.dataset.mobTab = tab;
-
-            // Trigger chart resize if returning to terminal
-            if (tab === 'terminal' && window.chart && document.getElementById('chart')) {
-                setTimeout(() => {
-                    const c = document.getElementById('chart');
-                    window.chart.applyOptions({
-                        width: c.clientWidth,
-                        height: c.clientHeight || 400
-                    });
-                    if (window.chart.timeScale) window.chart.timeScale().fitContent();
-                }, 80);
-            }
-
-            // Sync logs fullscreen if logs tab
-            if (tab === 'logs') {
-                const src = document.getElementById('logs');
-                const dst = document.getElementById('logsFullscreenClone');
-                if (src && dst) dst.innerHTML = src.innerHTML;
-            }
-
-            // Refresh live positions & history if position or history tab
-            if ((tab === 'position' || tab === 'history') && typeof window.fetchPositions === 'function') {
-                window.fetchPositions();
-            }
-            if ((tab === 'history' || tab === 'position') && typeof window.fetchTradeHistory === 'function') {
-                window.fetchTradeHistory();
-            }
-        }
-
-        // Attach workspace top tabs click listeners
-        document.querySelectorAll('.ws-tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => switchWorkspaceTab(btn.dataset.tab));
+<!-- Scripts -->
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script>
+    // Tab switching controller
+    function switchWorkspaceTab(tab) {
+        if (!tab) return;
+        document.querySelectorAll('.ws-tab-btn, .mob-nav-item').forEach(b => {
+            b.classList.toggle('active', b.dataset.tab === tab);
         });
-
-        // Sync logs in real time to expanded logs if open
-        const origLogsObserver = new MutationObserver(() => {
-            const dst = document.getElementById('logsFullscreenClone');
-            const src = document.getElementById('logs');
-            if (dst && src && document.body.dataset.activeTab === 'logs') {
-                dst.innerHTML = src.innerHTML;
-                dst.scrollTop = dst.scrollHeight;
-            }
+        document.querySelectorAll('.ws-tab-pane').forEach(p => {
+            p.classList.toggle('active', p.dataset.wsTab === tab);
         });
-        const lEl = document.getElementById('logs');
-        if (lEl) origLogsObserver.observe(lEl, { childList: true, subtree: true });
+        document.body.dataset.activeTab = tab;
+        document.body.dataset.mobTab = tab;
 
-        // ---- Account & Referral Portal Logic ----
-        let _refDataCache = null;
+        const titles = {
+            'terminal': ['Terminal', 'USDT-M FUTURES · 1M / 5M EXECUTION'],
+            'position': ['Positions', 'ACTIVE SLOTS & SL/TP LANES'],
+            'history': ['Trade History', 'EXCHANGE-FILLED AUDIT & NET PNL'],
+            'alerts': ['Alerts & Feeds', 'REAL-TIME SIGNAL & EXECUTION DISPATCH'],
+            'config': ['Bot Settings', 'STRATEGY, LEVERAGE & NOTIFICATIONS'],
+            'logs': ['Activity Logs', 'LIVE CONSOLE AUDIT STREAM']
+        };
+        const t = titles[tab] || ['Terminal', 'QUANT ENGINE'];
+        const pT = document.getElementById('pageTitle');
+        const pS = document.getElementById('pageSubtitle');
+        if (pT) pT.textContent = t[0];
+        if (pS) pS.textContent = t[1];
 
-        async function fetchReferralInfo() {
-            try {
-                let r = await fetch('/api/user/referral');
-                if (!r.ok) {
-                    r = await fetch('/bot/api/user/referral');
-                }
-                if (!r.ok) return;
-                const data = await r.json();
-                if (!data.success) return;
-                _refDataCache = data;
-
-                // Update topbar - show user name ONLY (no amount)
-                const badge = document.getElementById('accountBonusBadge');
-                if (badge) {
-                    badge.style.display = 'none';
-                    badge.textContent = '';
-                }
-                const btnText = document.getElementById('accountBtnText');
-                if (btnText && data.user_name) {
-                    btnText.textContent = data.user_name;
-                }
-
-                // Populate modal
-                if (document.getElementById('modalUserName')) {
-                    document.getElementById('modalUserName').textContent = data.user_name || 'My Account';
-                    document.getElementById('modalUserEmail').textContent = data.user_email || '';
-                    document.getElementById('modalUserAvatar').textContent = (data.user_name || data.user_email || 'U').charAt(0).toUpperCase();
-
-                    const sub = data.subscription || {};
-                    const planText = sub.plan ? (sub.plan.toUpperCase() + (sub.status === 'active' ? ' (ACTIVE)' : '')) : 'Active';
-                    document.getElementById('modalPlanBadge').textContent = planText;
-
-                    document.getElementById('modalRefLink').value = data.referral_link || '';
-                    document.getElementById('modalRefCode').textContent = data.referral_code || '--';
-
-                    document.getElementById('statRefUsers').textContent = data.referral_count || 0;
-                    document.getElementById('tabCountInvited').textContent = data.referral_count || 0;
-                    document.getElementById('statRefEarned').textContent = '$' + (data.referral_earnings || 0).toFixed(2);
-                    document.getElementById('statRefAvailable').textContent = '$' + (data.available_balance || 0).toFixed(2);
-                    document.getElementById('modalAvailBalanceText').textContent = '$' + (data.available_balance || 0).toFixed(2) + ' USDT';
-
-                    const walletInput = document.getElementById('modalPayoutWalletInput');
-                    if (walletInput && data.payout_wallet) {
-                        walletInput.value = data.payout_wallet;
-                    }
-
-                    renderReferralTree(data.referred_users || []);
-                    renderPayoutHistory(data.payout_requests || []);
-                }
-            } catch(e) {}
+        if (tab === 'terminal' && window.chart && document.getElementById('chart')) {
+            setTimeout(() => {
+                const c = document.getElementById('chart');
+                window.chart.applyOptions({ width: c.clientWidth, height: c.clientHeight || 360 });
+                if (window.chart.timeScale) window.chart.timeScale().fitContent();
+            }, 80);
         }
+    }
 
-        function renderReferralTree(users) {
-            const container = document.getElementById('refUsersList');
-            if (!container) return;
-            if (!users || users.length === 0) {
-                container.innerHTML = '<div style="text-align:center; padding:32px; color:var(--text-secondary); font-size:13px;">No invited users yet. Share your link above to invite friends and earn commissions!</div>';
-                return;
-            }
-            let html = '';
-            users.forEach(function(u) {
-                const dateStr = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
-                const isActive = u.has_license;
-                html += '<div class="ref-tree-node">';
-                html += '  <div style="display:flex; align-items:center; gap:10px;">';
-                html += '    <div style="width:36px; height:36px; border-radius:10px; background:rgba(14,203,129,0.15); color:var(--green-success); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px;">' + escapeRefHtml((u.name || u.email).charAt(0).toUpperCase()) + '</div>';
-                html += '    <div>';
-                html += '      <div style="font-weight:700; color:#fff; font-size:13px;">' + escapeRefHtml(u.name || u.email) + '</div>';
-                html += '      <div style="font-size:11px; color:var(--text-secondary);">' + escapeRefHtml(u.email) + ' &bull; Joined ' + dateStr + '</div>';
-                html += '    </div>';
-                html += '  </div>';
-                html += '  <div style="text-align:right;">';
-                if (isActive) {
-                    html += '    <span style="background:rgba(14,203,129,0.15); color:var(--green-success); border:1px solid rgba(14,203,129,0.3); font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px;">🟢 Bot Active</span>';
-                } else {
-                    html += '    <span style="background:rgba(255,255,255,0.06); color:var(--text-secondary); font-size:11px; padding:2px 8px; border-radius:10px;">Registered</span>';
-                }
-                if (u.bonus_earned > 0) {
-                    html += '    <div style="color:var(--green-success); font-size:11px; font-weight:800; margin-top:3px;">+' + u.bonus_earned + ' USDT</div>';
-                }
-                html += '  </div>';
-                html += '</div>';
-            });
-            container.innerHTML = html;
+    document.querySelectorAll('.ws-tab-btn, .mob-nav-item').forEach(btn => {
+        btn.addEventListener('click', () => switchWorkspaceTab(btn.dataset.tab));
+    });
+
+    function openProfileModal() {
+        const modal = document.getElementById('profileReferralModal');
+        if (modal) modal.classList.add('open');
+        if (typeof window.fetchReferralData === 'function') window.fetchReferralData();
+    }
+    function closeProfileModal() {
+        const modal = document.getElementById('profileReferralModal');
+        if (modal) modal.classList.remove('open');
+    }
+
+    function copyRefCode() {
+        const input = document.getElementById('modalRefCode');
+        if (input) {
+            navigator.clipboard.writeText(input.value);
+            alert('Referral Code copied to clipboard: ' + input.value);
         }
-
-        function renderPayoutHistory(payouts) {
-            const container = document.getElementById('modalPayoutHistoryList');
-            if (!container) return;
-            if (!payouts || payouts.length === 0) {
-                container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:12px;">No withdrawal requests yet.</div>';
-                return;
-            }
-            let html = '';
-            payouts.forEach(function(p) {
-                const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString() : '';
-                const isPaid = p.status === 'paid';
-                html += '<div class="ref-tree-node">';
-                html += '  <div>';
-                html += '    <div style="font-weight:700; font-size:12px; color:#fff;">' + escapeRefHtml(p.id) + ' &bull; ' + dateStr + '</div>';
-                html += '    <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary);">' + escapeRefHtml(p.wallet_address || '') + '</div>';
-                if (p.tx_hash) {
-                    html += '    <div style="font-size:10px; color:var(--green-success);">Tx: ' + escapeRefHtml(p.tx_hash) + '</div>';
-                }
-                html += '  </div>';
-                html += '  <div style="text-align:right;">';
-                html += '    <div style="font-weight:800; color:' + (isPaid ? 'var(--green-success)' : 'var(--gold-primary)') + '; font-size:13px;">$' + p.amount + ' USDT</div>';
-                const statusLabel = isPaid ? 'PAID' : 'PENDING (1-3 BUSINESS DAYS)';
-                html += '    <span style="font-size:10px; padding:2px 8px; border-radius:8px; font-weight:700; background:' + (isPaid ? 'rgba(14,203,129,0.15);color:var(--green-success);' : 'rgba(240,185,11,0.15);color:var(--gold-primary);') + '">' + statusLabel + '</span>';
-                html += '  </div>';
-                html += '</div>';
-            });
-            container.innerHTML = html;
+    }
+    function copyRefLink() {
+        const input = document.getElementById('modalRefLink');
+        if (input) {
+            navigator.clipboard.writeText(input.value);
+            alert('Referral Link copied to clipboard!');
         }
-
-        function openProfileModal() {
-            document.getElementById('profileReferralModal').classList.add('active');
-            fetchReferralInfo();
-        }
-
-        function closeProfileModal() {
-            document.getElementById('profileReferralModal').classList.remove('active');
-        }
-
-        function switchRefTab(tab) {
-            document.getElementById('refTabContentLink').style.display = tab === 'link' ? 'block' : 'none';
-            document.getElementById('refTabContentTree').style.display = tab === 'tree' ? 'block' : 'none';
-            document.getElementById('refTabContentPayout').style.display = tab === 'payout' ? 'block' : 'none';
-
-            document.getElementById('tabBtnRefLink').classList.toggle('active', tab === 'link');
-            document.getElementById('tabBtnRefTree').classList.toggle('active', tab === 'tree');
-            document.getElementById('tabBtnRefPayout').classList.toggle('active', tab === 'payout');
-        }
-
-        function copyModalText(inputId, btnId) {
-            const input = document.getElementById(inputId);
-            if (!input) return;
-            navigator.clipboard.writeText(input.value).then(() => {
-                const btn = document.getElementById(btnId);
-                if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); }
-            });
-        }
-
-        function copyDirectText(text, btnId) {
-            navigator.clipboard.writeText(text).then(() => {
-                const btn = document.getElementById(btnId);
-                if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); }
-            });
-        }
-
-        function shareViaWhatsApp() {
-            const link = document.getElementById('modalRefLink').value;
-            const text = encodeURIComponent('Join me on Weexionic Automated Futures Trading Bot! Use my referral link: ' + link);
-            window.open('https://api.whatsapp.com/send?text=' + text, '_blank');
-        }
-
-        function shareViaTelegram() {
-            const link = document.getElementById('modalRefLink').value;
-            const text = encodeURIComponent('Join me on Weexionic Automated Futures Trading Bot! Use my referral link:');
-            window.open('https://t.me/share/url?url=' + encodeURIComponent(link) + '&text=' + text, '_blank');
-        }
-
-        async function saveModalPayoutWallet() {
-            const input = document.getElementById('modalPayoutWalletInput');
-            const wallet = input ? input.value.trim() : '';
-            if (!wallet || wallet.length < 10) { alert('Please enter a valid USDT wallet address'); return; }
-            try {
-                let r = await fetch('/api/user/payout-wallet', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({wallet_address: wallet})
-                });
-                if (!r.ok) {
-                    r = await fetch('/bot/api/user/payout-wallet', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({wallet_address: wallet})
-                    });
-                }
-                const res = await r.json();
-                if (res.success) { alert('Payout wallet saved successfully!'); fetchReferralInfo(); }
-                else { alert('Failed: ' + (res.error || 'Unknown error')); }
-            } catch(e) { alert('Network error'); }
-        }
-
-        async function requestModalPayout() {
-            const input = document.getElementById('modalPayoutWalletInput');
-            const wallet = input ? input.value.trim() : '';
-            if (!wallet) {
-                alert('Please enter and save your USDT payout wallet address first.');
-                return;
-            }
-            if (!_refDataCache || _refDataCache.available_balance <= 0) {
-                alert('You have no available referral commission to withdraw at this time.');
-                return;
-            }
-            if (!confirm('Withdraw $' + _refDataCache.available_balance + ' USDT to wallet:\n' + wallet + '\n\nNote: Referral payouts are processed and sent to your wallet within 1 to 3 business days. Confirm?')) return;
-
-            try {
-                let r = await fetch('/api/user/request-payout', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({wallet_address: wallet})
-                });
-                if (!r.ok) {
-                    r = await fetch('/bot/api/user/request-payout', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({wallet_address: wallet})
-                    });
-                }
-                const res = await r.json();
-                if (res.success) { alert(res.message); fetchReferralInfo(); }
-                else { alert('Failed: ' + (res.error || 'Unknown error')); }
-            } catch(e) { alert('Network error'); }
-        }
-
-        function escapeRefHtml(str) {
-            if (!str) return '';
-            const d = document.createElement('div');
-            d.textContent = str;
-            return d.innerHTML;
-        }
-
-        // Initialize referral info on load
-        window.addEventListener('DOMContentLoaded', () => {
-            fetchReferralInfo();
-        });
-    </script>
-    <footer style="text-align:center; padding:24px 16px; font-size:11.5px; color:var(--text-muted); border-top:1px solid var(--border-subtle); margin-top:40px; background:rgba(0,0,0,0.2);">
-        &copy; 2026 WEEXIONIC TRADING BOT &bull; 
-        <a href="/disclaimer" target="_blank" style="color:var(--text-secondary); text-decoration:none; margin:0 6px;">Risk Disclaimer</a> &bull; 
-        <a href="/terms" target="_blank" style="color:var(--text-secondary); text-decoration:none; margin:0 6px;">Terms of Service</a> &bull; 
-        <a href="/privacy" target="_blank" style="color:var(--text-secondary); text-decoration:none; margin:0 6px;">Privacy Policy</a> &bull; 
-        <a href="/security" target="_blank" style="color:var(--text-secondary); text-decoration:none; margin:0 6px;">Security Policy</a>
-        <div style="margin-top:6px; font-size:10.5px; color:var(--text-muted); opacity:0.8;">
-            High-Risk Warning: Cryptocurrency derivative trading involves substantial risk of loss. The software is strictly automated computational tooling with zero financial advice or profit guarantees.
-        </div>
-    </footer>
+    }
+</script>
 </body>
 </html>

@@ -1,0 +1,120 @@
+/* ============================================================
+   WEEXIONIC UI KIT — Obsidian x Gold (approved design system)
+   base.css : tokens + atoms + device shells
+   NOTE: fake-data generators (charts.js) deliberately REMOVED.
+   Every dynamic value lives in the HTML as data-slot="--".
+   ============================================================ */
+@import url('../fonts/fonts.css');
+
+:root{
+  --bg0:#0A0C10; --bg1:#0D1015; --card-a:#151B24; --card-b:#10151C;
+  --border:#1D2530; --border-hi:rgba(240,185,11,.16);
+  --gold:#F0B90B; --gold-hi:#FFDF6E; --gold-lo:#C79502;
+  --up:#0ECB81; --down:#F6465D;
+  --cyan:#4EA8FF; --violet:#9F7BFF;
+  --t1:#EDF0F4; --t2:#8D97A5; --t3:#5B6472;
+  --font:'Inter',-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+body{background:#05070A;font-family:var(--font);color:var(--t1)}
+a{text-decoration:none;color:inherit}
+svg{display:block}
+.ic{stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- mobile device canvas (390px) ---------- */
+.screen{width:390px;height:900px;background:var(--bg0);display:flex;flex-direction:column;position:relative;overflow:hidden}
+.screen::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(420px 300px at 92% -4%,rgba(240,185,11,.07),transparent 60%),
+             radial-gradient(380px 300px at -10% 104%,rgba(14,203,129,.05),transparent 60%)}
+.screen>*{position:relative;z-index:1}
+
+/* ---------- chrome ---------- */
+.sb{display:flex;justify-content:space-between;align-items:center;padding:12px 22px 4px;font:600 12px/1 var(--font);color:var(--t1)}
+.sb .r{display:flex;gap:5px;align-items:center;color:var(--t1)}
+.appbar{display:flex;align-items:center;gap:10px;padding:8px 16px 10px}
+.logo{width:34px;height:34px;filter:drop-shadow(0 4px 12px rgba(240,185,11,.35))}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand b{font-size:13px;font-weight:800;letter-spacing:.24em}
+.brand span{font-size:7.5px;font-weight:700;letter-spacing:.34em;color:var(--t3)}
+.appbar .sp{margin-left:auto;display:flex;gap:8px}
+.ibtn{width:34px;height:34px;border-radius:11px;background:#131922;border:1px solid var(--border);display:grid;place-items:center;color:var(--t2);position:relative}
+.ibtn .nd{position:absolute;top:7px;right:7px;width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px rgba(240,185,11,.9)}
+
+/* ---------- atoms ---------- */
+.label{font:700 9px var(--font);letter-spacing:.18em;color:var(--t3);text-transform:uppercase}
+.num{font-feature-settings:'tnum' 1,'zero' 1;letter-spacing:-.01em}
+.up{color:var(--up)!important}.down{color:var(--down)!important}.gold{color:var(--gold)!important}
+.t2{color:var(--t2)}.t3{color:var(--t3)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font:700 9.5px var(--font);letter-spacing:.14em}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--up);box-shadow:0 0 10px rgba(14,203,129,.9);animation:pulse 1.6s infinite}
+.pill.live{color:var(--up);background:rgba(14,203,129,.09);border:1px solid rgba(14,203,129,.28)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:7px;font:700 9px var(--font);letter-spacing:.1em}
+.chip.amber{color:var(--gold-hi);background:rgba(240,185,11,.08);border:1px solid rgba(240,185,11,.32)}
+.chip.dim{color:var(--t3);background:#12181F;border:1px solid var(--border)}
+.chip.up{color:var(--up);background:rgba(14,203,129,.1)}
+.chip.down{color:var(--down);background:rgba(246,70,93,.1)}
+
+.card{background:linear-gradient(180deg,var(--card-a),var(--card-b));border:1px solid var(--border);border-radius:18px;box-shadow:0 12px 30px rgba(0,0,0,.38)}
+
+/* segmented tabs */
+.seg{display:flex;gap:6px;padding:2px 16px}
+.seg a{flex:1;text-align:center;padding:8px 0;border-radius:11px;font:700 10px var(--font);letter-spacing:.12em;color:var(--t3);background:#0F141B;border:1px solid var(--border)}
+.seg a.active{color:#151005;background:linear-gradient(135deg,var(--gold-hi),var(--gold));border-color:transparent;box-shadow:0 6px 18px rgba(240,185,11,.28)}
+
+/* buttons */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;border-radius:14px;font:800 11.5px var(--font);letter-spacing:.14em;padding:13px 0}
+.btn-gold{color:#181203;background:linear-gradient(135deg,var(--gold-hi) 0%,var(--gold) 55%,var(--gold-lo) 100%);box-shadow:0 10px 26px rgba(240,185,11,.3),inset 0 1px 0 rgba(255,255,255,.45)}
+.btn-ghost{color:var(--t2);background:#12181F;border:1px solid var(--border)}
+.btn-ghost.red{color:var(--down);border-color:rgba(246,70,93,.35);background:rgba(246,70,93,.06)}
+
+/* badges */
+.badge{display:inline-flex;padding:4px 8px;border-radius:7px;font:800 8.5px var(--font);letter-spacing:.12em}
+.badge.long{color:var(--up);background:rgba(14,203,129,.12)}
+.badge.short{color:var(--down);background:rgba(246,70,93,.12)}
+.badge.tp{color:var(--gold);background:rgba(240,185,11,.12)}
+.badge.sl{color:var(--down);background:rgba(246,70,93,.12)}
+.badge.manual{color:var(--t2);background:#1A212B}
+
+/* bottom nav */
+.nav{margin-top:auto;display:flex;padding:9px 8px 2px;border-top:1px solid var(--border);background:rgba(9,11,15,.92)}
+.nitem{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--t3);font:600 8.5px var(--font);letter-spacing:.05em}
+.nitem.active{color:var(--gold)}
+.nitem .ic{width:20px;height:20px}
+.homebar{width:132px;height:4px;border-radius:99px;background:#262E3A;margin:5px auto 7px}
+
+/* misc */
+.hr{height:1px;background:var(--border)}
+.gtxt{background:linear-gradient(100deg,var(--gold-hi) 10%,var(--gold) 60%,var(--gold-lo));-webkit-background-clip:text;background-clip:text;color:transparent}
+.row{display:flex;align-items:center}
+.spread{display:flex;align-items:center;justify-content:space-between}
+
+/* ============================================================
+   v2 ADDITIONS — honest empty states & data slots
+   (additive only; approved design untouched)
+   ============================================================ */
+[hidden]{display:none!important}
+.hidden{display:none!important}
+
+/* engine pill — default OFFLINE state (JS toggles .live) */
+.pill.off{color:var(--t3);background:#12181F;border:1px solid var(--border)}
+.pill.off .dot{background:var(--t3);box-shadow:none;animation:none}
+
+/* empty list state */
+.empty{border:1px dashed var(--border);border-radius:14px;padding:18px 14px;text-align:center;
+  font:700 9.5px var(--font);letter-spacing:.18em;color:var(--t3);background:rgba(255,255,255,.012)}
+
+/* chart placeholder shell — real klines JS se render honge (BINDING_GUIDE §6) */
+.chartshell{position:relative;border:1px dashed var(--border);border-radius:12px;display:grid;place-items:center;overflow:hidden;
+  background:repeating-linear-gradient(0deg,transparent 0 23px,rgba(141,151,165,.045) 23px 24px),
+             repeating-linear-gradient(90deg,transparent 0 23px,rgba(141,151,165,.045) 23px 24px)}
+.chartshell .cempty{font:700 9px var(--font);letter-spacing:.22em;color:var(--t3)}
+
+/* empty gauge track (ring/donut) — arc JS draw karega, default sirf track */
+.ring::before,.dwrap::before{content:'';position:absolute;inset:0;border-radius:50%;border:3px solid #1D2530}
+
+/* APK download button (gold outline variant) */
+.btn-apk{color:var(--gold-hi);background:rgba(240,185,11,.07);border:1px solid rgba(240,185,11,.38);font-size:10.5px}
+.btn-apk:hover{background:rgba(240,185,11,.12)}
+.apk-meta{font-style:normal;font-weight:700;opacity:.85;letter-spacing:.08em}

@@ -1,0 +1,93 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WEEXIONIC · Alerts</title>
+<!--
+  ============================================================
+  WEEXIONIC UI — mobile/04_alerts.html  (approved mockup 04)
+  DESIGN: Obsidian x Gold — css/base.css
+  RULE : EK BHI fake alert nahi. Feed = <template> + empty state.
+         Alert type se JS aico class + icon set karega:
+         SIGNAL->aico gold bolt | FILL->aico up check
+         RISK->aico warn triangle | SYSTEM->aico dim
+  GUIDE: BINDING_GUIDE.md
+  ============================================================
+-->
+<link rel="stylesheet" href="../css/base.css">
+<style>
+.wrap{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:2px 16px 0;gap:9px}
+.wrap>*{flex-shrink:0}
+.filters{display:flex;gap:6px}
+.filters span{padding:6px 11px;border-radius:9px;font:700 9px var(--font);letter-spacing:.1em;color:var(--t3);background:#0F141B;border:1px solid var(--border)}
+.filters span.on{color:#151005;background:linear-gradient(135deg,var(--gold-hi),var(--gold));border-color:transparent}
+.day{font:800 8.5px var(--font);letter-spacing:.22em;color:var(--t3);margin:2px 2px 0}
+.acard{display:flex;gap:11px;align-items:flex-start;padding:12px 14px}
+.aico{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:none}
+.aico.gold{color:var(--gold);background:rgba(240,185,11,.1);border:1px solid rgba(240,185,11,.3)}
+.aico.up{color:var(--up);background:rgba(14,203,129,.1);border:1px solid rgba(14,203,129,.3)}
+.aico.dim{color:var(--t2);background:#141A23;border:1px solid var(--border)}
+.aico.warn{color:var(--down);background:rgba(246,70,93,.08);border:1px solid rgba(246,70,93,.3)}
+.abody{flex:1}
+.atitle{font:800 11px var(--font);letter-spacing:.02em}
+.ades{font:600 9px var(--font);color:var(--t2);margin-top:3px;line-height:1.5}
+.atime{font:700 8px var(--font);letter-spacing:.1em;color:var(--t3);margin-top:5px}
+.acard.hot{border-color:rgba(240,185,11,.35);box-shadow:0 0 22px rgba(240,185,11,.07),0 12px 30px rgba(0,0,0,.38)}
+.unread{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px rgba(240,185,11,.9);margin-top:5px;flex:none}
+</style></head><body>
+<div class="screen">
+  <div class="sb"><b data-slot="device.time">--:--</b><div class="r">
+    <svg width="15" height="11" viewBox="0 0 15 11"><g fill="#EDF0F4"><rect x="0" y="7" width="2.6" height="4" rx="1"/><rect x="4" y="5" width="2.6" height="6" rx="1"/><rect x="8" y="2.6" width="2.6" height="8.4" rx="1"/><rect x="12" y="0" width="2.6" height="11" rx="1" opacity=".35"/></g></svg>
+    <svg width="14" height="11" viewBox="0 0 14 11" fill="none" stroke="#EDF0F4" stroke-width="1.5" stroke-linecap="round"><path d="M1.5 4A8 8 0 0 1 12.5 4"/><path d="M3.7 6.4a5 5 0 0 1 6.6 0"/><circle cx="7" cy="9" r="1.2" fill="#EDF0F4" stroke="none"/></svg>
+    <svg width="20" height="11" viewBox="0 0 20 11"><rect x="0.5" y="0.5" width="16" height="10" rx="3" fill="none" stroke="#5B6472"/><rect x="2" y="2" width="11" height="7" rx="1.6" fill="#0ECB81"/><rect x="17.5" y="3.4" width="2" height="4.2" rx="1" fill="#5B6472"/></svg>
+  </div></div>
+
+  <header class="appbar">
+    <svg class="logo" viewBox="0 0 40 40"><defs><linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE07A"/><stop offset=".55" stop-color="#F0B90B"/><stop offset="1" stop-color="#B98B00"/></linearGradient></defs><path d="M20 2 35 10.7v18.6L20 38 5 29.3V10.7z" fill="none" stroke="url(#wg)" stroke-width="2.4"/><path d="M12 13l4.4 12 3.6-9 3.6 9L28 13" fill="none" stroke="url(#wg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="brand"><b>WEEXIONIC</b><span>QUANT ENGINE</span></div>
+    <div class="sp"><a class="btn btn-ghost" href="#" data-act="markAllRead" style="padding:8px 13px;font-size:9px;letter-spacing:.12em">MARK ALL READ</a></div>
+  </header>
+
+  <!-- DATA: active filter -> JS .on toggle -->
+  <div class="filters" style="padding:0 16px">
+    <span class="on" data-filter="all">ALL</span><span data-filter="signals">SIGNALS</span><span data-filter="risk">RISK</span><span data-filter="system">SYSTEM</span>
+  </div>
+
+  <main class="wrap">
+    <!-- ============ ALERTS FEED ============
+         FAKE ALERT CARDS REMOVE KAR DIYI GAYI HAIN.
+         Feed order: pehle #tpl-alert-day (date divider) phir us date ke
+         #tpl-alert cards — ya sirf cards (divider optional).
+         (BINDING_GUIDE §4 renderList snippet) -->
+    <div data-list="alerts" style="display:flex;flex-direction:column;gap:9px">
+      <template data-template="alert-day" id="tpl-alert-day">
+        <div class="day" data-field="label">--</div>
+      </template>
+      <template data-template="alert-row" id="tpl-alert">
+        <section class="card acard">
+          <div class="aico dim" data-field="ico">
+            <!-- JS: type ke hisab se is .aico ka class (gold/up/dim/warn) + svg
+                 replace kare. Default generic bell icon. -->
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg>
+          </div>
+          <div class="abody">
+            <div class="atitle" data-field="title">--</div>
+            <div class="ades" data-field="desc">--</div>
+            <div class="atime" data-field="time">--</div>
+          </div>
+          <!-- DATA: unread=true -> hidden attribute hatao -->
+          <i class="unread" data-field="unread" hidden></i>
+        </section>
+      </template>
+      <div class="empty" data-empty>NO ALERTS</div>
+    </div>
+  </main>
+
+  <nav class="nav">
+    <a class="nitem" href="01_terminal.html"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5"/><path d="M12.8 14.5H16"/></svg>Terminal</a>
+    <a class="nitem" href="02_positions.html"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.5l8 4.5-8 4.5L4 8z"/><path d="M4 12.7l8 4.5 8-4.5"/><path d="M4 16.6L12 21l8-4.4"/></svg>Positions</a>
+    <a class="nitem" href="03_history.html"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>History</a>
+    <a class="nitem active" href="04_alerts.html"><svg class="ic" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg>Alerts</a>
+    <a class="nitem" href="#"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>Account</a>
+  </nav>
+  <div class="homebar"></div>
+</div>
+</body></html>

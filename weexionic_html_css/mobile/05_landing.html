@@ -1,0 +1,187 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WEEXIONIC · Automated Futures</title>
+<!--
+  ============================================================
+  WEEXIONIC UI — mobile/05_landing.html  (approved mockup 05)
+  DESIGN: Obsidian x Gold — css/base.css
+  RULE : Marketing stats (48,200+ / 99.98% / 42MS) FAKE THI ->
+         sab data-slot="--" ban gayi. Jab tak real verified data
+         nahi hai, "--" hi dikhna chahiye (honesty test).
+  APK  : DOWNLOAD ANDROID APP button added (user requirement).
+         href me apna real APK path daalo.
+  KEEP : $99/mo pricing, contact info, legal text (user ke real
+         statics hain — change nahi kiye).
+  ============================================================
+-->
+<link rel="stylesheet" href="../css/base.css">
+<style>
+html{background:#06080B}
+.screen{height:auto;min-height:900px;padding-bottom:26px}
+.wrap{padding:0 18px}
+.nav{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);margin-top:0}
+.nav .brand b{font-size:12px}
+.nav .sp{margin-left:auto;display:flex;gap:8px;align-items:center}
+.nav .in{font:800 9.5px var(--font);letter-spacing:.14em;color:#151005;background:linear-gradient(135deg,var(--gold-hi),var(--gold));border-radius:10px;padding:8px 13px}
+.nav .burger{width:34px;height:34px;border-radius:11px;background:#131922;border:1px solid var(--border);display:grid;place-items:center;color:var(--t2)}
+.hero{position:relative;text-align:center;padding:34px 10px 26px;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:0;background:
+  radial-gradient(300px 200px at 50% 0%,rgba(240,185,11,.13),transparent 65%),
+  radial-gradient(220px 160px at 12% 80%,rgba(14,203,129,.07),transparent 60%)}
+.hero::after{content:'';position:absolute;inset:0;background:
+  repeating-linear-gradient(0deg,transparent 0 23px,rgba(141,151,165,.05) 23px 24px),
+  repeating-linear-gradient(90deg,transparent 0 23px,rgba(141,151,165,.05) 23px 24px);
+  -webkit-mask-image:radial-gradient(320px 260px at 50% 30%,#000 30%,transparent 75%)}
+.hero>*{position:relative;z-index:1}
+.hero .h1{font-size:25.5px;font-weight:800;line-height:1.18;letter-spacing:-.01em;margin-top:13px}
+.hero .sub{font:500 12px/1.65 var(--font);color:var(--t2);margin:12px auto 0;max-width:300px}
+.hero .ctas{display:flex;gap:9px;margin:18px 18px 0}
+.hero .ctas .btn{flex:1;font-size:10.5px;padding:12px 0}
+.stats{display:flex;border:1px solid var(--border);border-radius:16px;background:linear-gradient(180deg,#12171F,#0E1319);padding:13px 6px}
+.stats>div{flex:1;text-align:center}
+.stats>div+div{border-left:1px solid var(--border)}
+.stats .v{font:800 16px var(--font)}
+.stats .k{font:700 7px var(--font);letter-spacing:.18em;color:var(--t3);margin-top:4px}
+.ticker{display:flex;gap:18px;overflow:hidden;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:#0C1015;padding:9px 0;margin-top:12px;font:600 9.5px var(--mono);color:var(--t2);white-space:nowrap}
+.ticker b{color:var(--t1);font-weight:700}
+.ticker .u{color:var(--up)}.ticker .d{color:var(--down)}
+.sect{display:flex;align-items:center;gap:8px;margin:20px 2px 9px}
+.sect .line{flex:1;height:1px;background:var(--border)}
+.strat{padding:14px}
+.emas{display:flex;gap:6px;margin-top:9px}
+.emas span{font:800 9.5px var(--mono);padding:5px 9px;border-radius:8px;border:1px solid var(--border);background:#0F141B}
+.strat ul{list-style:none;margin-top:11px;display:flex;flex-direction:column;gap:7px}
+.strat li{display:flex;gap:8px;align-items:center;font:600 10.5px var(--font);color:var(--t2)}
+.strat li b{color:var(--t1)}
+.strat li .ck{width:15px;height:15px;border-radius:50%;background:rgba(14,203,129,.12);border:1px solid rgba(14,203,129,.35);display:grid;place-items:center;color:var(--up);flex:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.feat{padding:13px}
+.fico{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:rgba(240,185,11,.09);border:1px solid rgba(240,185,11,.28);color:var(--gold)}
+.feat h4{font:800 10.5px var(--font);letter-spacing:.06em;margin-top:9px}
+.feat p{font:500 9px/1.6 var(--font);color:var(--t2);margin-top:4px}
+.term{background:#0B0E12;border:1px solid #1E2732;border-radius:16px;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,.45)}
+.term .bar{display:flex;gap:6px;align-items:center;padding:10px 13px;border-bottom:1px solid #1A212B}
+.term .bar i{width:9px;height:9px;border-radius:50%}
+.term .bar span{margin-left:6px;font:700 8px var(--mono);letter-spacing:.22em;color:var(--t3)}
+.term pre{font:600 9.5px/2 var(--mono);color:var(--t2);padding:12px 15px;overflow:hidden}
+.term pre b{color:var(--t1)}
+.term pre .c1{color:var(--gold)}.term pre .c2{color:var(--up)}.term pre .cm{color:#4A5462}
+.lic{position:relative;overflow:hidden;text-align:center;padding:20px 18px;border-color:rgba(240,185,11,.3)}
+.lic::before{content:'';position:absolute;inset:0;background:radial-gradient(240px 130px at 50% 0%,rgba(240,185,11,.14),transparent 65%)}
+.lic>*{position:relative}
+.lic h3{font:800 17px var(--font);letter-spacing:.01em}
+.lic p{font:600 10px var(--font);color:var(--t2);margin-top:6px}
+.lic .btn{margin-top:14px;font-size:10.5px}
+.contact{display:flex;gap:8px;margin-top:10px}
+.contact div{flex:1;display:flex;gap:7px;align-items:center;justify-content:center;background:#0F141B;border:1px solid var(--border);border-radius:12px;padding:10px 6px;font:700 8.5px var(--font);color:var(--t2)}
+.foot{text-align:center;margin-top:20px}
+.foot .links{display:flex;justify-content:center;gap:12px;font:700 8px var(--font);letter-spacing:.1em;color:var(--t3)}
+.foot .risk{font:500 8px/1.7 var(--font);color:#4A5462;margin:12px auto 0;max-width:320px}
+.foot .c{font:700 8.5px var(--font);letter-spacing:.18em;color:var(--t3);margin-top:12px}
+</style></head><body>
+<div class="screen">
+  <nav class="nav">
+    <svg class="logo" style="width:30px;height:30px" viewBox="0 0 40 40"><defs><linearGradient id="wg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE07A"/><stop offset=".55" stop-color="#F0B90B"/><stop offset="1" stop-color="#B98B00"/></linearGradient></defs><path d="M20 2 35 10.7v18.6L20 38 5 29.3V10.7z" fill="none" stroke="url(#wg2)" stroke-width="2.4"/><path d="M12 13l4.4 12 3.6-9 3.6 9L28 13" fill="none" stroke="url(#wg2)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="brand"><b>WEEXIONIC</b><span>QUANT ENGINE</span></div>
+    <div class="sp"><a class="burger" href="#"><svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></a><a class="in" href="#">SIGN IN</a></div>
+  </nav>
+
+  <section class="hero wrap" style="padding-left:0;padding-right:0">
+    <!-- DATA: engine status (JS class pill.live/off) -->
+    <span class="pill off" style="margin:0 auto" data-slot="landing.engineStatus"><i class="dot"></i>ENGINE OFFLINE</span>
+    <div class="h1">AUTOMATED FUTURES.<br><span class="gtxt">EXECUTED WITH DISCIPLINE.</span></div>
+    <p class="sub">Institutional-grade Quad-EMA trend engine with honest, exchange-filled PnL — 1:1 risk discipline, native TP/SL, and 24/7 cloud uptime.</p>
+    <div class="ctas">
+      <a class="btn btn-gold" href="#" data-nav="dashboard">LAUNCH DASHBOARD</a>
+      <a class="btn btn-ghost" href="#" data-nav="terminal">VIEW LIVE TERMINAL</a>
+    </div>
+    <!-- ============ APK DOWNLOAD (requirement: home screen pe APK button) ============ -->
+    <!-- ACTION: href apna real APK path daalo, e.g. /static/app/weexionic.apk -->
+    <a class="btn btn-apk" href="app-release.apk" download data-slot="apk.href" style="margin:9px 18px 0">
+      <svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M7 9.2a5.1 5.1 0 0 1 10 0v.3H7z"/><path d="M8.1 6.6 7.4 5.2M15.9 6.6l.7-1.4"/><path d="M5.6 11.2h12.8v6.3A1.5 1.5 0 0 1 16.9 19H7.1a1.5 1.5 0 0 1-1.5-1.5z"/><path d="M3.9 11.7v4M20.1 11.7v4"/><path d="M10.1 7.6h.01M13.9 7.6h.01"/></svg>
+      DOWNLOAD ANDROID APP · <span class="apk-meta num" data-slot="apk.meta">v-- · -- MB</span>
+    </a>
+  </section>
+
+  <div class="wrap"><section class="stats">
+    <!-- DATA: ye stats SIRF verified real data aane pe bharo — warna "--" rehne do -->
+    <div><div class="v num" data-slot="stats.tradesExecuted">--</div><div class="k">TRADES EXECUTED</div></div>
+    <div><div class="v num" data-slot="stats.uptimePct">--</div><div class="k">CLOUD UPTIME</div></div>
+    <div><div class="v num" data-slot="stats.signalLatency">--</div><div class="k">SIGNAL LATENCY</div></div>
+  </section></div>
+
+  <!-- DATA: ticker = watchlist se (JS item banao ya slots bharo; class u/d change sign se) -->
+  <div class="ticker" data-list="ticker">
+    <span><b data-slot="ticker.0.symbol">--</b> <span class="num" data-slot="ticker.0.price">--</span> <b data-slot="ticker.0.changePct">--</b></span>
+    <span><b data-slot="ticker.1.symbol">--</b> <span class="num" data-slot="ticker.1.price">--</span> <b data-slot="ticker.1.changePct">--</b></span>
+    <span><b data-slot="ticker.2.symbol">--</b> <span class="num" data-slot="ticker.2.price">--</span> <b data-slot="ticker.2.changePct">--</b></span>
+    <span><b data-slot="ticker.3.symbol">--</b> <span class="num" data-slot="ticker.3.price">--</span> <b data-slot="ticker.3.changePct">--</b></span>
+    <span><b data-slot="ticker.4.symbol">--</b> <span class="num" data-slot="ticker.4.price">--</span> <b data-slot="ticker.4.changePct">--</b></span>
+    <span><b data-slot="ticker.5.symbol">--</b> <span class="num" data-slot="ticker.5.price">--</span> <b data-slot="ticker.5.changePct">--</b></span>
+  </div>
+
+  <div class="wrap">
+    <div class="sect"><span class="label">Quad-EMA Core · V4.3</span><span class="line"></span></div>
+    <section class="card strat">
+      <div class="emas"><span class="gold">EMA 8</span><span style="color:var(--cyan)">EMA 13</span><span style="color:var(--violet)">EMA 21</span><span class="t2">EMA 55</span></div>
+      <!-- CHART: strategy illustration chart — real klines only -->
+      <div class="chartshell" data-chart="klines" style="margin-top:10px;height:112px"><span class="cempty">NO CHART DATA</span></div>
+      <ul>
+        <li><i class="ck"><svg class="ic" width="9" height="9" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></i><span><b>Strict 1:1 TP/SL</b> — every entry ships with a native bracket</span></li>
+        <li><i class="ck"><svg class="ic" width="9" height="9" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></i><span><b>1–3 concurrent slots</b> — capital never over-exposed</span></li>
+        <li><i class="ck"><svg class="ic" width="9" height="9" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5L19.5 7"/></svg></i><span><b>Non-custodial</b> — your API keys, trade-only permissions</span></li>
+      </ul>
+    </section>
+
+    <div class="sect"><span class="label">Why Traders Trust It</span><span class="line"></span></div>
+    <div class="grid2">
+      <section class="card feat">
+        <div class="fico"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11L9.8 22l8.7-11.5H12z"/></svg></div>
+        <h4>EXCHANGE-FILLED PNL</h4>
+        <p>Only real exchange fills are counted. No phantom marks, no fake profits — ever.</p>
+      </section>
+      <section class="card feat">
+        <div class="fico"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.4-3 7.4-7 9-4-1.6-7-4.6-7-9V6z"/><path d="M9 12l2.2 2.2L15.5 9.8"/></svg></div>
+        <h4>RISK GUARD</h4>
+        <p>Auto-pause on drawdown, leverage caps and forced 1:1 R/R on every slot.</p>
+      </section>
+      <section class="card feat">
+        <div class="fico"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4.2"/><path d="M11 11 20 3M15.5 7.5 18 10M12.8 9.8l2 2"/></svg></div>
+        <h4>NON-CUSTODIAL</h4>
+        <p>Funds never leave your exchange account. Withdrawals stay disabled by design.</p>
+      </section>
+      <section class="card feat">
+        <div class="fico"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M6.5 18a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 17.8 9.6 3.8 3.8 0 0 1 17.5 18z"/></svg></div>
+        <h4>24/7 CLOUD ENGINE</h4>
+        <p>Runs while you sleep on VPS-grade infra with automatic restarts.</p>
+      </section>
+    </div>
+
+    <div class="sect"><span class="label">Inside The Engine</span><span class="line"></span></div>
+    <section class="term">
+      <div class="bar"><i style="background:#F6465D"></i><i style="background:#F0B90B"></i><i style="background:#0ECB81"></i><span>WEEXIONIC TERMINAL</span></div>
+      <pre><span class="cm">$</span> engine.status ............ <span data-slot="engine.status">--</span>
+<span class="cm">$</span> strategy ................ <b data-slot="engine.strategy">--</b>
+<span class="cm">$</span> slots ................... <b data-slot="engine.slots">--</b>
+<span class="cm">$</span> last_signal ............. <span data-slot="engine.lastSignal">--</span>
+<span class="cm">$</span> realized_pnl_24h ........ <span data-slot="pnl.realized24hNet">--</span></pre>
+    </section>
+
+    <section class="card lic" style="margin-top:14px">
+      <h3>READY TO DEPLOY?</h3>
+      <p>Licenses from <b class="gold">$99/mo</b> · cancel anytime · 10-min setup</p>
+      <a class="btn btn-gold" href="#" data-nav="packages">CHOOSE YOUR LICENSE</a>
+      <div class="contact">
+        <div><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L4 21l1.7-4.3A8.5 8.5 0 1 1 21 12z"/></svg>+92 326 2334 043</div>
+        <div><svg class="ic" width="13" height="13" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="m4.5 7.5 7.5 5.5 7.5-5.5"/></svg>weexionic.duckdns@gmail.com</div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <div class="links"><span>RISK DISCLAIMER</span><span>TERMS OF SERVICE</span><span>PRIVACY POLICY</span><span>SECURITY</span><a href="app-release.apk" download data-slot="apk.href">DOWNLOAD APK</a></div>
+      <p class="risk">Trading cryptocurrency derivatives involves substantial risk of loss and is not suitable for every investor. Past performance of any strategy is not indicative of future results. Never trade with capital you cannot afford to lose.</p>
+      <div class="c">© 2026 WEEXIONIC TRADING BOT</div>
+    </footer>
+  </div>
+</div>
+</body></html>

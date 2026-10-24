@@ -39,27 +39,105 @@ function log(level, msg) {
     while (logs.children.length > 500) logs.removeChild(logs.firstChild);
 }
 
+function updateSlot(name, value, cls = null) {
+    document.querySelectorAll(`[data-slot="${name}"]`).forEach(el => {
+        el.textContent = value;
+        if (cls) {
+            el.classList.remove('up', 'down', 'gold', 'live', 'off', 'running');
+            el.classList.add(cls);
+        }
+    });
+}
+
+const fmtUsd    = v => (v == null || isNaN(v)) ? '--' : (v < 0 ? '-$' : '$') + Math.abs(Number(v)).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+const fmtSigned = v => (v == null || isNaN(v)) ? '--' : (v >= 0 ? '+$' : '-$') + Math.abs(Number(v)).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+const fmtPct    = v => (v == null || isNaN(v)) ? '--%' : (v >= 0 ? '+' : '−') + Math.abs(Number(v)).toFixed(2) + '%';
+
+function drawRing(el, pct, color = '#F0B90B') {
+    if (!el) return;
+    el.querySelector('svg')?.remove();
+    const r = (el.clientWidth || 44) / 2, size = r * 2, sw = 3, rad = r - sw / 2, c = 2 * Math.PI * rad;
+    const safePct = Math.min(100, Math.max(0, Math.round(pct || 0)));
+    el.insertAdjacentHTML('afterbegin',
+        `<svg width="${size}" height="${size}" style="position:absolute;inset:0;pointer-events:none;" viewBox="0 0 ${size} ${size}">
+           <circle cx="${r}" cy="${r}" r="${rad}" fill="none" stroke="${color}" stroke-width="${sw}"
+             stroke-linecap="round" stroke-dasharray="${c * safePct / 100} ${c}" transform="rotate(-90 ${r} ${r})"/></svg>`);
+    const b = el.querySelector('b');
+    if (b) b.textContent = safePct + '%';
+}
+
+function renderSlotQueue() {
+    const container = $('slotQueueList');
+    if (!container) return;
+    const symList = coins.length > 0 ? coins.slice(0, 3) : ['BTCUSDT'];
+    let html = '';
+    symList.forEach(sym => {
+        const p = positionsBySymbol[sym];
+        const hasPos = p && p.side && p.side !== 'NONE';
+        const dotColor = hasPos ? 'var(--up)' : (isRunning ? 'var(--gold)' : 'var(--t3)');
+        const pulseStyle = (isRunning && !hasPos) ? 'animation:pulse 1.6s infinite;' : '';
+        const stateText = hasPos ? `${p.side} ACTIVE` : (isRunning ? 'SCANNING' : 'IDLE');
+        html += `
+        <div class="sq">
+            <i class="dot" style="background:${dotColor}; ${pulseStyle}"></i>
+            <span>${sym}</span>
+            <span class="st8">${stateText}</span>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
 function setBotRunning(running) {
     isRunning = running;
     const startBtn = $('startBtn');
+    const startBtnText = $('startBtnText');
     const stopBtn = $('stopBtn');
-    if (startBtn) startBtn.disabled = running;
+    if (startBtn) {
+        if (running) {
+            startBtn.className = 'btn btn-ghost red';
+            if (startBtnText) startBtnText.textContent = 'HALT ENGINE';
+            startBtn.onclick = stopBot;
+        } else {
+            startBtn.className = 'btn btn-gold';
+            if (startBtnText) startBtnText.textContent = 'START ENGINE';
+            startBtn.onclick = startBot;
+        }
+    }
     if (stopBtn) stopBtn.disabled = !running;
     const mobStart = $('mobQuickStartBtn');
     const mobStop = $('mobQuickStopBtn');
-    if (mobStart) mobStart.disabled = running;
-    if (mobStop) mobStop.disabled = !running;
+    if (mobStart) {
+        mobStart.disabled = running;
+        mobStart.onclick = startBot;
+    }
+    if (mobStop) {
+        mobStop.disabled = !running;
+        mobStop.onclick = stopBot;
+    }
     const pill = $('botStatusPill');
     const text = $('botStatusText');
     if (pill && text) {
         if (running) {
-            pill.classList.add('running');
+            pill.className = 'pill live';
             text.textContent = 'RUNNING';
         } else {
-            pill.classList.remove('running');
+            pill.className = 'pill off';
             text.textContent = 'STOPPED';
         }
     }
+    const sbPill = $('sidebarStatusPill');
+    if (sbPill) {
+        if (running) {
+            sbPill.className = 'pill live';
+            sbPill.innerHTML = '<i class="dot"></i>RUNNING';
+        } else {
+            sbPill.className = 'pill off';
+            sbPill.innerHTML = '<i class="dot"></i>STOPPED';
+        }
+    }
+    updateSlot('engine.status', running ? 'ENGINE LIVE' : 'ENGINE OFFLINE', running ? 'live' : 'off');
+    updateSlot('conn.status', running ? 'ONLINE' : 'OFFLINE', running ? 'live' : 'off');
+    renderSlotQueue();
 }
 
 function fmt(n) {
@@ -660,17 +738,17 @@ function initChart() {
 
         chart = LightweightCharts.createChart(container, {
             layout: {
-                background: { type: 'solid', color: '#0b0e11' },
-                textColor: '#848e9c',
+                background: { type: 'solid', color: '#0A0C10' },
+                textColor: '#8D97A5',
                 fontFamily: 'JetBrains Mono, monospace',
                 fontSize: 11,
             },
             grid: {
-                vertLines: { color: '#1e2126' },
-                horzLines: { color: '#1e2126' },
+                vertLines: { color: '#141A23' },
+                horzLines: { color: '#141A23' },
             },
             timeScale: {
-                borderColor: '#2a2e36',
+                borderColor: '#1D2530',
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 5,
@@ -680,13 +758,13 @@ function initChart() {
                 fixRightEdge: false,
             },
             rightPriceScale: {
-                borderColor: '#2a2e36',
+                borderColor: '#1D2530',
                 scaleMargins: { top: 0.1, bottom: 0.1 },
             },
             crosshair: {
                 mode: 1,  // Magnet mode
-                vertLine: { color: '#f0b90b', width: 1, style: 2, labelBackgroundColor: '#f0b90b' },
-                horzLine: { color: '#f0b90b', width: 1, style: 2, labelBackgroundColor: '#f0b90b' },
+                vertLine: { color: '#F0B90B', width: 1, style: 2, labelBackgroundColor: '#F0B90B' },
+                horzLine: { color: '#F0B90B', width: 1, style: 2, labelBackgroundColor: '#F0B90B' },
             },
             // TradingView style interactions
             handleScroll: true,    // Enable panning (drag to move)
@@ -697,18 +775,18 @@ function initChart() {
         });
 
         candleSeries = chart.addCandlestickSeries({
-            upColor: '#0ecb81',
-            downColor: '#f6465d',
-            borderUpColor: '#0ecb81',
-            borderDownColor: '#f6465d',
+            upColor: '#0ECB81',
+            downColor: '#F6465D',
+            borderUpColor: '#0ECB81',
+            borderDownColor: '#F6465D',
             borderVisible: false,
-            wickUpColor: '#0ecb81',
-            wickDownColor: '#f6465d',
+            wickUpColor: '#0ECB81',
+            wickDownColor: '#F6465D',
         });
-        ema8Series  = chart.addLineSeries({ color: '#2196f3', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema13Series = chart.addLineSeries({ color: '#ff9800', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema21Series = chart.addLineSeries({ color: '#9c27b0', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema55Series = chart.addLineSeries({ color: '#f44336', lineWidth: 3, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema8Series  = chart.addLineSeries({ color: '#F0B90B', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema13Series = chart.addLineSeries({ color: '#4EA8FF', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema21Series = chart.addLineSeries({ color: '#9F7BFF', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema55Series = chart.addLineSeries({ color: '#8D97A5', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
 
         const ro = new ResizeObserver(() => {
             if (chart) {
@@ -1002,20 +1080,44 @@ function updatePositionUI(data) {
     if ($('posSize')) $('posSize').textContent = Math.abs(data.size || 0).toFixed(4);
     if ($('posEntry')) $('posEntry').textContent = data.entry_price ? `$${fmt(data.entry_price)}` : '--';
     if ($('posMark')) $('posMark').textContent = data.mark_price ? `$${fmt(data.mark_price)}` : '--';
-    const pnl = data.unrealized_pnl || 0;
+    const pnl = Number(data.unrealized_pnl) || 0;
     const pnlEl = $('posPnl');
     if (pnlEl) {
-        pnlEl.textContent = `$${pnl.toFixed(2)}`;
-        pnlEl.className = '';
-        if (pnl > 0) pnlEl.classList.add('pnl-positive');
-        else if (pnl < 0) pnlEl.classList.add('pnl-negative');
-        else pnlEl.classList.add('pnl-zero');
+        pnlEl.textContent = fmtSigned(pnl);
+        pnlEl.className = 'v num ' + (pnl >= 0 ? 'up' : 'down');
     }
+    updateSlot('positions.unrealizedPnl', fmtSigned(pnl), pnl >= 0 ? 'up' : 'down');
+
     const cfgLev = parseInt($('leverage')?.value) || 75;
     const rawLev = parseInt(data.leverage) || 0;
     const hasOpenTrade = data.side && data.side !== 'NONE';
     const lev = (hasOpenTrade && rawLev > 1) ? rawLev : (rawLev > 1 && !$('leverage')?.value ? rawLev : cfgLev);
     if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
+    if ($('chartLeverageChip')) $('chartLeverageChip').textContent = `PERP · ${lev}x`;
+    updateSlot('chart.leverage', `PERP · ${lev}x`);
+    updateSlot('chart.symbol', data.symbol || activeSymbol || 'BTCUSDT');
+    if (data.mark_price) updateSlot('chart.price', '$' + fmt(data.mark_price));
+
+    const roe = Number(data.roe) || 0;
+    if ($('posRoe')) {
+        $('posRoe').textContent = `${roe >= 0 ? '+' : ''}${roe.toFixed(2)}% ROE · ${coins.length} SLOTS`;
+    }
+    updateSlot('positions.roeSlots', `${roe >= 0 ? '+' : ''}${roe.toFixed(2)}% ROE · ${coins.length} SLOTS`);
+
+    const notional = Math.abs(Number(data.size) || 0) * (data.mark_price || data.entry_price || 0);
+    const margin = lev > 0 ? notional / lev : 0;
+    updateSlot('positions.roeMargin', `${roe >= 0 ? '+' : ''}${roe.toFixed(2)}% ROE · MARGIN $${margin.toFixed(2)}`);
+
+    const totalEquity = parseFloat(($('statBalance')?.textContent || '1000').replace(/[^0-9.-]+/g, '')) || 1000;
+    const riskPct = Math.min(100, Math.max(0, Math.round((margin / totalEquity) * 100)));
+    const riskBar = $('posFocusRiskBar');
+    if (riskBar) riskBar.style.width = riskPct + '%';
+    const riskBarSlot = document.querySelector('[data-slot="positions.riskBar"]');
+    if (riskBarSlot) riskBarSlot.style.width = riskPct + '%';
+    updateSlot('positions.riskPct', riskPct + '%');
+    const riskLabel = riskPct > 60 ? 'RISK: HIGH' : (riskPct > 25 ? 'RISK: MODERATE' : 'RISK: LOW');
+    const riskChipCls = riskPct > 60 ? 'chip down' : (riskPct > 25 ? 'chip amber' : 'chip up');
+    updateSlot('positions.riskLabel', riskLabel, riskChipCls);
 
     // 1:1 Take Profit Target & 1:1 Stop Loss
     const trailingEl = $('posTrailingTp');
@@ -1183,8 +1285,10 @@ function renderPositionsTable() {
 
     const symList = coins.length > 0 ? coins : Object.keys(positionsBySymbol);
     if (symList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:32px; color:var(--text-secondary);">No monitored coins in watchlist yet. Add coins in Bot Strategy &amp; Settings.</td></tr>`;
-        if ($('posCountBadge')) $('posCountBadge').textContent = '0 Active';
+        tbody.innerHTML = `<div class="empty">No monitored coins in watchlist yet. Add coins in Bot Strategy &amp; Settings.</div>`;
+        if ($('posCountBadge')) $('posCountBadge').textContent = '0';
+        updateSlot('positions.openCount', '0');
+        if (typeof window.renderDetailedPositions === 'function') window.renderDetailedPositions();
         return;
     }
 
@@ -1194,33 +1298,98 @@ function renderPositionsTable() {
         const p = positionsBySymbol[sym] || { symbol: sym, side: 'NONE', size: 0, entry_price: 0, mark_price: 0, unrealized_pnl: 0 };
         const hasPos = p.side && p.side !== 'NONE';
         if (hasPos) activeCount++;
-        const pnl = p.unrealized_pnl || 0;
-        const pnlClass = pnl > 0 ? 'pnl-positive' : (pnl < 0 ? 'pnl-negative' : 'pnl-zero');
-        const sideBadge = p.side === 'LONG' ? '<span class="pos-badge-long">LONG</span>' : (p.side === 'SHORT' ? '<span class="pos-badge-short">SHORT</span>' : '<span class="pos-badge-none">FLAT</span>');
-
+        const pnl = Number(p.unrealized_pnl) || 0;
+        const pnlClass = pnl >= 0 ? 'up' : 'down';
+        const sideClass = p.side === 'LONG' ? 'badge long' : (p.side === 'SHORT' ? 'badge short' : 'badge manual');
         const notional = Math.abs(p.size || 0) * (p.mark_price || p.entry_price || 0);
         const estFee = (notional * 0.0010).toFixed(2);
-        const feeSub = hasPos ? `<div style="font-size:10px; color:var(--gold-primary); font-family:var(--font-mono); margin-top:2px;">Fees ≈ $${estFee}</div>` : '';
+        const lev = p.leverage || 125;
 
         html += `
-        <tr class="${sym === activeSymbol ? 'table-row-selected' : ''}" onclick="selectSymbol('${sym}')" style="cursor:pointer;">
-            <td><strong style="color:var(--gold-primary);">${sym}</strong></td>
-            <td>${sideBadge}</td>
-            <td style="font-family:var(--font-mono);">${Math.abs(p.size || 0).toFixed(4)}${feeSub}</td>
-            <td style="font-family:var(--font-mono);">${p.entry_price ? '$' + fmt(p.entry_price) : '--'}</td>
-            <td style="font-family:var(--font-mono);">${p.mark_price ? '$' + fmt(p.mark_price) : '--'}</td>
-            <td class="${pnlClass}" style="font-weight:700; font-family:var(--font-mono);">$${pnl.toFixed(2)}</td>
-            <td style="color:var(--green-success); font-family:var(--font-mono);">${p.tp_price ? '$' + fmt(p.tp_price) : '--'}</td>
-            <td style="color:var(--red-danger); font-family:var(--font-mono);">${p.sl_price ? '$' + fmt(p.sl_price) : '--'}</td>
-            <td>
-                ${hasPos ? `<button type="button" class="btn btn-xs btn-warning" onclick="event.stopPropagation(); closePositionForSymbol('${sym}');">✕ Close</button>` : `<button type="button" class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); selectSymbol('${sym}'); switchWorkspaceTab('terminal');">View</button>`}
-            </td>
-        </tr>`;
+        <div class="tr" onclick="selectSymbol('${sym}')" style="cursor:pointer;">
+            <span class="sym" style="color:var(--gold); font-weight:800;">${sym}</span>
+            <span><i class="${sideClass}">${p.side || 'FLAT'}</i> <i class="chip amber">${lev}x</i></span>
+            <span class="num t2">${Math.abs(p.size || 0).toFixed(4)}</span>
+            <span class="num">${p.entry_price ? '$' + fmt(p.entry_price) : '--'}</span>
+            <span class="num">${p.mark_price ? '$' + fmt(p.mark_price) : '--'}</span>
+            <span class="num ${pnlClass}"><span style="font-weight:800;">${hasPos ? fmtSigned(pnl) : '$0.00'}</span><em>(${p.roe ? p.roe.toFixed(2) : '0.00'}%)</em></span>
+            <span class="num"><b class="up">${p.tp_price ? '$' + fmt(p.tp_price) : '--'}</b> / <b class="down">${p.sl_price ? '$' + fmt(p.sl_price) : '--'}</b></span>
+            <span class="acts">
+                ${hasPos ? `<button type="button" class="mbtn danger" onclick="event.stopPropagation(); closePositionForSymbol('${sym}');">CLOSE</button>` : `<button type="button" class="mbtn" onclick="event.stopPropagation(); selectSymbol('${sym}'); switchWorkspaceTab('terminal');">VIEW</button>`}
+            </span>
+        </div>`;
     });
 
     tbody.innerHTML = html;
-    if ($('posCountBadge')) $('posCountBadge').textContent = `${activeCount} Active`;
+    if ($('posCountBadge')) $('posCountBadge').textContent = `${activeCount}`;
+    updateSlot('positions.openCount', `${activeCount}`);
+    renderSlotQueue();
+    if (typeof window.renderDetailedPositions === 'function') window.renderDetailedPositions();
 }
+
+window.renderDetailedPositions = function() {
+    const container = $('detailedPositionsList');
+    if (!container) return;
+    const symList = coins.length > 0 ? coins : Object.keys(positionsBySymbol);
+    const openPositions = symList.map(s => positionsBySymbol[s]).filter(p => p && p.side && p.side !== 'NONE');
+
+    if (openPositions.length === 0) {
+        container.innerHTML = '<div class="empty">NO OPEN POSITIONS</div>';
+        return;
+    }
+
+    let html = '';
+    openPositions.forEach(p => {
+        const pnl = Number(p.unrealized_pnl) || 0;
+        const pnlCls = pnl >= 0 ? 'up' : 'down';
+        const sideCls = p.side === 'LONG' ? 'badge long' : 'badge short';
+        const entry = Number(p.entry_price) || 0;
+        const mark = Number(p.mark_price) || entry;
+        const tp = Number(p.tp_price) || (entry * 1.02);
+        const sl = Number(p.sl_price) || (entry * 0.98);
+
+        let lanePct = 50;
+        if (p.side === 'LONG') {
+            if (tp !== sl) lanePct = Math.max(0, Math.min(100, ((mark - sl) / (tp - sl)) * 100));
+        } else {
+            if (sl !== tp) lanePct = Math.max(0, Math.min(100, ((sl - mark) / (sl - tp)) * 100));
+        }
+
+        html += `
+        <div class="card" style="padding:16px 20px;">
+            <div class="spread">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span class="sym" style="font:800 15px var(--font); color:var(--gold);">${p.symbol}</span>
+                    <span class="${sideCls}">${p.side}</span>
+                    <span class="chip amber">${p.leverage || 125}x</span>
+                </div>
+                <div style="text-align:right;">
+                    <span class="num ${pnlCls}" style="font:800 17px var(--font);">${fmtSigned(pnl)}</span>
+                    <em class="t3" style="font-size:11px; margin-left:4px;">(${p.roe ? p.roe.toFixed(2) : '0.00'}%)</em>
+                </div>
+            </div>
+
+            <div class="lane" style="margin-top:14px;">
+                <div class="track">
+                    <div class="cur" style="left:${lanePct.toFixed(1)}%;"></div>
+                </div>
+                <div class="tlabels" style="display:flex; justify-content:space-between; margin-top:6px; font-size:10px; font-family:var(--mono);">
+                    <span class="down">SL: $${fmt(sl)}</span>
+                    <span class="gold">MARK: $${fmt(mark)}</span>
+                    <span class="up">TP: $${fmt(tp)}</span>
+                </div>
+            </div>
+
+            <div class="spread" style="margin-top:14px; padding-top:10px; border-top:1px solid #141A22;">
+                <div class="t2" style="font-size:11px; font-family:var(--mono);">
+                    Size: <b>${Math.abs(p.size || 0).toFixed(4)}</b> · Entry: <b>$${fmt(entry)}</b>
+                </div>
+                <button type="button" class="btn btn-ghost red" onclick="closePositionForSymbol('${p.symbol}')" style="padding:6px 14px; font-size:10px;">Market Close</button>
+            </div>
+        </div>`;
+    });
+    container.innerHTML = html;
+};
 
 window.closePositionForSymbol = async function(symbol) {
     if (!confirm(`Are you sure you want to market close position for ${symbol}?`)) return;
@@ -1279,35 +1448,45 @@ window.renderTradeHistoryUI = function() {
     // 1. Update KPI stats
     if ($('hStatTotalTrades')) $('hStatTotalTrades').textContent = stats.total_trades || 0;
     if ($('hStatWinLoss')) {
-        $('hStatWinLoss').textContent = `${stats.wins || 0} Wins • ${stats.losses || 0} Losses`;
+        $('hStatWinLoss').textContent = `${stats.wins || 0}W • ${stats.losses || 0}L FILLED TRADES`;
     }
+    const wr = Number(stats.win_rate_pct) || 0;
     if ($('hStatWinRate')) {
-        const wr = stats.win_rate_pct || 0;
-        $('hStatWinRate').textContent = `${wr.toFixed(1)}%`;
-        $('hStatWinRate').style.color = wr >= 50 ? 'var(--green-success)' : (wr > 0 ? 'var(--gold-primary)' : 'var(--text-secondary)');
+        $('hStatWinRate').textContent = `${wr.toFixed(0)}%`;
     }
+    drawRing($('hStatWinRateRing'), wr, '#0ECB81');
+
+    const net = Number(stats.net_pnl) || 0;
+    const gross = Number(stats.total_pnl) || 0;
+    const fees = Number(stats.total_fees) || 0;
+
     if ($('hStatNetPnl')) {
-        const net = stats.net_pnl || 0;
-        $('hStatNetPnl').textContent = `${net >= 0 ? '+' : ''}$${net.toFixed(2)}`;
-        $('hStatNetPnl').style.color = net > 0 ? 'var(--green-success)' : (net < 0 ? 'var(--red-danger)' : '#fff');
+        $('hStatNetPnl').textContent = fmtSigned(net);
+        $('hStatNetPnl').className = 'num ' + (net >= 0 ? 'up' : 'down');
     }
     if ($('hStatGrossPnl')) {
-        const gross = stats.total_pnl || 0;
-        $('hStatGrossPnl').textContent = `Gross: ${gross >= 0 ? '+' : ''}$${gross.toFixed(2)}`;
+        $('hStatGrossPnl').textContent = fmtSigned(gross);
     }
     if ($('hStatTotalFees')) {
-        const fees = stats.total_fees || 0;
-        $('hStatTotalFees').textContent = `$${fees.toFixed(2)}`;
-    }
-    if ($('hStatBestWorst')) {
-        const best = stats.best_pnl || 0;
-        const worst = stats.worst_pnl || 0;
-        $('hStatBestWorst').textContent = `+$${best.toFixed(2)} / -$${Math.abs(worst).toFixed(2)}`;
+        $('hStatTotalFees').textContent = fmtUsd(fees);
     }
     if ($('hStatAvgPnl')) {
         const avg = stats.avg_trade_pnl || 0;
         $('hStatAvgPnl').textContent = `Avg: ${avg >= 0 ? '+' : ''}$${avg.toFixed(2)} / trade`;
     }
+
+    if ($('histFootCount')) $('histFootCount').textContent = `${stats.total_trades || 0} TRADES`;
+    if ($('histFootGross')) $('histFootGross').textContent = fmtSigned(gross);
+    if ($('histFootFees')) $('histFootFees').textContent = fmtUsd(fees);
+    if ($('histFootNet')) {
+        $('histFootNet').textContent = fmtSigned(net);
+        $('histFootNet').className = net >= 0 ? 'up' : 'down';
+    }
+
+    updateSlot('history.netPnlToday', fmtSigned(net), net >= 0 ? 'up' : 'down');
+    updateSlot('history.grossPnlToday', fmtSigned(gross));
+    updateSlot('history.feesToday', fmtUsd(fees));
+    updateSlot('history.winRate', `${wr.toFixed(0)}%`);
 
     // 2. Update Symbol Filter Dropdown Options
     const symSelect = $('historyFilterSymbol');
@@ -1343,64 +1522,45 @@ window.renderTradeHistoryTable = function() {
     });
 
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:36px; color:var(--text-secondary);">No trades found matching current filter.</td></tr>`;
+        tbody.innerHTML = `<div class="empty">NO CLOSED TRADES RECORDED</div>`;
         return;
     }
 
     let html = '';
     filtered.forEach(t => {
         const isClosed = t.status === 'CLOSED';
-        const pnl = Number(t.pnl || 0);
-        const roe = Number(t.roe_pct || 0);
-        const pnlColor = pnl > 0 ? 'var(--green-success)' : (pnl < 0 ? 'var(--red-danger)' : 'var(--text-secondary)');
-        const pnlSign = pnl > 0 ? '+' : '';
-        const pnlStr = isClosed ? `<span style="color:${pnlColor}; font-weight:700; font-family:var(--font-mono);">${pnlSign}$${pnl.toFixed(2)} (${pnlSign}${roe.toFixed(1)}%)</span>` : '<span style="color:var(--gold-primary);">LIVE</span>';
+        const net = Number(t.net_pnl != null ? t.net_pnl : (t.pnl - (t.fee || 0))) || 0;
+        const gross = Number(t.pnl || t.gross_pnl) || 0;
+        const fee = Number(t.fee || t.commission || t.fee_est) || 0;
+        const pnlCls = net >= 0 ? 'up' : 'down';
+        const sideCls = t.side === 'LONG' ? 'badge long' : 'badge short';
 
-        const sideClass = t.side === 'LONG' ? 'pos-badge-long' : (t.side === 'SHORT' ? 'pos-badge-short' : 'pos-badge-none');
-        const sideBadge = `<span class="${sideClass}">${t.side}</span>`;
-        const orderTypeBadge = `<span class="badge-order-type">${(t.order_type || 'maker').toUpperCase()}</span>`;
-
-        // Format dates
-        const openDate = t.opened_at ? new Date(t.opened_at) : null;
-        const closeDate = t.closed_at ? new Date(t.closed_at) : null;
-        const timeDisplay = closeDate ?
-            `<div style="font-size:12px; font-weight:600;">${closeDate.toLocaleTimeString()}</div><div style="font-size:10px; color:var(--text-muted);">${closeDate.toLocaleDateString()}</div>` :
-            (openDate ? `<div style="font-size:12px;">${openDate.toLocaleTimeString()}</div>` : '--');
-
-        // Reason badge
-        let reasonBadge = `<span class="badge-reason">${t.close_reason || (isClosed ? 'Closed' : 'Active')}</span>`;
-        if (t.close_reason) {
-            const cr = t.close_reason;
-            if (cr.includes('Trailing') || cr.includes('TP') || cr.includes('Target')) {
-                const icon = cr.startsWith('🎯') ? '' : '🎯 ';
-                reasonBadge = `<span class="badge-reason badge-reason-trailing">${icon}${cr}</span>`;
-            } else if (cr.includes('SL') || cr.includes('REVERSAL')) {
-                const icon = (cr.startsWith('⚡') || cr.startsWith('🛡️')) ? '' : '⚡ ';
-                reasonBadge = `<span class="badge-reason badge-reason-sl">${icon}${cr}</span>`;
-            } else if (cr.includes('Manual')) {
-                const icon = cr.startsWith('👤') ? '' : '👤 ';
-                reasonBadge = `<span class="badge-reason badge-reason-manual">${icon}${cr}</span>`;
-            } else if (cr.includes('Unfilled') || cr.includes('Expired')) {
-                reasonBadge = `<span class="badge-reason" style="background:rgba(255,255,255,0.06); color:var(--text-muted); border-color:var(--border-subtle);">${cr}</span>`;
-            }
+        let reasonBadge = '<span class="badge manual">MANUAL</span>';
+        const cr = (t.close_reason || t.reason || '').toUpperCase();
+        if (cr.includes('TP') || cr.includes('TRAILING') || cr.includes('TARGET')) {
+            reasonBadge = '<span class="badge tp">TP HIT</span>';
+        } else if (cr.includes('SL') || cr.includes('STOP')) {
+            reasonBadge = '<span class="badge sl">SL HIT</span>';
+        } else if (cr.includes('REVERSAL')) {
+            reasonBadge = '<span class="badge manual">AUTO-REV</span>';
         }
 
-        const feeEst = Number(t.fee_est || 0).toFixed(3);
-        const activeLev = (t.leverage && Number(t.leverage) > 1) ? t.leverage : (parseInt($('leverage')?.value) || 50);
+        const closeDate = t.closed_at ? new Date(t.closed_at) : (t.opened_at ? new Date(t.opened_at) : null);
+        const timeDisplay = closeDate ? closeDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--';
 
         html += `
-        <tr>
-            <td style="font-family:var(--font-mono);">${timeDisplay}</td>
-            <td><strong style="color:var(--gold-primary);">${t.symbol}</strong></td>
-            <td>${sideBadge}</td>
-            <td>${orderTypeBadge}</td>
-            <td style="font-family:var(--font-mono);">${t.qty ? t.qty : '--'} <span style="color:var(--text-muted); font-size:11px;">(${activeLev}x)</span></td>
-            <td style="font-family:var(--font-mono);">$${t.entry_price ? fmt(t.entry_price) : '--'}</td>
-            <td style="font-family:var(--font-mono);">${t.exit_price ? '$' + fmt(t.exit_price) : (isClosed ? '--' : '<span style="color:var(--gold-primary);">Open</span>')}</td>
-            <td>${pnlStr}</td>
-            <td>${reasonBadge}</td>
-            <td style="font-family:var(--font-mono); color:var(--gold-primary);">$${feeEst}</td>
-        </tr>`;
+        <div class="tr-hist">
+            <span class="tm num">${timeDisplay}</span>
+            <span><strong style="color:var(--gold); font-size:12px;">${t.symbol}</strong> <i class="${sideCls}" style="margin-left:4px;">${t.side}</i></span>
+            <span class="num t2">${Math.abs(t.qty || t.size || 0).toFixed(4)}</span>
+            <span class="num">$${fmt(t.entry_price)} → $${fmt(t.exit_price || t.close_price)}</span>
+            <span class="num ${gross >= 0 ? 'up' : 'down'}">${fmtSigned(gross)}</span>
+            <span class="num down">${fmtUsd(fee)}</span>
+            <span style="text-align:right;">
+                <b class="num ${pnlCls}">${fmtSigned(net)}</b>
+                ${reasonBadge}
+            </span>
+        </div>`;
     });
 
     tbody.innerHTML = html;
@@ -2078,19 +2238,33 @@ async function refreshStatus() {
 }
 
 async function refreshBalance() {
-    // Try to fetch balance even when bot is STOPPED — the monitor trader
-    // (started after Save) handles this. Backend returns error if no trader.
     try {
         const r = await fetch('/api/balance');
         const d = await r.json();
         if (d.success && $('statBalance')) {
-            $('statBalance').textContent = `$${Number(d.balance).toFixed(2)}`;
+            const bal = Number(d.balance || d.total) || 0;
+            const avail = Number(d.available != null ? d.available : d.balance) || 0;
+            const marginUsed = Math.max(0, bal - avail);
+            const marginAllocPct = bal > 0 ? ((marginUsed / bal) * 100).toFixed(1) : '0.0';
+
+            $('statBalance').textContent = fmtUsd(bal);
+            updateSlot('account.equity', fmtUsd(bal));
+            updateSlot('account.available', fmtUsd(avail));
+            updateSlot('account.marginUsed', fmtUsd(marginUsed));
+            updateSlot('account.marginAllocPct', `${marginAllocPct}% ALLOCATED`);
+
+            if ($('statMarginUsed')) $('statMarginUsed').textContent = fmtUsd(marginUsed);
+            if ($('statMarginAlloc')) $('statMarginAlloc').textContent = `${marginAllocPct}% ALLOCATED`;
+
             const exchange = (d.exchange || 'binance').toUpperCase();
             const env = d.testnet ? (exchange === 'BINANCE' ? 'TESTNET' : 'DEMO') : 'LIVE';
             $('statBalance').title = `${exchange} ${env} balance`;
+            updateSlot('engine.env', env);
         } else if (!d.success && d.error && d.error.includes('not connected')) {
-            // No trader at all — show dashes
             if ($('statBalance')) $('statBalance').textContent = '--';
+            updateSlot('account.equity', '--');
+            updateSlot('account.available', '--');
+            updateSlot('account.marginUsed', '--');
         }
     } catch (e) { /* ignore */ }
 }
@@ -2566,3 +2740,55 @@ window.applyQuickPosLeverage = async function() {
         if (btn) { btn.textContent = 'Set'; btn.disabled = false; }
     }
 };
+
+window.fetchReferralData = async function() {
+    try {
+        const res = await fetch('/api/user/referral');
+        if (!res.ok) return;
+        const d = await res.json();
+        if (d.success) {
+            if ($('modalUserName')) $('modalUserName').textContent = d.user?.name || d.user?.email || 'Trader';
+            if ($('modalUserEmail')) $('modalUserEmail').textContent = d.user?.email || '--';
+            const initial = (d.user?.name || d.user?.email || 'U')[0].toUpperCase();
+            if ($('accountBtnInitial')) $('accountBtnInitial').textContent = initial;
+            if ($('modalUserAvatar')) $('modalUserAvatar').textContent = initial;
+            if ($('modalRefCode')) $('modalRefCode').value = d.referral_code || '--';
+            if ($('modalRefLink')) $('modalRefLink').value = d.referral_link || `${window.location.origin}/?ref=${d.referral_code || ''}`;
+            if ($('statRefUsers')) $('statRefUsers').textContent = d.referrals_count || 0;
+            if ($('statRefEarned')) $('statRefEarned').textContent = '$' + (Number(d.commissions_earned || 0)).toFixed(2);
+            if ($('statRefAvailable')) $('statRefAvailable').textContent = '$' + (Number(d.payout_balance || 0)).toFixed(2);
+            if ($('modalPayoutWalletInput') && d.payout_wallet) $('modalPayoutWalletInput').value = d.payout_wallet;
+        }
+    } catch (e) {
+        // Silently skip if running in standalone engine mode
+    }
+};
+
+window.requestPayout = async function() {
+    const wallet = $('modalPayoutWalletInput')?.value.trim();
+    if (!wallet) {
+        alert('Please enter your USDT payout wallet address.');
+        return;
+    }
+    const btn = $('btnRequestWithdrawal');
+    try {
+        if (btn) { btn.textContent = 'Processing...'; btn.disabled = true; }
+        const res = await fetch('/api/user/request-payout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wallet: wallet })
+        });
+        const d = await res.json();
+        if (d.success) {
+            alert('Withdrawal request submitted successfully! Admin will process your transfer.');
+            window.fetchReferralData();
+        } else {
+            alert(d.error || 'Failed to submit withdrawal request.');
+        }
+    } catch (e) {
+        alert('Error submitting withdrawal: ' + (e.message || e));
+    } finally {
+        if (btn) { btn.textContent = 'Withdraw'; btn.disabled = false; }
+    }
+};
+

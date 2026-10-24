@@ -1,0 +1,181 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>WEEXIONIC · Positions (Desktop)</title>
+<!--
+  ============================================================
+  WEEXIONIC UI — desktop/07_desktop_positions.html (mockup 07)
+  DESIGN: Obsidian x Gold — css/base.css
+  RULE : EK BHI fake number nahi. Dono tables = templates +
+         honest empty states. PnL = NET AFTER FEES.
+  GUIDE: BINDING_GUIDE.md
+  ============================================================
+-->
+<link rel="stylesheet" href="../css/base.css">
+<style>
+html{background:#06080B}
+.desk{width:1440px;height:960px;background:var(--bg0);display:flex;overflow:hidden;position:relative}
+.desk::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(600px 340px at 60% -6%,rgba(240,185,11,.06),transparent 60%)}
+.desk>*{position:relative;z-index:1}
+.side{width:220px;flex:none;border-right:1px solid var(--border);background:#0B0E13;display:flex;flex-direction:column;padding:18px 14px 16px}
+.sbrand{display:flex;align-items:center;gap:10px;padding:2px 6px 0}
+.sbrand b{font:800 12.5px var(--font);letter-spacing:.22em}
+.sbrand span{display:block;font:700 7px var(--font);letter-spacing:.32em;color:var(--t3);margin-top:2px}
+.slabel{font:800 8px var(--font);letter-spacing:.26em;color:var(--t3);margin:22px 8px 8px}
+.sitem{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;color:var(--t3);font:700 12px var(--font);margin-bottom:2px}
+.sitem .ic{width:17px;height:17px}
+.sitem.active{color:var(--t1);background:linear-gradient(90deg,rgba(240,185,11,.14),rgba(240,185,11,.04));box-shadow:inset 2.5px 0 0 var(--gold)}
+.sitem.active .ic{color:var(--gold)}
+.sitem .cnt{margin-left:auto;font:800 8.5px var(--font);color:#151005;background:var(--gold);border-radius:99px;padding:2.5px 6px}
+.seng{margin-top:auto;background:#10151C;border:1px solid var(--border);border-radius:14px;padding:12px}
+.seng .up{font:600 8.5px var(--font);letter-spacing:.12em;color:var(--t3);margin-top:8px}
+.tbar{height:64px;flex:none;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(10,13,17,.7)}
+.tbar h1{font:800 17px var(--font)}
+.tbar .st{font:600 9.5px var(--font);letter-spacing:.12em;color:var(--t3);margin-top:2px}
+.tbar .sp{margin-left:auto;display:flex;align-items:center;gap:10px}
+.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--gold-hi),var(--gold-lo));display:grid;place-items:center;font:800 12px var(--font);color:#181203}
+.content{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:20px 24px;gap:14px}
+.statrow{display:flex;gap:14px}
+.stat{flex:1;padding:13px 16px}
+.stat .v{font:800 21px var(--font);margin-top:5px}
+.stat .s{font:600 9px var(--font);letter-spacing:.08em;color:var(--t3);margin-top:4px}
+.mbar{height:5px;border-radius:99px;background:#141A22;margin-top:9px;position:relative;overflow:hidden}
+.mbar i{position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:99px;background:linear-gradient(90deg,#0ECB81,#F0B90B 70%,#F6465D)}
+.tablec{padding:14px 18px 8px}
+.thead2{display:flex;align-items:center;margin-bottom:10px}
+.tfilters{margin-left:auto;display:flex;gap:5px}
+.tfilters span{padding:4.5px 11px;border-radius:8px;font:700 9px var(--font);letter-spacing:.08em;color:var(--t3);background:#0F141B;border:1px solid var(--border)}
+.tfilters span.on{color:#151005;background:linear-gradient(135deg,var(--gold-hi),var(--gold));border-color:transparent}
+.tr{display:grid;align-items:center;padding:11px 0;border-top:1px solid #141A22;font:700 12px var(--font)}
+.tr.h{border-top:none;padding:2px 0 8px;font:700 8.5px var(--font);letter-spacing:.16em;color:var(--t3);text-transform:uppercase}
+.g1{grid-template-columns:1.05fr 1fr .85fr 1fr 1fr 1.25fr 1.1fr 1.25fr}
+.g2{grid-template-columns:1fr 1.6fr 1.7fr 1fr 1.2fr}
+.tr .sym{font:800 12.5px var(--font)}
+.tr .sub{font:600 8.5px var(--font);letter-spacing:.06em;color:var(--t3);margin-top:2px}
+.tr em{font-style:normal;font-size:9.5px;color:var(--t3);margin-left:5px}
+.badge,.chip{display:inline-flex;padding:3px 7px;border-radius:6px;font:800 8px var(--font);letter-spacing:.1em}
+.badge.long{color:var(--up);background:rgba(14,203,129,.12)}
+.badge.short{color:var(--down);background:rgba(246,70,93,.12)}
+.badge.tp{color:var(--gold);background:rgba(240,185,11,.12)}
+.badge.sl{color:var(--down);background:rgba(246,70,93,.12)}
+.badge.manual{color:var(--t2);background:#1A212B}
+.chip.amber{color:var(--gold-hi);background:rgba(240,185,11,.08);border:1px solid rgba(240,185,11,.3)}
+.acts{display:flex;gap:6px;justify-content:flex-end}
+.mbtn{font:800 8.5px var(--font);letter-spacing:.1em;color:var(--t2);background:#12181F;border:1px solid var(--border);border-radius:7px;padding:6px 10px}
+.mbtn.danger{color:var(--down);border-color:rgba(246,70,93,.35);background:rgba(246,70,93,.06)}
+.hint{text-align:center;font:600 8.5px var(--font);letter-spacing:.16em;color:var(--t3)}
+</style></head><body>
+<div class="desk">
+  <aside class="side">
+    <div class="sbrand">
+      <svg width="34" height="34" viewBox="0 0 40 40"><defs><linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE07A"/><stop offset=".55" stop-color="#F0B90B"/><stop offset="1" stop-color="#B98B00"/></linearGradient></defs><path d="M20 2 35 10.7v18.6L20 38 5 29.3V10.7z" fill="none" stroke="url(#wg)" stroke-width="2.4"/><path d="M12 13l4.4 12 3.6-9 3.6 9L28 13" fill="none" stroke="url(#wg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div><b>WEEXIONIC</b><span>QUANT ENGINE</span></div>
+    </div>
+    <div class="slabel">TRADING</div>
+    <a class="sitem" href="06_desktop_terminal.html"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5"/><path d="M12.8 14.5H16"/></svg>Terminal</a>
+    <a class="sitem active" href="07_desktop_positions.html"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.5l8 4.5-8 4.5L4 8z"/><path d="M4 12.7l8 4.5 8-4.5"/><path d="M4 16.6L12 21l8-4.4"/></svg>Positions</a>
+    <a class="sitem" href="10_desktop_history.html"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>History</a>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg>Alerts<span class="cnt" data-slot="alerts.unread" hidden>--</span></a>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9"/></svg>Logs</a>
+    <div class="slabel">SYSTEM</div>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16"/><circle cx="9.5" cy="8" r="2.2" fill="#0B0E13"/><path d="M4 16h16"/><circle cx="14.5" cy="16" r="2.2" fill="#0B0E13"/></svg>Settings</a>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>Account</a>
+    <div class="seng">
+      <div class="spread"><span class="pill off" style="padding:4px 9px;font-size:8.5px" data-slot="engine.status"><i class="dot"></i>ENGINE OFFLINE</span><span class="chip amber" style="font-size:7.5px;padding:2.5px 6px" data-slot="engine.version">v--</span></div>
+      <div class="up num" data-slot="engine.uptimeEnv">UPTIME -- · --</div>
+    </div>
+  </aside>
+
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <header class="tbar">
+      <div><h1>Positions</h1><div class="st">USDT-M FUTURES · 1:1 R/R ENFORCED</div></div>
+      <div class="sp">
+        <span class="chip amber">BINANCE FUTURES · <span data-slot="engine.env">--</span></span>
+        <span class="pill off" data-slot="conn.status"><i class="dot"></i>OFFLINE</span>
+        <div class="ibtn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg><i class="nd"></i></div>
+        <div class="avatar" data-slot="user.initial">--</div>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="statrow">
+        <div class="card stat"><span class="label">Unrealized PnL</span>
+          <!-- DATA: positions.unrealizedPnl (JS class up/down) -->
+          <div class="v num" data-slot="positions.unrealizedPnl">--</div>
+          <!-- DATA: "+--% ROE · ALL SLOTS" -->
+          <div class="s num" data-slot="positions.roeAll">--% ROE · ALL SLOTS</div></div>
+        <div class="card stat"><span class="label">Margin Used</span>
+          <div class="v num" data-slot="account.marginUsed">--</div>
+          <!-- DATA: "--% ALLOCATED · $-- FREE" -->
+          <div class="s" data-slot="account.marginInfo">--% ALLOCATED · $-- FREE</div></div>
+        <div class="card stat"><span class="label">Risk Exposure</span>
+          <div class="v num gold" data-slot="positions.riskPct">--%</div>
+          <!-- DATA: bar width = risk % -->
+          <div class="mbar"><i data-slot="positions.riskBar" style="width:0%"></i></div>
+          <div class="s">SAFE → MODERATE → MAX</div></div>
+        <div class="card stat"><span class="label">Session</span>
+          <!-- DATA: session win rate -->
+          <div class="v num" data-slot="session.winRate">--<span class="t3" style="font:700 11px var(--font)"> WR</span></div>
+          <!-- DATA: "-- TRADES · STREAK --" (JS class up/down on .s) -->
+          <div class="s num" data-slot="session.summary">-- TRADES · STREAK --</div></div>
+      </div>
+
+      <section class="card tablec">
+        <div class="thead2"><span class="label">Open Positions · <span data-slot="positions.openCount" style="letter-spacing:.02em">--</span> SLOTS</span>
+          <div class="tfilters"><span class="on">ALL</span><span>LONG</span><span>SHORT</span></div></div>
+        <div class="tr h g1"><span>Symbol</span><span>Side</span><span>Size</span><span>Entry</span><span>Mark</span><span>PnL (ROE)</span><span>TP / SL</span><span style="text-align:right">Actions</span></div>
+        <!-- FAKE ROWS REMOVE. Har position ke liye #tpl-pos-row clone karo. -->
+        <div data-list="positions">
+          <template data-template="position-row" id="tpl-pos-row">
+            <div class="tr g1">
+              <span><div class="sym" data-field="symbol">--</div><div class="sub" data-field="duration">--</div></span>
+              <span><i class="badge manual" data-field="side">--</i> <i class="chip amber" data-field="leverage">--x</i></span>
+              <span class="num t2" data-field="size">--</span>
+              <span class="num" data-field="entry">--</span>
+              <span class="num" data-field="mark">--</span>
+              <span class="num" data-field="pnlWrap"><span data-field="pnlNet">--</span><em data-field="roe">--%</em></span>
+              <span class="num"><b class="up" data-field="tp">--</b> / <b class="down" data-field="sl">--</b></span>
+              <span class="acts"><a class="mbtn" href="#" data-act="tpsl">TP/SL</a><a class="mbtn" href="#" data-act="close50">50%</a><a class="mbtn danger" href="#" data-act="close">CLOSE</a></span>
+            </div>
+          </template>
+          <div class="empty" data-empty>NO OPEN POSITIONS</div>
+        </div>
+      </section>
+
+      <section class="card tablec">
+        <div class="thead2"><span class="label">Recently Closed · Exchange-Filled</span>
+          <div class="tfilters"><span class="on">ALL</span><span>TP</span><span>SL</span><span>MANUAL</span></div></div>
+        <div class="tr h g2"><span>Result</span><span>Symbol · Side</span><span>Entry → Exit</span><span>Duration</span><span style="text-align:right">Realized PnL</span></div>
+        <!-- FAKE ROWS REMOVE. Har closed trade ke liye #tpl-closed-row clone karo.
+             Badge: TP HIT->badge.tp | SL->badge.sl | MANUAL->badge.manual -->
+        <div data-list="closedTrades">
+          <template data-template="closed-row" id="tpl-closed-row">
+            <div class="tr g2">
+              <span><i class="badge manual" data-field="reason">--</i></span>
+              <span><div class="sym"><span data-field="symbol">--</span> <em data-field="sideLev">--</em></div></span>
+              <span class="num t2" data-field="entryExit">-- → --</span>
+              <span class="num t2" data-field="duration">--</span>
+              <!-- DATA: PnL NET after fees (JS class up/down) -->
+              <span class="num" style="text-align:right" data-field="pnlNet">--</span>
+            </div>
+          </template>
+          <div class="empty" data-empty>NO CLOSED TRADES</div>
+        </div>
+      </section>
+
+      <section class="card tablec">
+        <div class="thead2">
+          <div><div class="label">Realized PnL · Cumulative</div>
+            <!-- DATA: cumulative NET PnL + range (JS class up/down) -->
+            <div class="num" style="font:800 16px var(--font);margin-top:4px" data-slot="history.cumPnl">-- <span class="t3" style="font:700 9px var(--font)">30D</span></div></div>
+          <div class="tfilters"><span data-range="1D">1D</span><span data-range="1W">1W</span><span class="on" data-range="1M">1M</span><span data-range="ALL">ALL</span></div>
+        </div>
+        <!-- CHART: cumulative PnL series (real data only) -->
+        <div class="chartshell" data-chart="pnl-curve" style="height:108px"><span class="cempty">NO PNL DATA</span></div>
+      </section>
+
+      <div class="hint">ALL PNL FIGURES ARE EXCHANGE-FILLED · NET AFTER FEES · TP/SL ORDERS ARE EXCHANGE-NATIVE</div>
+    </main>
+  </div>
+</div>
+</body></html>

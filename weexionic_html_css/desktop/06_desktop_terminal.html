@@ -1,0 +1,256 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>WEEXIONIC · Terminal (Desktop)</title>
+<!--
+  ============================================================
+  WEEXIONIC UI — desktop/06_desktop_terminal.html (mockup 06)
+  DESIGN: Obsidian x Gold — css/base.css
+  RULE : EK BHI fake number nahi. Stat cards / slot queue /
+         alerts / positions table = sab slots + templates.
+  GUIDE: BINDING_GUIDE.md
+  ============================================================
+-->
+<link rel="stylesheet" href="../css/base.css">
+<style>
+html{background:#06080B}
+.desk{width:1440px;height:960px;background:var(--bg0);display:flex;overflow:hidden;position:relative}
+.desk::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(600px 340px at 60% -6%,rgba(240,185,11,.06),transparent 60%)}
+.desk>*{position:relative;z-index:1}
+/* sidebar */
+.side{width:220px;flex:none;border-right:1px solid var(--border);background:#0B0E13;display:flex;flex-direction:column;padding:18px 14px 16px}
+.sbrand{display:flex;align-items:center;gap:10px;padding:2px 6px 0}
+.sbrand b{font:800 12.5px var(--font);letter-spacing:.22em}
+.sbrand span{display:block;font:700 7px var(--font);letter-spacing:.32em;color:var(--t3);margin-top:2px}
+.slabel{font:800 8px var(--font);letter-spacing:.26em;color:var(--t3);margin:22px 8px 8px}
+.sitem{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;color:var(--t3);font:700 12px var(--font);letter-spacing:.02em;margin-bottom:2px}
+.sitem .ic{width:17px;height:17px}
+.sitem.active{color:var(--t1);background:linear-gradient(90deg,rgba(240,185,11,.14),rgba(240,185,11,.04));box-shadow:inset 2.5px 0 0 var(--gold)}
+.sitem.active .ic{color:var(--gold)}
+.sitem .cnt{margin-left:auto;font:800 8.5px var(--font);color:#151005;background:var(--gold);border-radius:99px;padding:2.5px 6px}
+.seng{margin-top:auto;background:#10151C;border:1px solid var(--border);border-radius:14px;padding:12px}
+.seng .row{display:flex;align-items:center;justify-content:space-between}
+.seng .up{font:600 8.5px var(--font);letter-spacing:.12em;color:var(--t3);margin-top:8px}
+/* topbar */
+.tbar{height:64px;flex:none;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(10,13,17,.7)}
+.tbar h1{font:800 17px var(--font)}
+.tbar .st{font:600 9.5px var(--font);letter-spacing:.12em;color:var(--t3);margin-top:2px}
+.tbar .sp{margin-left:auto;display:flex;align-items:center;gap:10px}
+.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--gold-hi),var(--gold-lo));display:grid;place-items:center;font:800 12px var(--font);color:#181203}
+/* content */
+.content{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:20px 24px;gap:14px}
+.statrow{display:flex;gap:14px}
+.stat{flex:1;padding:13px 16px}
+.stat .v{font:800 21px var(--font);margin-top:5px}
+.stat .s{font:600 9px var(--font);letter-spacing:.08em;color:var(--t3);margin-top:4px}
+.main{display:flex;gap:14px;flex:1;min-height:0}
+.lcol{flex:2.1;display:flex;flex-direction:column;gap:14px;min-width:0}
+.rcol{width:378px;flex:none;display:flex;flex-direction:column;gap:14px}
+.chartcard{padding:15px 18px 12px;flex:1;display:flex;flex-direction:column}
+.chead{display:flex;align-items:center}
+.chead .px{margin-left:auto;text-align:right}
+.tfrow{display:flex;gap:5px;margin:10px 0}
+.tf{padding:4.5px 11px;border-radius:8px;font:700 9.5px var(--font);letter-spacing:.06em;color:var(--t3);background:#0F141B;border:1px solid var(--border)}
+.tf.on{color:#151005;background:linear-gradient(135deg,var(--gold-hi),var(--gold));border-color:transparent}
+.legend{display:flex;gap:14px;align-items:center;margin-top:8px}
+.legend .li{display:flex;gap:5px;align-items:center;font:600 8.5px var(--font);letter-spacing:.08em;color:var(--t3)}
+.legend .sw{width:6px;height:6px;border-radius:2px}
+.signal{display:flex;align-items:center;gap:16px;padding:12px 18px}
+.signal .t1x{font:800 14px var(--font);margin-top:3px}
+.signal .meta{font:600 9px var(--font);letter-spacing:.1em;color:var(--t3);margin-top:3px}
+.ring{position:relative;width:44px;height:44px}
+.ring b{position:absolute;inset:0;display:grid;place-items:center;font:800 10.5px var(--font)}
+.engc{padding:14px 16px}
+.slotq{margin-top:12px;display:flex;flex-direction:column}
+.sq{display:flex;align-items:center;gap:9px;padding:8px 2px;border-top:1px solid #141A22;font:700 11px var(--font)}
+.sq .st8{font:600 8.5px var(--font);letter-spacing:.1em;margin-left:auto;color:var(--t3)}
+.sq .dot{width:7px;height:7px;border-radius:50%}
+.almini{padding:6px 16px 12px}
+.alr{display:flex;gap:10px;align-items:center;padding:8.5px 0;border-top:1px solid #141A22}
+.alr:first-of-type{border-top:none}
+.alr .at{font:700 10.5px var(--font)}
+.alr .tm{margin-left:auto;font:600 8.5px var(--font);color:var(--t3);letter-spacing:.08em}
+/* positions table */
+.tablec{padding:14px 18px 8px}
+.thead2{display:flex;align-items:center;margin-bottom:10px}
+.tfilters{margin-left:auto;display:flex;gap:5px}
+.tfilters span{padding:4.5px 11px;border-radius:8px;font:700 9px var(--font);letter-spacing:.08em;color:var(--t3);background:#0F141B;border:1px solid var(--border)}
+.tfilters span.on{color:#151005;background:linear-gradient(135deg,var(--gold-hi),var(--gold));border-color:transparent}
+.tr{display:grid;grid-template-columns:1.05fr 1fr .85fr 1fr 1fr 1.25fr 1.1fr 1.25fr;align-items:center;padding:10px 0;border-top:1px solid #141A22;font:700 12px var(--font)}
+.tr.h{border-top:none;padding:2px 0 8px;font:700 8.5px var(--font);letter-spacing:.16em;color:var(--t3);text-transform:uppercase}
+.tr .sym{font:800 12.5px var(--font)}
+.tr em{font-style:normal;font-size:9.5px;color:var(--t3);margin-left:5px}
+.badge,.chip{display:inline-flex;padding:3px 7px;border-radius:6px;font:800 8px var(--font);letter-spacing:.1em}
+.badge.long{color:var(--up);background:rgba(14,203,129,.12)}
+.badge.short{color:var(--down);background:rgba(246,70,93,.12)}
+.chip.amber{color:var(--gold-hi);background:rgba(240,185,11,.08);border:1px solid rgba(240,185,11,.3)}
+.acts{display:flex;gap:6px;justify-content:flex-end}
+.mbtn{font:800 8.5px var(--font);letter-spacing:.1em;color:var(--t2);background:#12181F;border:1px solid var(--border);border-radius:7px;padding:6px 10px}
+.mbtn.danger{color:var(--down);border-color:rgba(246,70,93,.35);background:rgba(246,70,93,.06)}
+</style></head><body>
+<div class="desk">
+  <aside class="side">
+    <div class="sbrand">
+      <svg width="34" height="34" viewBox="0 0 40 40"><defs><linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE07A"/><stop offset=".55" stop-color="#F0B90B"/><stop offset="1" stop-color="#B98B00"/></linearGradient></defs><path d="M20 2 35 10.7v18.6L20 38 5 29.3V10.7z" fill="none" stroke="url(#wg)" stroke-width="2.4"/><path d="M12 13l4.4 12 3.6-9 3.6 9L28 13" fill="none" stroke="url(#wg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div><b>WEEXIONIC</b><span>QUANT ENGINE</span></div>
+    </div>
+    <div class="slabel">TRADING</div>
+    <a class="sitem active" href="06_desktop_terminal.html"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5"/><path d="M12.8 14.5H16"/></svg>Terminal</a>
+    <a class="sitem" href="07_desktop_positions.html"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.5l8 4.5-8 4.5L4 8z"/><path d="M4 12.7l8 4.5 8-4.5"/><path d="M4 16.6L12 21l8-4.4"/></svg>Positions</a>
+    <a class="sitem" href="10_desktop_history.html"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/></svg>History</a>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg>Alerts
+      <!-- DATA: unread alerts count (JS: textContent set + hidden hatao) -->
+      <span class="cnt" data-slot="alerts.unread" hidden>--</span></a>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9"/></svg>Logs</a>
+    <div class="slabel">SYSTEM</div>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16"/><circle cx="9.5" cy="8" r="2.2" fill="#0B0E13"/><path d="M4 16h16"/><circle cx="14.5" cy="16" r="2.2" fill="#0B0E13"/></svg>Settings</a>
+    <a class="sitem" href="#"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>Account</a>
+    <div class="seng">
+      <div class="row">
+        <!-- DATA: engine status (JS class pill.live/off) -->
+        <span class="pill off" style="padding:4px 9px;font-size:8.5px" data-slot="engine.status"><i class="dot"></i>ENGINE OFFLINE</span>
+        <!-- DATA: engine version -->
+        <span class="chip amber" style="font-size:7.5px;padding:2.5px 6px" data-slot="engine.version">v--</span>
+      </div>
+      <!-- DATA: "UPTIME --H --M · TESTNET" -->
+      <div class="up num" data-slot="engine.uptimeEnv">UPTIME -- · --</div>
+    </div>
+  </aside>
+
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <header class="tbar">
+      <div><h1>Terminal</h1><div class="st">USDT-M FUTURES · 1M / 5M EXECUTION</div></div>
+      <div class="sp">
+        <!-- DATA: env (config) -->
+        <span class="chip amber">BINANCE FUTURES · <span data-slot="engine.env">--</span></span>
+        <!-- DATA: connection status (JS class pill.live/off) -->
+        <span class="pill off" data-slot="conn.status"><i class="dot"></i>OFFLINE</span>
+        <div class="ibtn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24"><path d="M6.3 16.2v-4.7a5.7 5.7 0 0 1 11.4 0v4.7l1.4 2.3H4.9z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg><i class="nd"></i></div>
+        <!-- DATA: user initial -->
+        <div class="avatar" data-slot="user.initial">--</div>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="statrow">
+        <div class="card stat"><span class="label">Total Equity · USDT-M</span>
+          <!-- DATA: account.equity -->
+          <div class="v num" data-slot="account.equity">--</div>
+          <!-- DATA: "+--% TODAY · +$--" (JS class up/down on .s) -->
+          <div class="s num" data-slot="account.change24h">-- TODAY · --</div></div>
+        <div class="card stat"><span class="label">Unrealized PnL</span>
+          <!-- DATA: positions.unrealizedPnl (JS class up/down) -->
+          <div class="v num" data-slot="positions.unrealizedPnl">--</div>
+          <!-- DATA: "+--% ROE · -- SLOTS" -->
+          <div class="s num" data-slot="positions.roeSlots">--% ROE · -- SLOTS</div></div>
+        <div class="card stat"><span class="label">Margin Used</span>
+          <!-- DATA: account.marginUsed -->
+          <div class="v num" data-slot="account.marginUsed">--</div>
+          <!-- DATA: "--% ALLOCATED" -->
+          <div class="s" data-slot="account.marginAllocPct">--% ALLOCATED</div></div>
+        <div class="card stat"><span class="label">Open Risk</span>
+          <!-- DATA: account.openRiskPct -->
+          <div class="v num gold" data-slot="account.openRiskPct">--%</div>
+          <!-- DATA: risk guard state -->
+          <div class="s" data-slot="engine.riskGuard">RISK GUARD: --</div></div>
+      </div>
+
+      <div class="main">
+        <div class="lcol">
+          <section class="card chartcard">
+            <div class="chead">
+              <!-- DATA: chart.symbol / chart.leverage -->
+              <span class="sym" style="font:800 17px var(--font)" data-slot="chart.symbol">--</span>
+              <span class="chip amber" style="margin-left:9px" data-slot="chart.leverage">PERP · --x</span>
+              <div class="px"><div class="num gold" style="font:800 16px var(--font)" data-slot="chart.price">--</div><div class="num" style="font:700 9.5px var(--font);text-align:right" data-slot="chart.changePct">--</div></div>
+            </div>
+            <!-- DATA: active timeframe -> JS .on toggle -->
+            <div class="tfrow"><span class="tf" data-tf="1m">1m</span><span class="tf on" data-tf="5m">5m</span><span class="tf" data-tf="15m">15m</span><span class="tf" data-tf="1h">1h</span><span class="tf" data-tf="4h">4h</span><span class="tf" style="margin-left:auto;color:var(--t3)">EMA OVERLAY</span></div>
+            <!-- CHART: real klines (lightweight-charts / canvas) -->
+            <div class="chartshell" data-chart="klines" style="flex:1;min-height:330px"><span class="cempty">NO CHART DATA</span></div>
+            <div class="legend">
+              <span class="li"><i class="sw" style="background:#F0B90B"></i>EMA 8</span>
+              <span class="li"><i class="sw" style="background:#4EA8FF"></i>EMA 13</span>
+              <span class="li"><i class="sw" style="background:#9F7BFF"></i>EMA 21</span>
+              <span class="li"><i class="sw" style="background:#8D97A5"></i>EMA 55</span>
+              <span class="li" style="margin-left:auto">VOL</span>
+            </div>
+          </section>
+          <section class="card signal">
+            <div style="flex:1"><div class="label">EMA Trend · <span data-slot="signal.tf">--</span></div>
+              <!-- DATA: signal.bias (JS class up/down) -->
+              <div class="t1x" data-slot="signal.bias">--</div></div>
+            <div><div class="label">Last Cross</div>
+              <!-- DATA: "8/13 GOLDEN · 14:32 UTC" -->
+              <div class="meta" style="margin-top:4px" data-slot="signal.crossInfo">--</div></div>
+            <div><div class="label">Fees Today</div>
+              <!-- DATA: "$-- TAKER / $-- MAKER" -->
+              <div class="meta num" style="margin-top:4px" data-slot="fees.today">-- TAKER / -- MAKER</div></div>
+            <!-- DATA: signal.strengthPct -> JS arc (§5) -->
+            <div class="ring" data-slot="signal.strengthPct"><b class="num">--%</b></div>
+          </section>
+        </div>
+
+        <div class="rcol">
+          <section class="card engc">
+            <div class="spread" style="margin-bottom:11px"><span class="label">Engine Control</span>
+              <!-- DATA: "-- SLOTS · --x CAP" -->
+              <span class="chip dim" data-slot="engine.slotInfo">-- SLOTS · --x CAP</span></div>
+            <!-- ACTION: HALT endpoint -->
+            <a class="btn btn-gold" href="#"><svg class="ic" width="15" height="15" viewBox="0 0 24 24"><path d="M12 3.5v8"/><path d="M7.2 6.3a7 7 0 1 0 9.6 0"/></svg>HALT ENGINE</a>
+            <div class="btnrow" style="display:flex;gap:8px;margin-top:8px">
+              <!-- ACTION: FLATTEN ALL / FORCE RESET endpoints -->
+              <a class="btn btn-ghost red" href="#" style="flex:1;font-size:9.5px;padding:10.5px 0">FLATTEN ALL</a>
+              <a class="btn btn-ghost" href="#" style="flex:1;font-size:9.5px;padding:10.5px 0">FORCE RESET</a>
+            </div>
+            <!-- ============ SLOT QUEUE ============
+                 FAKE SLOT ROWS REMOVE. Har slot ke liye #tpl-slot clone karo.
+                 dot color: ACTIVE->var(--up) | SCANNING->var(--gold)+pulse -->
+            <div class="slotq" data-list="slotQueue">
+              <template data-template="slot-row" id="tpl-slot">
+                <div class="sq"><i class="dot" data-field="dot" style="background:var(--t3)"></i><span data-field="label">--</span><span class="st8" data-field="state">--</span></div>
+              </template>
+              <div class="empty" data-empty style="margin-top:10px">NO ACTIVE SLOTS</div>
+            </div>
+          </section>
+          <section class="card almini">
+            <div class="spread" style="padding:8px 0 4px"><span class="label">Recent Alerts</span><span class="chip dim" style="font-size:8px">VIEW ALL</span></div>
+            <!-- FAKE ALERTS REMOVE. Har alert ke liye #tpl-mini-alert clone karo. -->
+            <div data-list="recentAlerts">
+              <template data-template="mini-alert-row" id="tpl-mini-alert">
+                <div class="alr"><div><div class="at" data-field="title">--</div><div class="meta" style="font:600 8.5px var(--font);color:var(--t3);margin-top:2px" data-field="desc">--</div></div><span class="tm" data-field="time">--</span></div>
+              </template>
+              <div class="empty" data-empty style="margin:8px 0 6px">NO ALERTS</div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <section class="card tablec">
+        <div class="thead2"><span class="label">Open Positions · <span data-slot="positions.openCount" style="letter-spacing:.02em">--</span> SLOTS</span>
+          <div class="tfilters"><span class="on">ALL</span><span>LONG</span><span>SHORT</span></div></div>
+        <div class="tr h"><span>Symbol</span><span>Side</span><span>Size</span><span>Entry</span><span>Mark</span><span>PnL (ROE)</span><span>TP / SL</span><span style="text-align:right">Actions</span></div>
+        <!-- ============ POSITIONS TABLE ============
+             FAKE ROWS REMOVE. Har open position ke liye #tpl-pos-row clone karo. -->
+        <div data-list="positions">
+          <template data-template="position-row" id="tpl-pos-row">
+            <div class="tr">
+              <span class="sym" data-field="symbol">--</span>
+              <span><i class="badge manual" data-field="side">--</i> <i class="chip amber" data-field="leverage">--x</i></span>
+              <span class="num t2" data-field="size">--</span>
+              <span class="num" data-field="entry">--</span>
+              <span class="num" data-field="mark">--</span>
+              <!-- DATA: PnL NET + ROE em (JS class up/down) -->
+              <span class="num" data-field="pnlWrap"><span data-field="pnlNet">--</span><em data-field="roe">--%</em></span>
+              <span class="num"><b class="up" data-field="tp">--</b> / <b class="down" data-field="sl">--</b></span>
+              <!-- ACTION: row context (symbol) se endpoints call karo -->
+              <span class="acts"><a class="mbtn" href="#" data-act="tpsl">TP/SL</a><a class="mbtn" href="#" data-act="close50">50%</a><a class="mbtn danger" href="#" data-act="close">CLOSE</a></span>
+            </div>
+          </template>
+          <div class="empty" data-empty>NO OPEN POSITIONS</div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</body></html>
