@@ -674,7 +674,7 @@ def get_trades():
 def clear_trades():
     if not hasattr(ENGINE, "history"):
         return jsonify({"success": True})
-    ENGINE.history.clear_history()
+    ENGINE.history.clear_history(clear_all=True)
     socketio.emit("trades_updated", {"trades": [], "stats": ENGINE.history.get_stats()})
     return jsonify({"success": True})
 
@@ -751,7 +751,8 @@ def get_all_symbols():
                         "exchange": "weex", "mode": "demo" if testnet else "live"})
 
     try:
-        resp = _req.get("https://fapi.binance.com/fapi/v1/exchangeInfo", timeout=10)
+        url = "https://testnet.binancefuture.com/fapi/v1/exchangeInfo" if testnet else "https://fapi.binance.com/fapi/v1/exchangeInfo"
+        resp = _req.get(url, timeout=10)
         data = resp.json()
         symbols = []
         for s in data.get("symbols", []):
@@ -761,7 +762,7 @@ def get_all_symbols():
         symbols.sort()
         if symbols:
             return jsonify({"success": True, "symbols": symbols, "count": len(symbols),
-                            "exchange": "binance"})
+                            "exchange": "binance", "testnet": testnet})
     except Exception as e:
         logger.error("Failed to fetch Binance symbols: %s", e)
     return jsonify({"success": True, "symbols": [

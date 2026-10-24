@@ -255,6 +255,17 @@ class SymbolWorker(threading.Thread):
         except Exception as e:
             err_msg = str(e)
             logger.error(f"[{symbol}] Failed to fetch klines after retries: {err_msg}")
+            is_invalid_sym = any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"])
+            if is_invalid_sym:
+                if not hasattr(self, "_warned_invalid_sym"):
+                    self._warned_invalid_sym = set()
+                if symbol not in self._warned_invalid_sym:
+                    self._warned_invalid_sym.add(symbol)
+                    self.engine._emit("log", {
+                        "level": "warn",
+                        "msg": f"[{symbol}] ⚠️ Symbol not supported on current exchange environment. Please remove '{symbol}' from watchlist."
+                    })
+                return
             is_rate_limit = any(x in err_msg.lower() for x in ["418", "429", "-1003", "too many requests", "banned"])
             if is_rate_limit:
                 self.engine._emit("log", {

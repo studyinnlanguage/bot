@@ -337,10 +337,14 @@ class TradeHistoryManager:
             "avg_trade_pnl": round(total_pnl / total_trades, 2) if total_trades > 0 else 0.0,
         }
 
-    def clear_history(self) -> bool:
-        """Clear all closed trades, leaving open positions intact."""
+    def clear_history(self, clear_all: bool = True) -> bool:
+        """Clear trade history. If clear_all is True, wipe all history records."""
         with self.lock:
-            self.trades = [t for t in self.trades if t.get("status") == "OPEN"]
+            if clear_all:
+                self.trades = []
+            else:
+                self.trades = [t for t in self.trades if t.get("status") == "OPEN"]
             self._save()
-        logger.info("Cleared closed trade history.")
+        logger.info("Cleared trade history (clear_all=%s).", clear_all)
         return True
+

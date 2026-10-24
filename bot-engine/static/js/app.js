@@ -1057,6 +1057,10 @@ function initSocket() {
                 $('statBalance').textContent = `$${Number(bal).toFixed(2)}`;
                 $('statBalance').title = `${exchange} ${env} balance`;
             }
+            if ($('topbarBalanceVal')) {
+                $('topbarBalanceVal').textContent = fmtUsd(bal);
+                $('topbarBalanceVal').title = `${exchange} ${env} balance: ${fmtUsd(bal)}`;
+            }
         });
 
         // Real-time Trade History update event
@@ -1208,32 +1212,31 @@ function updatePositionUI(data) {
 
     const posFocusBadge = $('posFocusBadge');
     if (posFocusBadge) {
-        posFocusBadge.className = '';
         if (data.side === 'LONG') {
             posFocusBadge.textContent = 'LONG ACTIVE';
-            posFocusBadge.className = 'pos-badge-long';
+            posFocusBadge.className = 'badge long';
         } else if (data.side === 'SHORT') {
             posFocusBadge.textContent = 'SHORT ACTIVE';
-            posFocusBadge.className = 'pos-badge-short';
+            posFocusBadge.className = 'badge short';
         } else {
             posFocusBadge.textContent = 'NO POSITION';
-            posFocusBadge.className = 'pos-badge-none';
+            posFocusBadge.className = 'badge manual';
         }
     }
 
     if ($('posTabSide')) {
         $('posTabSide').textContent = data.side || 'NONE';
-        $('posTabSide').style.color = data.side === 'LONG' ? 'var(--green-success)' : (data.side === 'SHORT' ? 'var(--red-danger)' : 'var(--text-secondary)');
+        $('posTabSide').style.color = data.side === 'LONG' ? 'var(--up)' : (data.side === 'SHORT' ? 'var(--down)' : 'var(--t3)');
     }
     if ($('posFocusSide')) {
-        $('posFocusSide').textContent = data.side || 'NONE';
-        $('posFocusSide').style.color = data.side === 'LONG' ? 'var(--green-success)' : (data.side === 'SHORT' ? 'var(--red-danger)' : 'var(--text-secondary)');
+        $('posFocusSide').textContent = data.side || 'FLAT';
+        $('posFocusSide').style.color = data.side === 'LONG' ? 'var(--up)' : (data.side === 'SHORT' ? 'var(--down)' : 'var(--t3)');
     }
     if ($('posTabLeverage')) $('posTabLeverage').textContent = `${lev}x Leverage`;
     if ($('posFocusLeverage')) $('posFocusLeverage').textContent = `${lev}x`;
     if ($('posFocusSize')) $('posFocusSize').textContent = Math.abs(data.size || 0).toFixed(4);
-    if ($('posFocusEntry')) $('posFocusEntry').textContent = data.entry_price ? `$${fmt(data.entry_price)}` : '--';
-    if ($('posFocusMark')) $('posFocusMark').textContent = data.mark_price ? `$${fmt(data.mark_price)}` : '--';
+    if ($('posFocusEntry')) $('posFocusEntry').textContent = data.entry_price ? `$${fmt(data.entry_price)}` : '$--';
+    if ($('posFocusMark')) $('posFocusMark').textContent = data.mark_price ? `$${fmt(data.mark_price)}` : '$--';
 
     const pnlFormatted = `$${pnl.toFixed(2)}`;
     if ($('posTabPnl')) {
@@ -1241,8 +1244,8 @@ function updatePositionUI(data) {
         $('posTabPnl').className = 'pos-metric-value ' + (pnl > 0 ? 'pnl-positive' : pnl < 0 ? 'pnl-negative' : 'pnl-zero');
     }
     if ($('posFocusPnl')) {
-        $('posFocusPnl').textContent = pnlFormatted;
-        $('posFocusPnl').className = (pnl > 0 ? 'pnl-positive' : pnl < 0 ? 'pnl-negative' : 'pnl-zero');
+        $('posFocusPnl').textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+        $('posFocusPnl').className = 'num ' + (pnl >= 0 ? 'up' : 'down');
     }
 
     // ROE calculation
@@ -1259,11 +1262,15 @@ function updatePositionUI(data) {
     if ($('posTabRoe')) $('posTabRoe').textContent = roeText;
     if ($('posFocusRoe')) {
         $('posFocusRoe').textContent = `${roeSign}${roeEstimated.toFixed(2)}%`;
-        $('posFocusRoe').style.color = roeEstimated > 0 ? 'var(--green-success)' : (roeEstimated < 0 ? 'var(--red-danger)' : 'inherit');
+        $('posFocusRoe').className = 'num ' + (roeEstimated >= 0 ? 'up' : 'down');
     }
 
-    if ($('posFocusTrailingTp')) $('posFocusTrailingTp').textContent = trailingEl ? trailingEl.textContent : '--';
-    if ($('posFocusCurrentSl')) $('posFocusCurrentSl').textContent = slEl ? slEl.textContent : '--';
+    if ($('posFocusTrailingTp')) {
+        $('posFocusTrailingTp').textContent = data.tp_price ? `$${fmt(data.tp_price)}` : (trailingEl ? trailingEl.textContent : '$--');
+    }
+    if ($('posFocusCurrentSl')) {
+        $('posFocusCurrentSl').textContent = data.sl_price ? `$${fmt(data.sl_price)}` : (slEl ? slEl.textContent : '$--');
+    }
     if ($('posTabStage')) $('posTabStage').textContent = data.side && data.side !== 'NONE' ? '1:1 Active' : '1:1 Auto';
     if ($('posTabTpTarget')) $('posTabTpTarget').textContent = data.tp_price ? `TP: $${fmt(data.tp_price)}` : 'Target: --';
 
@@ -1291,29 +1298,50 @@ window.fetchPositions = async function() {
 
 function renderPositionsTable() {
     const tbody = $('positionsTableBody');
-    if (!tbody) return;
+    const tbodyTab2 = $('tab2PositionsTableBody');
+    if (!tbody && !tbodyTab2) return;
 
     const symList = coins.length > 0 ? coins : Object.keys(positionsBySymbol);
     if (symList.length === 0) {
-        tbody.innerHTML = `<div class="empty">No monitored coins in watchlist yet. Add coins in Bot Strategy &amp; Settings.</div>`;
+        const emptyMsg = `<div class="empty">No monitored coins in watchlist yet. Add coins in Bot Strategy &amp; Settings.</div>`;
+        if (tbody) tbody.innerHTML = emptyMsg;
+        if (tbodyTab2) tbodyTab2.innerHTML = emptyMsg;
         if ($('posCountBadge')) $('posCountBadge').textContent = '0';
+        if ($('tab2SlotCount')) $('tab2SlotCount').textContent = '0 Active';
+        if ($('posActiveCountText')) $('posActiveCountText').textContent = '0 Open Positions';
+        if ($('tab2PosBadgeCount')) $('tab2PosBadgeCount').textContent = '0 Active';
+        if ($('posFocusTotalPnl')) {
+            $('posFocusTotalPnl').textContent = '+$0.00';
+            $('posFocusTotalPnl').style.color = 'var(--up)';
+        }
+        if ($('posFocusRoeMargin')) {
+            $('posFocusRoeMargin').textContent = '+0.00% ROE · MARGIN $0.00';
+        }
+        if ($('posFocusRiskLabel')) {
+            $('posFocusRiskLabel').textContent = 'RISK: LOW';
+        }
         updateSlot('positions.openCount', '0');
         if (typeof window.renderDetailedPositions === 'function') window.renderDetailedPositions();
         return;
     }
 
     let activeCount = 0;
+    let totalUnrealizedPnl = 0;
+    let totalMarginUsed = 0;
     let html = '';
     symList.forEach(sym => {
         const p = positionsBySymbol[sym] || { symbol: sym, side: 'NONE', size: 0, entry_price: 0, mark_price: 0, unrealized_pnl: 0 };
         const hasPos = p.side && p.side !== 'NONE';
-        if (hasPos) activeCount++;
         const pnl = Number(p.unrealized_pnl) || 0;
+        const lev = Number(p.leverage) || 125;
+        if (hasPos) {
+            activeCount++;
+            totalUnrealizedPnl += pnl;
+            const notional = Math.abs(p.size || 0) * (p.mark_price || p.entry_price || 0);
+            totalMarginUsed += (notional / (lev || 1));
+        }
         const pnlClass = pnl >= 0 ? 'up' : 'down';
         const sideClass = p.side === 'LONG' ? 'badge long' : (p.side === 'SHORT' ? 'badge short' : 'badge manual');
-        const notional = Math.abs(p.size || 0) * (p.mark_price || p.entry_price || 0);
-        const estFee = (notional * 0.0010).toFixed(2);
-        const lev = p.leverage || 125;
 
         html += `
         <div class="tr" onclick="selectSymbol('${sym}')" style="cursor:pointer;">
@@ -1330,8 +1358,26 @@ function renderPositionsTable() {
         </div>`;
     });
 
-    tbody.innerHTML = html;
+    if (tbody) tbody.innerHTML = html;
+    if (tbodyTab2) tbodyTab2.innerHTML = html;
+
     if ($('posCountBadge')) $('posCountBadge').textContent = `${activeCount}`;
+    if ($('tab2SlotCount')) $('tab2SlotCount').textContent = `${activeCount} Active`;
+    if ($('posActiveCountText')) $('posActiveCountText').textContent = `${activeCount} Open Position${activeCount === 1 ? '' : 's'}`;
+    if ($('tab2PosBadgeCount')) $('tab2PosBadgeCount').textContent = `${activeCount} Active`;
+
+    if ($('posFocusTotalPnl')) {
+        $('posFocusTotalPnl').textContent = fmtSigned(totalUnrealizedPnl);
+        $('posFocusTotalPnl').style.color = totalUnrealizedPnl >= 0 ? 'var(--up)' : 'var(--down)';
+    }
+    if ($('posFocusRoeMargin')) {
+        const roePct = totalMarginUsed > 0 ? ((totalUnrealizedPnl / totalMarginUsed) * 100) : 0;
+        $('posFocusRoeMargin').textContent = `${roePct >= 0 ? '+' : ''}${roePct.toFixed(2)}% ROE · MARGIN $${totalMarginUsed.toFixed(2)}`;
+    }
+    if ($('posFocusRiskLabel')) {
+        $('posFocusRiskLabel').textContent = activeCount > 2 ? 'RISK: MEDIUM' : (activeCount > 0 ? 'RISK: LOW' : 'RISK: NONE');
+    }
+
     updateSlot('positions.openCount', `${activeCount}`);
     renderSlotQueue();
     if (typeof window.renderDetailedPositions === 'function') window.renderDetailedPositions();
@@ -1547,6 +1593,8 @@ window.renderTradeHistoryTable = function() {
     const statusFilter = $('historyFilterStatus') ? $('historyFilterStatus').value : 'ALL';
 
     let filtered = trades.filter(t => {
+        // Only closed trades belong in the Closed Trades Audit table
+        if (t.status === 'OPEN' || (!t.exit_price && !t.close_price)) return false;
         if (symFilter !== 'ALL' && t.symbol !== symFilter) return false;
         if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
         return true;
@@ -1601,31 +1649,32 @@ window.renderRecentTradesQuickTable = function() {
     const tbody = $('recentTradesTableBody');
     if (!tbody) return;
 
-    const trades = (window.tradeHistoryData || []).filter(t => t.status === 'CLOSED').slice(0, 5);
+    const trades = (window.tradeHistoryData || []).filter(t => t.status !== 'OPEN' && (t.status === 'CLOSED' || t.exit_price || t.close_price)).slice(0, 8);
     if (trades.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-secondary);">No closed trades yet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--t3);">No recent closed trades yet.</td></tr>`;
         return;
     }
 
     let html = '';
     trades.forEach(t => {
-        const pnl = Number(t.pnl || 0);
+        const net = Number(t.net_pnl != null ? t.net_pnl : (t.pnl - (t.fee || 0))) || 0;
         const roe = Number(t.roe_pct || 0);
-        const pnlColor = pnl > 0 ? 'var(--green-success)' : (pnl < 0 ? 'var(--red-danger)' : 'var(--text-secondary)');
-        const pnlSign = pnl > 0 ? '+' : '';
-        const sideClass = t.side === 'LONG' ? 'pos-badge-long' : (t.side === 'SHORT' ? 'pos-badge-short' : 'pos-badge-none');
-        const closeDate = t.closed_at ? new Date(t.closed_at) : null;
-        const timeStr = closeDate ? `${closeDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : '--';
+        const pnlCls = net >= 0 ? 'up' : 'down';
+        const sideCls = t.side === 'LONG' ? 'badge long' : (t.side === 'SHORT' ? 'badge short' : 'badge manual');
+        const closeDate = t.closed_at ? new Date(t.closed_at) : (t.opened_at ? new Date(t.opened_at) : null);
+        const timeStr = closeDate ? `${closeDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}` : '--:--:--';
+        const exitP = t.exit_price || t.close_price;
+        const fee = Number(t.fee || t.commission || t.fee_est || 0);
 
         html += `
-        <tr>
-            <td style="font-family:var(--font-mono); font-size:12px;">${timeStr}</td>
-            <td><strong style="color:var(--gold-primary);">${t.symbol}</strong></td>
-            <td><span class="${sideClass}">${t.side}</span></td>
-            <td style="font-family:var(--font-mono); font-size:12px;">$${t.entry_price ? fmt(t.entry_price) : '--'} ➔ $${t.exit_price ? fmt(t.exit_price) : '--'}</td>
-            <td style="color:${pnlColor}; font-weight:700; font-family:var(--font-mono);">${pnlSign}$${pnl.toFixed(2)} (${pnlSign}${roe.toFixed(1)}%)</td>
-            <td style="font-size:11px;">${t.close_reason || 'Closed'}</td>
-            <td style="font-family:var(--font-mono); color:var(--gold-primary); font-size:12px;">$${Number(t.fee_est || 0).toFixed(3)}</td>
+        <tr style="border-bottom:1px solid #141A22;">
+            <td style="padding:8px; font-family:var(--mono); font-size:11px; color:var(--t2);">${timeStr}</td>
+            <td style="padding:8px;"><strong style="color:var(--gold); font-size:12px;">${t.symbol}</strong></td>
+            <td style="padding:8px;"><span class="${sideCls}">${t.side}</span></td>
+            <td style="padding:8px; font-family:var(--mono); font-size:11px;">$${t.entry_price ? fmt(t.entry_price) : '--'} ➔ $${exitP ? fmt(exitP) : '--'}</td>
+            <td style="padding:8px; font-family:var(--mono); font-weight:700;" class="${pnlCls}">${fmtSigned(net)} <em style="font-size:10px; font-weight:normal;">(${roe >= 0 ? '+' : ''}${roe.toFixed(1)}%)</em></td>
+            <td style="padding:8px; font-size:11px; color:var(--t2);">${t.close_reason || t.reason || 'Closed'}</td>
+            <td style="padding:8px; font-family:var(--mono); color:var(--gold); font-size:11px; text-align:right;">${fmtUsd(fee)}</td>
         </tr>`;
     });
 
@@ -1639,7 +1688,7 @@ window.clearTradeHistory = async function() {
         const d = await r.json();
         if (d.success) {
             log('info', '🧹 Trade history cleared successfully.');
-            window.tradeHistoryData = (window.tradeHistoryData || []).filter(t => t.status === 'OPEN');
+            window.tradeHistoryData = [];
             window.tradeHistoryStats = { total_trades: 0, wins: 0, losses: 0, win_rate_pct: 0, total_pnl: 0, total_fees: 0, net_pnl: 0 };
             window.renderTradeHistoryUI();
         }
@@ -2284,6 +2333,10 @@ async function refreshBalance() {
             const marginAllocPct = bal > 0 ? ((marginUsed / bal) * 100).toFixed(1) : '0.0';
 
             $('statBalance').textContent = fmtUsd(bal);
+            if ($('topbarBalanceVal')) {
+                $('topbarBalanceVal').textContent = fmtUsd(bal);
+                $('topbarBalanceVal').title = `${exchange} ${env} balance: ${fmtUsd(bal)}`;
+            }
             updateSlot('account.equity', fmtUsd(bal));
             updateSlot('account.available', fmtUsd(avail));
             updateSlot('account.marginUsed', fmtUsd(marginUsed));
@@ -2298,6 +2351,7 @@ async function refreshBalance() {
             updateSlot('engine.env', env);
         } else if (!d.success && d.error && d.error.includes('not connected')) {
             if ($('statBalance')) $('statBalance').textContent = '--';
+            if ($('topbarBalanceVal')) $('topbarBalanceVal').textContent = '$--';
             updateSlot('account.equity', '--');
             updateSlot('account.available', '--');
             updateSlot('account.marginUsed', '--');

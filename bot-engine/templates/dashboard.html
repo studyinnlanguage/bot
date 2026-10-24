@@ -81,6 +81,11 @@
             </div>
 
             <div class="sp">
+                <!-- Live USDT Balance Pill (Visible across all tabs at all times) -->
+                <div class="topbar-balance-pill" id="topbarBalancePill" style="display:inline-flex; align-items:center; gap:8px; padding:6px 12px; background:rgba(240, 185, 11, 0.12); border:1px solid rgba(240, 185, 11, 0.35); border-radius:8px;" title="Real-time USDT Wallet Balance">
+                    <span style="font-size:10px; font-weight:700; color:var(--t3); letter-spacing:.05em;">BALANCE</span>
+                    <span class="num gold" id="topbarBalanceVal" style="font:800 13px var(--mono); color:var(--gold);">$--</span>
+                </div>
                 <!-- Environment Chip -->
                 <span class="chip amber" id="envBadge">
                     <span id="exchangeBadge">BINANCE FUTURES</span> · <span id="modeBadge" data-slot="engine.env">TESTNET</span>
@@ -282,29 +287,105 @@
             </section>
 
             <!-- ========================================================
-                 TAB 2: OPEN POSITIONS (Dedicated View)
+                 TAB 2: OPEN POSITIONS (Dedicated Multi-Coin & Active View)
                  ======================================================== -->
             <section class="ws-tab-pane" data-ws-tab="position">
-                <div class="card stat" style="padding:18px 22px;">
-                    <div class="spread">
-                        <span class="label">Unrealized PnL · Active Slots</span>
-                        <span class="chip dim" id="posFocusRiskLabel" data-slot="positions.riskLabel">RISK: LOW</span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:8px;">
-                        <div>
-                            <div class="num" id="posFocusTotalPnl" style="font:800 28px var(--font); color:var(--up);" data-slot="positions.unrealizedPnl">--</div>
-                            <div class="t2 num" id="posFocusRoeMargin" style="font:600 11px var(--font); margin-top:2px;" data-slot="positions.roeMargin">--% ROE · MARGIN $--</div>
+                <div class="statrow" style="margin-bottom:14px;">
+                    <div class="card stat" style="padding:16px 20px; flex:1;">
+                        <div class="spread">
+                            <span class="label">Total Unrealized PnL</span>
+                            <span class="chip dim" id="posFocusRiskLabel" data-slot="positions.riskLabel">RISK: LOW</span>
+                        </div>
+                        <div style="margin-top:6px;">
+                            <div class="num" id="posFocusTotalPnl" style="font:800 24px var(--font); color:var(--up);" data-slot="positions.unrealizedPnl">+$0.00</div>
+                            <div class="t2 num" id="posFocusRoeMargin" style="font:600 11px var(--font); margin-top:2px;" data-slot="positions.roeMargin">+0.00% ROE · MARGIN $0.00</div>
                         </div>
                     </div>
-                    <div class="meter" style="margin-top:12px;">
-                        <div class="spread"><span class="label">Risk Exposure</span><span class="label gold" id="posFocusRiskPct" data-slot="positions.riskPct">--%</span></div>
-                        <div class="mbar"><i id="posFocusRiskBar" data-slot="positions.riskBar" style="width:0%"></i></div>
+                    <div class="card stat" style="padding:16px 20px; flex:1;">
+                        <div class="spread"><span class="label">Active Monitored Slots</span><span class="label gold" id="tab2SlotCount">0 Active</span></div>
+                        <div style="font:800 24px var(--font); color:var(--gold); margin-top:6px;" id="posActiveCountText">0 Open Positions</div>
+                        <div class="t3" style="font-size:10.5px; margin-top:2px;">Strict 1:1 Risk/Reward Auto Execution</div>
+                    </div>
+                </div>
+
+                <!-- Active Focus Position Specs Card -->
+                <div class="card" style="padding:16px 20px; margin-bottom:14px;">
+                    <div class="spread" style="margin-bottom:10px;">
+                        <div>
+                            <span class="label">Active Focus Position Specs</span>
+                            <div style="font:800 16px var(--font); color:var(--gold); margin-top:2px;" id="posFocusSymbol">BTCUSDT</div>
+                        </div>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <span id="posFocusBadge" class="badge manual">NO POSITION</span>
+                            <span id="posFocusLeverage" class="chip amber">125x</span>
+                            <button type="button" class="btn btn-ghost red" onclick="closePosition()" style="padding:4px 10px; font-size:10px;">✕ Close Active Position</button>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; padding:12px; background:#080A0E; border:1px solid var(--border); border-radius:8px; font-size:11px;">
+                        <div><span class="t3" style="font-size:9.5px;">DIRECTION</span><div id="posFocusSide" style="font-weight:700;">FLAT</div></div>
+                        <div><span class="t3" style="font-size:9.5px;">CONTRACT SIZE</span><div id="posFocusSize" class="num">0.0000</div></div>
+                        <div><span class="t3" style="font-size:9.5px;">ENTRY PRICE</span><div id="posFocusEntry" class="num">$--</div></div>
+                        <div><span class="t3" style="font-size:9.5px;">MARK PRICE</span><div id="posFocusMark" class="num">$--</div></div>
+                        <div><span class="t3" style="font-size:9.5px;">UNREALIZED PNL</span><div id="posFocusPnl" class="num up">$0.00</div></div>
+                        <div><span class="t3" style="font-size:9.5px;">EST. ROE</span><div id="posFocusRoe" class="num up">0.00%</div></div>
+                        <div><span class="t3" style="font-size:9.5px;">1:1 TAKE PROFIT</span><div id="posFocusTrailingTp" class="num up">$--</div></div>
+                        <div><span class="t3" style="font-size:9.5px;">1:1 STOP LOSS</span><div id="posFocusCurrentSl" class="num down">$--</div></div>
+                    </div>
+                </div>
+
+                <!-- Multi-Coin Watchlist Positions Table Card -->
+                <div class="card tablec" style="margin-bottom:14px;">
+                    <div class="thead2">
+                        <span class="label">Multi-Coin Watchlist Positions</span>
+                        <div class="tfilters" style="margin-left:auto; display:flex; gap:6px; align-items:center;">
+                            <span class="chip amber" id="tab2PosBadgeCount">0 Active</span>
+                            <button type="button" class="btn btn-ghost red" onclick="closeAllPositions()" style="padding:4px 10px; font-size:10px;">⚡ Close All</button>
+                        </div>
+                    </div>
+                    <div class="positions-table-wrapper">
+                        <div class="tr h">
+                            <span>Symbol</span>
+                            <span>Side / Lev</span>
+                            <span>Size</span>
+                            <span>Entry</span>
+                            <span>Mark Price</span>
+                            <span>PnL (ROE)</span>
+                            <span>TP / SL</span>
+                            <span style="text-align:right">Actions</span>
+                        </div>
+                        <div id="tab2PositionsTableBody" data-list="positions">
+                            <div class="empty" data-empty>NO OPEN POSITIONS</div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Position Cards with SL/TP Lanes -->
-                <div id="detailedPositionsList" style="display:flex; flex-direction:column; gap:12px;">
-                    <div class="empty" data-empty>NO OPEN POSITIONS</div>
+                <div id="detailedPositionsList" style="display:flex; flex-direction:column; gap:12px; margin-bottom:14px;"></div>
+
+                <!-- Recent Closed Trades Quick Summary Card -->
+                <div class="card tablec">
+                    <div class="thead2">
+                        <span class="label">Recent Closed Trades Summary</span>
+                        <button type="button" class="btn btn-ghost" onclick="switchWorkspaceTab('history')" style="margin-left:auto; font-size:10px; padding:4px 10px;">View Full History →</button>
+                    </div>
+                    <div class="history-table-wrapper">
+                        <table style="width:100%; border-collapse:collapse; font-size:11.5px; text-align:left;">
+                            <thead>
+                                <tr style="color:var(--t3); border-bottom:1px solid #141A22; font-size:10px; text-transform:uppercase;">
+                                    <th style="padding:8px;">Time</th>
+                                    <th style="padding:8px;">Symbol</th>
+                                    <th style="padding:8px;">Side</th>
+                                    <th style="padding:8px;">Entry ➔ Exit</th>
+                                    <th style="padding:8px;">Realized PnL</th>
+                                    <th style="padding:8px;">Exit Reason</th>
+                                    <th style="padding:8px; text-align:right;">Fees</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentTradesTableBody">
+                                <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--t3);">No recent closed trades yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </section>
 
@@ -840,6 +921,11 @@
                 window.chart.applyOptions({ width: c.clientWidth, height: c.clientHeight || 360 });
                 if (window.chart.timeScale) window.chart.timeScale().fitContent();
             }, 80);
+        } else if (tab === 'position') {
+            if (typeof window.fetchPositions === 'function') window.fetchPositions();
+            if (typeof window.renderPositionsTable === 'function') window.renderPositionsTable();
+        } else if (tab === 'history') {
+            if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory();
         }
     }
 
