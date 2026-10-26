@@ -1567,6 +1567,7 @@ class BotEngine:
         self.lock = threading.Lock()
         self._trade_entry_lock = threading.Lock()
         self.is_running = False
+        self._start_time = 0.0
         self.active_symbol = None  # Which coin the UI is currently viewing
         # ===== MONITOR MODE =====
         # Always-on background thread that fetches balance, mark_price, chart
@@ -1873,6 +1874,7 @@ class BotEngine:
         _bg_thread = threading.Thread(target=_set_leverage_bg, daemon=True)
         _bg_thread.start()
 
+        self._start_time = time.time()
         self.is_running = True
 
         # Set active_symbol BEFORE spawning workers (prevents race condition)
@@ -2132,8 +2134,9 @@ class BotEngine:
     def status(self) -> dict:
         symbols = self._symbols_list() if self.is_running else []
         # ZOMBIE CHECK: if is_running but no alive workers, report as NOT running
+        is_startup = (time.time() - self._start_time) < 25.0
         alive_count = sum(1 for w in self.workers.values() if w.is_alive())
-        if self.is_running and alive_count == 0 and self.workers:
+        if self.is_running and not is_startup and alive_count == 0 and self.workers:
             # Workers all dead but flag still True - report as not running
             # and auto-reset so user can start again
             self.is_running = False
@@ -2169,7 +2172,7 @@ class BotEngine:
                 sym: {
                     "candles_processed": w.candles_processed,
                     "trades_today": w.trades_today,
-                    "last_signal": w.last_signal.value,
+                    "last_signal": w.last_signal.value if hasattr(w.last_signal, "value") else str(w.last_signal or "HOLD"),
                     "last_trade_side": getattr(w, "last_trade_side", None),
                     "last_check": w.last_check,
                     "alive": w.is_alive(),
