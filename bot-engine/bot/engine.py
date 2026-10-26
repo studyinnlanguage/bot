@@ -820,10 +820,9 @@ class SymbolWorker(threading.Thread):
                     self._last_locked_log_time = now
                 return
 
-            # If waiting_for_new_cross is True (startup or after trade closed), must wait for fresh crossover!
-            if self.waiting_for_new_cross:
-                if not result.just_crossed:
-                    return
+            # STRICT REQUIREMENT: Bot MUST ONLY enter on a confirmed FRESH cross of Line 55 across ALL lines!
+            if not result.just_crossed:
+                return
 
             # Active signal & fresh cross! Guard against multiple entries on same closed candle
             candle_id = str(df.index[-2]) if len(df) >= 2 else str(time.time())

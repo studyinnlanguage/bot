@@ -71,33 +71,33 @@ class EMAQuadStrategy:
         if sep_pct < self.min_spread_pct:
             return Signal.HOLD
 
-        # Full Bullish Fan -> 8 >= 13 >= 21 > 55
-        if e8 >= e13 and e13 >= e21 and e21 > e55:
+        # Line 55 MUST cross below ALL lines for BUY
+        if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13 and e13 >= e21:
             return Signal.BUY
-        # Full Bearish Fan -> 8 <= 13 <= 21 < 55
-        elif e8 <= e13 and e13 <= e21 and e21 < e55:
+        # Line 55 MUST cross above ALL lines for SELL
+        elif e55 > e8 and e55 > e13 and e55 > e21 and e8 <= e13 and e13 <= e21:
             return Signal.SELL
         return Signal.HOLD
 
-    def _is_bullish_aligned(self, row) -> bool:
-        """Check if row has clean bullish EMA fan: 8 >= 13 >= 21 > 55."""
+    def _is_ema55_at_bottom(self, row) -> bool:
+        """Check if EMA55 is strictly below ALL other lines (8, 13, 21)."""
         e8 = row.get("ema_8")
         e13 = row.get("ema_13")
         e21 = row.get("ema_21")
         e55 = row.get("ema_55")
         if pd.isna(e8) or pd.isna(e13) or pd.isna(e21) or pd.isna(e55):
             return False
-        return float(e8) >= float(e13) and float(e13) >= float(e21) and float(e21) > float(e55)
+        return float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21)
 
-    def _is_bearish_aligned(self, row) -> bool:
-        """Check if row has clean bearish EMA fan: 8 <= 13 <= 21 < 55."""
+    def _is_ema55_at_top(self, row) -> bool:
+        """Check if EMA55 is strictly above ALL other lines (8, 13, 21)."""
         e8 = row.get("ema_8")
         e13 = row.get("ema_13")
         e21 = row.get("ema_21")
         e55 = row.get("ema_55")
         if pd.isna(e8) or pd.isna(e13) or pd.isna(e21) or pd.isna(e55):
             return False
-        return float(e8) <= float(e13) and float(e13) <= float(e21) and float(e21) < float(e55)
+        return float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21)
 
     def seed_startup_state(self, signal: Signal):
         """Seed startup state so bot NEVER enters on startup without a fresh crossover."""
@@ -126,9 +126,12 @@ class EMAQuadStrategy:
 
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
 
-        # 1. Sequential EMA Alignment Detection
-        is_buy_candidate = (float(e8) >= float(e13) and float(e13) >= float(e21) and float(e21) > float(e55))
-        is_sell_candidate = (float(e8) <= float(e13) and float(e13) <= float(e21) and float(e21) < float(e55))
+        # 1. EMA55 Crossing ALL lines detection (Line 55 MUST cross ALL lines 8, 13, 21)
+        ema55_at_bottom = self._is_ema55_at_bottom(closed_candle)
+        ema55_at_top = self._is_ema55_at_top(closed_candle)
+
+        is_buy_candidate = ema55_at_bottom and (float(e8) >= float(e13) and float(e13) >= float(e21))
+        is_sell_candidate = ema55_at_top and (float(e8) <= float(e13) and float(e13) <= float(e21))
 
         # 2. Minimum Spread Chop Filter
         is_flat_chop = sep_pct < self.min_spread_pct
@@ -138,27 +141,27 @@ class EMAQuadStrategy:
             reason = f"Flat market chop (EMA spread {sep_pct:.3f}% < {self.min_spread_pct:.3f}% required) -> HOLD"
         elif is_buy_candidate:
             signal = Signal.BUY
-            reason = f"EMA55 at BOTTOM & Bullish EMA stack 8>=13>=21>55 (spread={sep_pct:.2f}%) -> BUY (LONG)"
+            reason = f"EMA55 crossed below ALL lines & 8>=13>=21 (spread={sep_pct:.2f}%) -> BUY (LONG)"
         elif is_sell_candidate:
             signal = Signal.SELL
-            reason = f"EMA55 at TOP & Bearish EMA stack 8<=13<=21<55 (spread={sep_pct:.2f}%) -> SELL (SHORT)"
+            reason = f"EMA55 crossed above ALL lines & 8<=13<=21 (spread={sep_pct:.2f}%) -> SELL (SHORT)"
         else:
             signal = Signal.HOLD
-            reason = "EMAs tangled / no clear trend -> HOLD"
+            reason = "EMA55 tangled / inside lines (no full cross) -> HOLD"
 
-        # 3. Genuine Fresh Crossover Check:
-        # A fresh BUY cross requires that prior to this candle, EMAs were NOT already in full bullish alignment.
-        # A fresh SELL cross requires that prior to this candle, EMAs were NOT already in full bearish alignment.
+        # 3. Genuine Fresh Crossover Check (EMA 55 MUST freshly cross across ALL lines):
+        # A fresh BUY cross occurs ONLY when EMA55 freshly crossed below ALL lines (prior to this, EMA55 was NOT below all lines).
+        # A fresh SELL cross occurs ONLY when EMA55 freshly crossed above ALL lines (prior to this, EMA55 was NOT above all lines).
         is_fresh_cross = False
         if signal == Signal.BUY and len(enriched) >= 4:
-            was_not_bullish_prev1 = not self._is_bullish_aligned(enriched.iloc[-3])
-            was_not_bullish_prev2 = not self._is_bullish_aligned(enriched.iloc[-4])
-            if was_not_bullish_prev1 or was_not_bullish_prev2:
+            was_not_bottom_prev1 = not self._is_ema55_at_bottom(enriched.iloc[-3])
+            was_not_bottom_prev2 = not self._is_ema55_at_bottom(enriched.iloc[-4])
+            if was_not_bottom_prev1 or was_not_bottom_prev2:
                 is_fresh_cross = True
         elif signal == Signal.SELL and len(enriched) >= 4:
-            was_not_bearish_prev1 = not self._is_bearish_aligned(enriched.iloc[-3])
-            was_not_bearish_prev2 = not self._is_bearish_aligned(enriched.iloc[-4])
-            if was_not_bearish_prev1 or was_not_bearish_prev2:
+            was_not_top_prev1 = not self._is_ema55_at_top(enriched.iloc[-3])
+            was_not_top_prev2 = not self._is_ema55_at_top(enriched.iloc[-4])
+            if was_not_top_prev1 or was_not_top_prev2:
                 is_fresh_cross = True
 
         # 4. Anti-Whipsaw Flicker State Transition:
@@ -208,9 +211,9 @@ class EMAQuadStrategy:
 
         sig = "HOLD"
         if e8 and e13 and e21 and e55 and sep_pct >= self.min_spread_pct:
-            if e8 >= e13 and e13 >= e21 and e21 > e55:
+            if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13 and e13 >= e21:
                 sig = "BUY"
-            elif e8 <= e13 and e13 <= e21 and e21 < e55:
+            elif e55 > e8 and e55 > e13 and e55 > e21 and e8 <= e13 and e13 <= e21:
                 sig = "SELL"
 
         return {
