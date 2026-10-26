@@ -1566,6 +1566,7 @@ class BotEngine:
         self.lock = threading.Lock()
         self._trade_entry_lock = threading.Lock()
         self.is_running = False
+        self._start_time = 0.0
         self.active_symbol = None  # Which coin the UI is currently viewing
         # ===== MONITOR MODE =====
         # Always-on background thread that fetches balance, mark_price, chart
@@ -1573,6 +1574,11 @@ class BotEngine:
         # see live data immediately after saving settings.
         self.monitor_thread: Optional[MonitorThread] = None
         self.monitor_trader = None  # separate trader instance for monitor
+
+    @property
+    def symbols(self) -> list:
+        """Alias for symbols list to prevent AttributeError across API endpoints."""
+        return self._symbols_list()
 
     def get_active_positions(self) -> list[str]:
         """Return list of symbols that currently have an active open position."""
@@ -1838,27 +1844,26 @@ class BotEngine:
                     else:
                         err = str(r.get("error", ""))
                         is_binance = self.config.get("exchange", "binance").lower() == "binance"
-                        if is_binance and ("-2015" in err or "Invalid API-key" in err or "401" in err):
-                            self._emit("log", {
-                                "level": "error",
-                                "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): Your API Key is REJECTED by Binance! 1) Check 'Enable Futures'. 2) If IP restricted, whitelist your VPS IP. 3) Ensure it's a Futures key, not Spot!"
-                            })
-                            # Stop the bot completely and kill all threads
-                            self.is_running = False
-                            for w in self.workers.values():
-                                w.stop_event.set()
-                            return
-                        elif not is_binance and ("-1044" in err or "401" in err or "signature" in err.lower()):
+                        if "-1121" in err or "Invalid symbol" in err or "not supported" in err.lower():
+                            logger.info(f"[{sym}] Leverage setup skipped: symbol not supported.")
                             self._emit("log", {
                                 "level": "warn",
-                                "msg": f"[{sym}] ⚠️ WEEX leverage notice: {err[:80]}. Continuing with effective leverage."
+                                "msg": f"[{sym}] ⚠️ Coin not supported on current exchange environment. Skipping leverage setup."
                             })
-                        elif "-1121" in err or "Invalid symbol" in err:
-                            logger.info(f"[{sym}] Leverage setup skipped: symbol not supported.")
                         elif "-4141" in err or "Symbol is closed" in err or "band" in err:
                             self._emit("log", {
                                 "level": "warn",
                                 "msg": f"[{sym}] ⚠️ Symbol is delisted/closed - skipping."
+                            })
+                        elif is_binance and ("-2015" in err or "invalid api-key" in err.lower()):
+                            self._emit("log", {
+                                "level": "warn",
+                                "msg": f"[{sym}] ⚠️ Binance permissions/symbol notice (-2015). Continuing with effective leverage."
+                            })
+                        elif not is_binance and ("-1044" in err or "signature" in err.lower()):
+                            self._emit("log", {
+                                "level": "warn",
+                                "msg": f"[{sym}] ⚠️ WEEX leverage notice: {err[:80]}. Continuing with effective leverage."
                             })
                         else:
                             # Don't block bot over leverage errors — trades will use default
@@ -1873,6 +1878,7 @@ class BotEngine:
         _bg_thread.start()
 
         self.is_running = True
+        self._start_time = time.time()
 
         # Set active_symbol BEFORE spawning workers (prevents race condition)
         if symbols:
@@ -2131,8 +2137,10 @@ class BotEngine:
     def status(self) -> dict:
         symbols = self._symbols_list() if self.is_running else []
         # ZOMBIE CHECK: if is_running but no alive workers, report as NOT running
+        # Allow 25s startup grace period for staggered worker initialization
+        is_startup = (time.time() - getattr(self, "_start_time", 0)) < 25.0
         alive_count = sum(1 for w in self.workers.values() if w.is_alive())
-        if self.is_running and alive_count == 0 and self.workers:
+        if self.is_running and not is_startup and alive_count == 0 and self.workers:
             # Workers all dead but flag still True - report as not running
             # and auto-reset so user can start again
             self.is_running = False
@@ -2144,6 +2152,12 @@ class BotEngine:
             with self.trade_history.lock:
                 trades_today_count = sum(
                     1 for t in self.trade_history.trades
+                    if t.get("status") == "CLOSED" and str(t.get("closed_at", "")).startswith(today_utc)
+                )
+        elif hasattr(self, "history") and self.history and hasattr(self.history, "trades"):
+            with self.history.lock:
+                trades_today_count = sum(
+                    1 for t in self.history.trades
                     if t.get("status") == "CLOSED" and str(t.get("closed_at", "")).startswith(today_utc)
                 )
         if trades_today_count == 0 and self.workers:
@@ -2168,7 +2182,7 @@ class BotEngine:
                 sym: {
                     "candles_processed": w.candles_processed,
                     "trades_today": w.trades_today,
-                    "last_signal": w.last_signal.value,
+                    "last_signal": w.last_signal.value if hasattr(w.last_signal, "value") else str(w.last_signal or "HOLD"),
                     "last_trade_side": getattr(w, "last_trade_side", None),
                     "last_check": w.last_check,
                     "alive": w.is_alive(),
