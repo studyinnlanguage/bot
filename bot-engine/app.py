@@ -415,7 +415,7 @@ def get_positions():
     if not trader:
         return jsonify({"success": False, "error": "Bot trader not connected", "positions": []})
     req_sym = request.args.get("symbol", "").strip().upper()
-    symbols = [req_sym] if req_sym else (ENGINE._symbols_list() if hasattr(ENGINE, "_symbols_list") else [CONFIG.get("symbol", "BTCUSDT")])
+    symbols = [req_sym] if req_sym else (ENGINE.symbols or [CONFIG.get("symbol", "BTCUSDT")])
     if not symbols:
         symbols = ["BTCUSDT"]
 
@@ -771,41 +771,21 @@ def get_all_symbols():
 
 
 @app.route("/api/test_chart", methods=["GET"])
-@app.route("/api/chart_data", methods=["GET"])
 def test_chart():
-    symbol = request.args.get("symbol", CONFIG.get("symbol", "BTCUSDT")).strip().upper()
-    trader = ENGINE.trader or getattr(ENGINE, "monitor_trader", None)
-    if not trader:
-        try:
-            from bot.engine import get_trader
-            trader = get_trader(CONFIG)
-        except Exception:
-            trader = None
-    if not trader:
-        return jsonify({"success": False, "error": "Trader not connected", "candles": [], "emas": {}})
+    symbol = request.args.get("symbol", CONFIG.get("symbol", "BTCUSDT"))
+    if not ENGINE.trader:
+        return jsonify({"success": False, "error": "Bot not running"})
     try:
-        tf = CONFIG.get("timeframe", "5m")
-        df = trader.get_klines(symbol, interval=tf, limit=200)
+        df = ENGINE.trader.get_klines(symbol, interval=CONFIG.get("timeframe", "5m"), limit=5)
         if df is None or len(df) == 0:
-            return jsonify({"success": False, "error": "No klines data", "candles": [], "emas": {}})
-        candles = ENGINE._candles_to_list(df)
-        emas = ENGINE._emas_to_list(df)
-        indicators = ENGINE.strategy.latest_indicators(df)
-        try:
-            mp = trader.get_mark_price(symbol)
-        except Exception:
-            mp = float(df.iloc[-1]["close"]) if df is not None and len(df) else 0.0
-        return jsonify({
-            "success": True,
-            "symbol": symbol,
-            "rows": len(df),
-            "candles": candles,
-            "emas": emas,
-            "indicators": indicators,
-            "mark_price": mp
-        })
+            return jsonify({"success": False, "error": "No klines data", "rows": 0})
+        candles = []
+        for ts, row in df.iterrows():
+            candles.append({"time": int(ts.timestamp()), "open": float(row["open"]),
+                "high": float(row["high"]), "low": float(row["low"]), "close": float(row["close"])})
+        return jsonify({"success": True, "symbol": symbol, "rows": len(df), "candles": candles})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e), "candles": [], "emas": {}})
+        return jsonify({"success": False, "error": str(e)})
 
 
 @app.route("/api/preview", methods=["POST"])

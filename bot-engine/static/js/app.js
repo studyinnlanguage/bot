@@ -124,17 +124,14 @@ function renderEMAStack(data) {
     }
 }
 
-// ===== HTTP Fallback for Chart Data (when socket disconnects or on tab select) =====
+// ===== HTTP Fallback for Chart Data (when socket disconnects) =====
 async function fetchChartData(symbol) {
-    if (!symbol) return;
+    if (!symbol || !isRunning) return;
     try {
         const r = await fetch(`/api/test_chart?symbol=${symbol}`);
         const data = await r.json();
         if (data.success && data.candles && data.candles.length > 0) {
-            chartDataBySymbol[symbol] = { symbol, candles: data.candles, emas: data.emas || {} };
-            if (data.indicators) {
-                indicatorsBySymbol[symbol] = { ...data.indicators, mark_price: data.mark_price };
-            }
+            chartDataBySymbol[symbol] = { symbol, candles: data.candles, emas: {} };
             if (symbol === activeSymbol) {
                 renderChartForSymbol(symbol);
             }
@@ -1514,7 +1511,6 @@ function selectSymbol(sym) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: sym })
     }).catch(() => {});
-    fetchChartData(sym);
     // Render cached data immediately
     if (indicatorsBySymbol[sym]) {
         const data = indicatorsBySymbol[sym];
@@ -1978,12 +1974,6 @@ async function startBot() {
         if (data.success) {
             log('success', 'Bot started!');
             setBotRunning(true);
-            if (activeSymbol) fetchChartData(activeSymbol);
-        } else if (data.error && data.error.toLowerCase().includes('already running')) {
-            log('success', '✅ Bot already running — UI synchronized!');
-            setBotRunning(true);
-            refreshStatus();
-            if (activeSymbol) fetchChartData(activeSymbol);
         } else {
             log('error', `Start failed: ${data.error}`);
         }
