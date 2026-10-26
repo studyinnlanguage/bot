@@ -1975,6 +1975,13 @@ async function startBot() {
             log('success', 'Bot started!');
             setBotRunning(true);
         } else {
+            if ((data.error || '').toLowerCase().includes('already running')) {
+                await refreshStatus();
+                if (isRunning) {
+                    log('info', 'Bot pehle se running hai; status sync kar diya.');
+                    return;
+                }
+            }
             log('error', `Start failed: ${data.error}`);
         }
     } catch (e) {
