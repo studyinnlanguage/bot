@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FF07090D</color>
+    <color name="bg_elev">#FF0B0D12</color>
+    <color name="card">#FF0E1117</color>
+    <color name="card_hi">#FF131720</color>
+    <color name="hairline">#FF1B2130</color>
+    <color name="input_bg">#FF131720</color>
+    <color name="input_stroke">#FF232B3D</color>
+    <color name="gold">#FFF0B90B</color>
+    <color name="gold_hi">#FFF8D33A</color>
+    <color name="on_gold">#FF141414</color>
+    <color name="green">#FF0ECB81</color>
+    <color name="red">#FFF6465D</color>
+    <color name="text_pri">#FFF2F4F7</color>
+    <color name="text_sec">#FF8A93A5</color>
+    <color name="text_dim">#FF5B6472</color>
+    <color name="nav_bg">#FF0B0D12</color>
+</resources>
