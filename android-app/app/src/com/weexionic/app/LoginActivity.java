@@ -1,6 +1,7 @@
 package com.weexionic.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
@@ -17,6 +18,8 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import java.util.Locale;
+
 /**
  * Concept-exact login (v3.4): "Log in. Let the bot do the watching."
  * Server is baked in (Session.DEFAULT_SERVER) — the user never types an address.
@@ -28,7 +31,7 @@ public class LoginActivity extends Activity {
     private Session session;
     private EditText etEmail, etPassword;
     private TextView tvError, btnEye;
-    private LinearLayout btnGoogle;
+    private LinearLayout btnGoogle, btnPair;
     private CheckBox chkRemember;
     private Button btnLogin;
     private boolean busy = false;
@@ -49,6 +52,7 @@ public class LoginActivity extends Activity {
             btnLogin = findViewById(R.id.btnLogin);
             chkRemember = findViewById(R.id.chkRemember);
             btnGoogle = findViewById(R.id.btnGoogle);
+            btnPair = findViewById(R.id.btnPair);
 
             if (session.remember()) {
                 String se = session.email();
@@ -81,6 +85,13 @@ public class LoginActivity extends Activity {
                 }
             });
 
+            btnPair.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!busy && !busyExchange) doPair();
+                }
+            });
+
             handleDeepLink(getIntent());
         } catch (Throwable t) {
             // Never hard-crash the login screen — surface a clean message instead.
@@ -103,6 +114,10 @@ public class LoginActivity extends Activity {
         tvError.setTextColor(0xFFF6465D);
         tvError.setText(msg);
         tvError.setVisibility(View.VISIBLE);
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     private void showInfo(String msg) {
@@ -164,6 +179,91 @@ public class LoginActivity extends Activity {
                         btnLogin.setEnabled(true);
                         btnLogin.setText("Log In to Terminal");
                         finishLogin(r, srv, null); // google login: password is never saved
+                    }
+                });
+            }
+        }).start();
+    }
+
+    // ---------- Pair with Web App (one-time code from the website) ----------
+
+    /**
+     * v3.7: the website (home page → "📱 Pair App") shows a one-time 6-char
+     * code. The user types it here and the app opens the SAME account —
+     * no Google round-trip, no browser, no password. Works for every account.
+     */
+    private void doPair() {
+        try {
+            final EditText input = new EditText(this);
+            input.setHint("Code e.g. K7MP2X");
+            input.setSingleLine(true);
+            input.setAllCaps(true);
+            input.setTextSize(18);
+            input.setTextColor(0xFFEAECEF);
+            input.setHintTextColor(0xFF6B7280);
+            input.setBackgroundDrawable(null);
+            input.setPadding(dp(16), dp(12), dp(16), dp(12));
+
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setBackgroundColor(0xFF14181F);
+            box.setPadding(dp(20), dp(10), dp(20), dp(4));
+
+            TextView head = new TextView(this);
+            head.setText("Type the code shown on the website\nWebsite → \u201C\uD83D\uDCF1 Pair App\u201D button (top of the page)");
+            head.setTextColor(0xFF9AA4B2);
+            head.setTextSize(12);
+            head.setPadding(0, dp(6), 0, dp(10));
+            box.addView(head);
+            box.addView(input);
+
+            new AlertDialog.Builder(this)
+                    .setTitle("Pair with Web App")
+                    .setView(box)
+                    .setPositiveButton("PAIR NOW", new android.content.DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(android.content.DialogInterface d, int w) {
+                            String code = input.getText().toString().trim().toUpperCase(Locale.US);
+                            if (code.length() < 4) {
+                                showErr("Please type the 6-character code from the website");
+                                return;
+                            }
+                            doPairClaim(code);
+                        }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        } catch (Throwable t) {
+            try { CrashLog.save(t); } catch (Exception ignore) { }
+            showErr("Couldn't open the pairing dialog — please try again");
+        }
+    }
+
+    private void doPairClaim(final String code) {
+        final String srv = session.hasServer() ? session.server() : Session.DEFAULT_SERVER;
+        busyExchange = true;
+        busy = true;
+        btnLogin.setEnabled(false);
+        btnLogin.setText("Pairing…");
+        showInfo("Connecting to your web account…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String b = "{}";
+                try {
+                    JSONObject jo = new JSONObject();
+                    jo.put("code", code);
+                    b = jo.toString();
+                } catch (Exception ignore) { }
+                final ApiClient.Result r = ApiClient.post(srv + "/api/auth/pair/claim", b, null);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        busyExchange = false;
+                        busy = false;
+                        btnLogin.setEnabled(true);
+                        btnLogin.setText("Log In to Terminal");
+                        finishLogin(r, srv, null); // pairing never saves a password
                     }
                 });
             }

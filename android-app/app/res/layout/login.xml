@@ -222,6 +222,31 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
             </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btnPair"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/btn_outline_gold"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pair with Web App"
+                    android:textColor="@color/gold"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Same account as the website — no password"
+                    android:textColor="@color/text_dim"
+                    android:textSize="10sp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Concept trust rows -->

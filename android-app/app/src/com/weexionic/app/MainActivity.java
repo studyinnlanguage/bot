@@ -99,7 +99,10 @@ public class MainActivity extends Activity {
             tvRefCount, tvRefEarned, tvRateYearly, tvRateLifetime;
 
     // account
-    private TextView tvAvatar, tvName, tvEmail, tvPlan, tvExpiry, tvServerHost;
+    private TextView tvAvatar, tvName, tvEmail, tvPlan, tvExpiry, tvServerHost, tvAppVersion;
+
+    // warn-card state: "403" | "license" | "nocoins" | "other" | null (hidden)
+    private String lastWarnKind = null;
 
     // caches
     private JSONObject lastBotStatus = null;
@@ -175,7 +178,10 @@ public class MainActivity extends Activity {
         btnStop = findViewById(R.id.btnStop);
         cardWarn = findViewById(R.id.cardWarn);
         cardWarn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { startActivity(new Intent(MainActivity.this, SettingsActivity.class)); }
+            public void onClick(View v) {
+                if ("403".equals(lastWarnKind)) { offerWeexSwitch(); return; }
+                startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+            }
         });
         tvWarn = findViewById(R.id.tvWarn);
         sparkHome = findViewById(R.id.sparkHome);
@@ -217,8 +223,16 @@ public class MainActivity extends Activity {
         tvPlan = findViewById(R.id.tvPlan);
         tvExpiry = findViewById(R.id.tvExpiry);
         tvServerHost = findViewById(R.id.tvServerHost);
+        tvAppVersion = findViewById(R.id.tvAppVersion);
 
         tvServerHost.setText(ApiClient.hostOf(session.server()));
+        // REAL version from the APK manifest — never stale, never wrong.
+        try {
+            String ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            tvAppVersion.setText("Weexionic App v" + ver + "  \u2022  Native Engine Client");
+        } catch (Exception e) {
+            tvAppVersion.setText("Weexionic App  \u2022  Native Engine Client");
+        }
         String nm = session.name();
         if (nm != null && !nm.isEmpty()) {
             tvName.setText(nm);
@@ -713,24 +727,29 @@ public class MainActivity extends Activity {
         // honest diagnostics: license / running-but-no-data / balance error — each with its REAL reason
         boolean licBad = !licActive;
         boolean warn = licBad || (running && (!bok || coins == 0));
+        lastWarnKind = null;
         if (cardWarn != null) {
             cardWarn.setVisibility(warn ? View.VISIBLE : View.GONE);
             if (warn) {
                 if (licBad) {
+                    lastWarnKind = "license";
                     tvWarn.setText("License inactive — your plan is not active. Open "
                             + ApiClient.hostOf(session.server()) + " in a browser and activate a plan to start the bot.");
                 } else if (!bok) {
                     String why = balErr == null ? "" : balErr.trim();
                     String low = why.toLowerCase(Locale.US);
                     if (low.contains("403") || low.contains("451") || low.contains("restricted")) {
+                        lastWarnKind = "403";
                         tvWarn.setText("The exchange has BLOCKED this server's region (HTTP 403). "
-                                + "Prices, chart and trades can't load from here. Fix: Bot Settings → "
-                                + "Exchange → WEEX, add your WEEX API keys, Save, then START. Tap this card to open settings.");
+                                + "Prices, chart and trades can't load from here.\n\nTAP HERE to switch the bot to WEEX "
+                                + "(works from your server's region) in one tap.");
                     } else {
+                        lastWarnKind = "other";
                         tvWarn.setText("Can't reach the exchange"
                                 + (why.isEmpty() ? " — verify your API keys in Bot Settings (tap this card)" : ": " + why));
                     }
                 } else {
+                    lastWarnKind = "nocoins";
                     tvWarn.setText("Engine is running but no coin is live — check coins in Bot Settings");
                 }
             }
@@ -1723,6 +1742,112 @@ public class MainActivity extends Activity {
     }
 
     /** Build an HONEST failure line: HTTP code + the server's own words. */
+    // ---------- One-tap WEEX switch (HTTP 403 region-block recovery) ----------
+
+    /**
+     * v3.7: Binance blocks some server regions (HTTP 403) — prices/chart/balance
+     * can never load from there. WEEX works from those regions (verified) and has
+     * a free demo mode. This dialog switches the bot's exchange in ONE TAP, then
+     * walks the user through the 3-step WEEX key setup.
+     */
+    private void offerWeexSwitch() {
+        try {
+            new AlertDialog.Builder(this)
+                    .setTitle("Switch bot to WEEX?")
+                    .setMessage(
+                            "The exchange you're using (Binance) has blocked this server's region (HTTP 403) — "
+                                    + "so prices, chart and balance can never load from here.\n\n"
+                                    + "WEEX works from your server's region and has a FREE demo mode.\n\n"
+                                    + "Tapping SWITCH will:\n"
+                                    + "1. Change the bot exchange to WEEX (demo)\n"
+                                    + "2. Show you how to create free WEEX API keys\n"
+                                    + "3. Open Bot Settings to paste them")
+                    .setPositiveButton("SWITCH TO WEEX", new android.content.DialogInterface.OnClickListener() {
+                        public void onClick(android.content.DialogInterface d, int w) { switchToWeex(); }
+                    })
+                    .setNeutralButton("OPEN SETTINGS", new android.content.DialogInterface.OnClickListener() {
+                        public void onClick(android.content.DialogInterface d, int w) {
+                            startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+                        }
+                    })
+                    .setNegativeButton("Not now", null)
+                    .show();
+        } catch (Throwable t) {
+            try { CrashLog.save(t); } catch (Exception ignore) { }
+            startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+        }
+    }
+
+    private void switchToWeex() {
+        playSfx(sTap);
+        Toast.makeText(this, "Switching exchange to WEEX…", Toast.LENGTH_SHORT).show();
+        final String base = session.server(), ck = session.cookie();
+        new Thread(new Runnable() {
+            public void run() {
+                final ApiClient.Result r = ApiClient.post(base + "/api/bot/config",
+                        "{\"exchange\":\"weex\",\"testnet\":true}", ck);
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        boolean ok = false;
+                        String emsg = "Couldn't switch — check your connection and try again";
+                        try {
+                            JSONObject jo = new JSONObject(r.body);
+                            ok = r.ok() && jo.optBoolean("success", false);
+                            if (!ok) {
+                                String e2 = jo.optString("error", "");
+                                if (e2.length() > 0) emsg = e2;
+                            }
+                        } catch (Exception e) {
+                            if (r.error != null) emsg = r.error;
+                        }
+                        if (!ok) {
+                            playSfx(sErr);
+                            try {
+                                new AlertDialog.Builder(MainActivity.this)
+                                        .setTitle("Switch failed")
+                                        .setMessage(emsg + "\n\nYou can also switch manually: Bot Settings → Exchange → WEEX.")
+                                        .setPositiveButton("OPEN SETTINGS", new android.content.DialogInterface.OnClickListener() {
+                                            public void onClick(android.content.DialogInterface d, int w) {
+                                                startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+                                            }
+                                        })
+                                        .setNegativeButton("OK", null)
+                                        .show();
+                            } catch (Exception ignore) { }
+                            return;
+                        }
+                        reportRemoteOnce("weex-switch", "exchange switched to WEEX via warn card");
+                        showWeexKeyGuide();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** After a successful switch: the 3-step WEEX key walkthrough. */
+    private void showWeexKeyGuide() {
+        try {
+            new AlertDialog.Builder(this)
+                    .setTitle("WEEX selected — 3 steps left")
+                    .setMessage(
+                            "Step 1 — create FREE demo keys:\n"
+                                    + "Open the WEEX app → Profile → API Settings → Create API\n"
+                                    + "(choose the DEMO account). You'll get 3 things:\n"
+                                    + "API Key, Secret, Passphrase.\n\n"
+                                    + "Step 2 — paste them:\n"
+                                    + "Bot Settings → Exchange keys → paste all three → Save.\n\n"
+                                    + "Step 3 — press START.\n"
+                                    + "Balance, prices and trades now load through WEEX.")
+                    .setPositiveButton("OPEN BOT SETTINGS", new android.content.DialogInterface.OnClickListener() {
+                        public void onClick(android.content.DialogInterface d, int w) {
+                            startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+                        }
+                    })
+                    .setNegativeButton("Later", null)
+                    .show();
+        } catch (Exception ignore) { }
+    }
+
     private String describeFailure(ApiClient.Result r, String action) {
         String action2 = action == null ? "action" : action;
         if (r == null) return action2 + " failed — no response";
