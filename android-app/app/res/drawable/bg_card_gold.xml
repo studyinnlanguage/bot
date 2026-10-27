@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Concept premium card: dark surface + gold hairline border -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="315" android:startColor="#FF12171F" android:centerColor="#FF0D1117" android:endColor="#FF0B0E14" />
+    <corners android:radius="18dp" />
+    <stroke android:width="1dp" android:color="#FF6B5416" />
+</shape>

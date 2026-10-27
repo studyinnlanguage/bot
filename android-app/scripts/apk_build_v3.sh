@@ -21,7 +21,7 @@ echo "== 2. aapt2 link =="
   -R "$OUT/res.zip" \
   --java "$OUT/gen" \
   --min-sdk-version 24 --target-sdk-version 34 \
-  --version-code 3 --version-name 3.0.0 \
+  --version-code 6 --version-name 3.3.0 \
   --auto-add-overlay
 
 echo "== 3. aapt2 add assets =="

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Concept CTA: gold gradient with soft glow ring on press -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#FFD9A706" android:centerColor="#FFD9A706" android:endColor="#FFB7890A" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#FF5A4A10" android:centerColor="#FF4A3D10" android:endColor="#FF3A3010" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#FFF8D33A" android:centerColor="#FFF0B90B" android:endColor="#FFD9A706" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</selector>
