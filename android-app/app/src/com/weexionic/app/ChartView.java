@@ -149,7 +149,7 @@ public class ChartView extends View {
 
         if (!hasData || W < 40 || H < 40) {
             pText.setTextAlign(Paint.Align.CENTER);
-            cv.drawText(hasData ? "" : "Bot start karein — chart yahan live aayega",
+            cv.drawText(hasData ? "" : "Press START — the live chart appears here",
                     W / 2f, H / 2f, pText);
             pText.setTextAlign(Paint.Align.LEFT);
             return;

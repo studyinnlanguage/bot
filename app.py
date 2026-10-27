@@ -1817,7 +1817,7 @@ def api_login():
 
     # Google-only account (no password set) — guide to the app's Google button
     if user and not (user.get("password_hash") or "").strip():
-        return jsonify({"success": False, "error": "Yeh account Google se bana hai — app mein GOOGLE button se login karein"})
+        return jsonify({"success": False, "error": "This account uses Google Sign-In — tap the GOOGLE button to log in"})
 
     if not user or not verify_password(password, user.get("password_hash", "")):
         return jsonify({"success": False, "error": "Invalid email or password"})
@@ -1850,15 +1850,20 @@ def api_login():
 
 @app.route("/api/auth/exchange", methods=["POST"])
 def api_auth_exchange():
-    """Android app: trade a one-time OAuth token for a real session cookie."""
-    data = request.get_json(force=True)
-    token = (data.get("token") or "").strip()
+    """Android app: trade a one-time OAuth token for a real session cookie.
+    NOTE: always answers with JSON (never an HTML 400) — the app's parser
+    chokes on HTML and the user would see a dead-end error."""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
+    token = str(data.get("token") or "").strip()
     entry = APP_OAUTH_TOKENS.pop(token, None) if token else None
     if not entry or time.time() > entry["exp"]:
-        return jsonify({"success": False, "error": "Exchange token invalid ya expire — app mein dobara Google button dabao"}), 401
+        return jsonify({"success": False, "error": "Sign-in session expired — tap the Google button again"}), 401
     user = DB["users"].get(entry["user_id"])
     if not user or user.get("banned"):
-        return jsonify({"success": False, "error": "Account unavailable"}), 401
+        return jsonify({"success": False, "error": "Account unavailable — contact support"}), 401
     _dedupe_users_by_email(user["id"])
     session["user_id"] = user["id"]
     session.permanent = True

@@ -146,7 +146,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="Sirf testing ke liye — real funds use nahi hote"
+                        android:text="For testing only — no real funds are used"
                         android:textColor="@color/text_dim"
                         android:textSize="11sp" />
                 </LinearLayout>
@@ -202,7 +202,7 @@
                 android:layout_height="50dp"
                 android:layout_marginTop="8dp"
                 android:background="@drawable/bg_input"
-                android:hint="Passphrase (sirf WEEX)"
+                android:hint="Passphrase (WEEX only)"
                 android:inputType="textPassword"
                 android:maxLines="1"
                 android:paddingLeft="14dp"
@@ -224,7 +224,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Keys server pe encrypted save hoti hain — kisi ko nazar nahi aati. Khaali chhodo to purani keys save rehti hain."
+                android:text="Keys are encrypted on the server — never visible to anyone. Leave empty to keep your saved keys."
                 android:textColor="@color/text_dim"
                 android:textSize="11sp" />
 
@@ -622,7 +622,7 @@
                 android:layout_marginTop="10dp"
                 android:layout_marginBottom="24dp"
                 android:gravity="center"
-                android:text="Save ke baad START dabao — bot inhi settings se chalega"
+                android:text="After saving, press START — the bot runs with exactly these settings"
                 android:textColor="@color/text_dim"
                 android:textSize="11sp" />
         </LinearLayout>
