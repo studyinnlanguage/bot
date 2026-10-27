@@ -125,8 +125,12 @@ function renderEMAStack(data) {
 }
 
 // ===== HTTP Fallback for Chart Data (when socket disconnects) =====
-async function fetchChartData(symbol) {
-    if (!symbol || !isRunning) return;
+const _chartFetchInFlight = new Set();
+async function fetchChartData(symbol, force = false) {
+    if (!symbol) return;
+    if (!force && !isRunning) return;
+    if (_chartFetchInFlight.has(symbol)) return;
+    _chartFetchInFlight.add(symbol);
     try {
         const r = await fetch(`/api/test_chart?symbol=${symbol}`);
         const data = await r.json();
@@ -138,6 +142,63 @@ async function fetchChartData(symbol) {
         }
     } catch (e) {
         // Silent fail
+    } finally {
+        _chartFetchInFlight.delete(symbol);
+    }
+}
+
+// ===== Full state snapshot restore (fixes 'refresh loses everything') =====
+function applySnapshot(snap) {
+    if (!snap) return false;
+    try {
+        // 1. Status -> pill + coins
+        if (snap.status) {
+            setBotRunning(!!snap.status.running);
+            if (snap.status.running && Array.isArray(snap.status.symbols) && snap.status.symbols.length) {
+                if (coins.length === 0) {
+                    coins = [...snap.status.symbols];
+                    renderCoinChips();
+                    renderCoinTabs();
+                    if (!activeSymbol) activeSymbol = coins[0];
+                    if ($('statCoins')) $('statCoins').textContent = coins.length;
+                }
+            }
+        }
+        // 2. Indicators cache
+        for (const sym in (snap.indicators || {})) {
+            indicatorsBySymbol[sym] = snap.indicators[sym];
+        }
+        // 3. Chart cache
+        for (const sym in (snap.chart || {})) {
+            const cd = snap.chart[sym] || {};
+            if (cd.candles && cd.candles.length) {
+                chartDataBySymbol[sym] = { symbol: sym, candles: cd.candles, emas: cd.emas || {} };
+            }
+        }
+        // 4. Positions cache
+        (snap.positions || []).forEach(p => {
+            if (p && p.symbol) positionsBySymbol[p.symbol] = p;
+        });
+        // 5. Re-render the active symbol + positions table
+        if (activeSymbol) selectSymbol(activeSymbol);
+        if (typeof renderPositionsTable === 'function') renderPositionsTable();
+        return true;
+    } catch (e) {
+        console.warn('applySnapshot error:', e);
+        return false;
+    }
+}
+
+async function loadSnapshot() {
+    try {
+        const r = await fetch('/api/snapshot');
+        if (!r.ok) return;
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) return;
+        const snap = await r.json();
+        applySnapshot(snap);
+    } catch (e) {
+        console.warn('loadSnapshot failed:', e);
     }
 }
 
@@ -827,6 +888,10 @@ function initSocket() {
         socket.on('connect_error', (error) => {});
 
         socket.on('log', (data) => log(data.level || 'info', data.msg));
+
+        // FIX: full-state snapshot pushed by the engine on every (re)connect —
+        // instantly restores chart, indicators, positions after REFRESH.
+        socket.on('snapshot', (snap) => { applySnapshot(snap); });
 
         socket.on('status', (data) => {
             setBotRunning(!!data.running);
@@ -1561,15 +1626,20 @@ function selectSymbol(sym) {
     loadDrawingsForActiveSymbol();
     if (chartDataBySymbol[sym]) {
         renderChartForSymbol(sym);
-    } else if (chart) {
-        // Clear chart
-        try {
-            candleSeries.setData([]);
-            ema8Series.setData([]);
-            ema13Series.setData([]);
-            ema21Series.setData([]);
-            ema55Series.setData([]);
-        } catch (e) {}
+    } else {
+        // FIX: no cached chart -> pull it over HTTP right away (even when the
+        // socket is connected — socket chart_data may take a full tick cycle).
+        if (isRunning) fetchChartData(sym);
+        if (chart) {
+            // Clear chart
+            try {
+                candleSeries.setData([]);
+                ema8Series.setData([]);
+                ema13Series.setData([]);
+                ema21Series.setData([]);
+                ema55Series.setData([]);
+            } catch (e) {}
+        }
     }
 }
 
@@ -2081,10 +2151,12 @@ window.closeAllPositions = async function() {
     }
 };
 
+let _statusFailStreak = 0;
 async function refreshStatus() {
     try {
         const r = await fetch('/api/status');
         const s = await r.json();
+        _statusFailStreak = 0;
         setBotRunning(!!s.running);
         let totalTrades = s.trades_today != null ? s.trades_today : null;
         if (totalTrades === null && s.workers) {
@@ -2106,7 +2178,14 @@ async function refreshStatus() {
         if (isRunning && activeSymbol && (!socket || !socket.connected)) {
             fetchChartData(activeSymbol);
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+        // FIX: don't swallow status errors silently — the user used to see a
+        // STOPPED pill + START button while the engine was actually running.
+        _statusFailStreak++;
+        if (_statusFailStreak === 1 || _statusFailStreak % 10 === 0) {
+            log('warn', `Status update nahi mil rahi (${_statusFailStreak} attempts) — engine/prozy check kar rahe hain...`);
+        }
+    }
 }
 
 async function refreshBalance() {
@@ -2540,7 +2619,9 @@ document.addEventListener('DOMContentLoaded', () => {
     try { initMobileNav(); } catch (e) { console.error(e); }
     try { initLiveClock(); } catch (e) { console.error(e); }
     try { initSocket(); } catch (e) { console.error(e); }
-    try { loadSettings(); } catch (e) { console.error(e); }
+    // FIX: load settings first, then pull the FULL snapshot (chart/indicators/
+    // positions/status) so a page REFRESH restores everything instantly.
+    try { loadSettings().then(() => loadSnapshot()).catch(() => {}); } catch (e) { console.error(e); }
     try { refreshStatus(); } catch (e) { console.error(e); }
     try { window.fetchPositions(); } catch (e) { console.error(e); }
     try { if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory(); } catch (e) { console.error(e); }

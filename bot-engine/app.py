@@ -13,6 +13,7 @@ import logging
 import os
 import secrets
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -357,11 +358,22 @@ def start_bot():
             return jsonify({"success": False, "error": "WEEX requires a passphrase"})
         if not CONFIG.get("symbols_list"):
             return jsonify({"success": False, "error": "Please add at least one coin"})
+        # FIX: idempotent start — if the bot is genuinely running (alive workers),
+        # return SUCCESS instead of an error. This kills the confusing
+        # "already running" dead-end the UI showed after page refreshes.
+        if ENGINE.is_running:
+            alive = [w for w in ENGINE.workers.values() if w.is_alive()]
+            if alive or not ENGINE.workers:
+                _persist_runtime_state(trading=True)
+                return jsonify({"success": True, "message": "Bot already running",
+                                "status": ENGINE.status(), "already_running": True})
         try:
             ENGINE.start_monitor(CONFIG)
         except Exception as e:
             logger.warning("Monitor start failed (non-critical): %s", e)
         result = ENGINE.start(CONFIG)
+        if result.get("success"):
+            _persist_runtime_state(trading=True)
         return jsonify(result)
     except Exception as e:
         logger.exception("START BOT CRASHED:")
@@ -376,6 +388,7 @@ def stop_bot():
     except Exception as e:
         logger.warning("Monitor stop failed: %s", e)
     ENGINE.is_running = False
+    _persist_runtime_state(trading=False)
     socketio.emit("status", ENGINE.status())
     socketio.emit("log", {"level": "info", "msg": "Bot STOPPED completely (trading + monitor)"})
     return jsonify({"success": True, "message": "Bot stopped"})
@@ -389,6 +402,7 @@ def force_stop_bot():
     except Exception as e:
         logger.warning("Monitor stop failed: %s", e)
     ENGINE.is_running = False
+    _persist_runtime_state(trading=False)
     socketio.emit("status", ENGINE.status())
     return jsonify(result)
 
@@ -408,6 +422,87 @@ def status():
     return jsonify(ENGINE.status())
 
 
+# ---------- Runtime state persistence (auto-resume after restart) ----------
+
+RUNTIME_STATE_FILE = BASE_DIR / "runtime_state.json"
+
+
+def _persist_runtime_state(trading: bool):
+    """Persist whether the trading loop should be running, so a restarted
+    engine process can RESUME automatically instead of silently dying."""
+    try:
+        RUNTIME_STATE_FILE.write_text(json.dumps({
+            "trading": bool(trading),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }), encoding="utf-8")
+    except Exception as e:
+        logger.warning("Could not persist runtime state: %s", e)
+
+
+def _read_runtime_state() -> dict:
+    try:
+        if RUNTIME_STATE_FILE.exists():
+            return json.loads(RUNTIME_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+@app.route("/api/snapshot", methods=["GET"])
+def snapshot():
+    """One-shot full UI state: status + positions + cached chart + indicators.
+    The frontend calls this ONCE on page load so a REFRESH instantly restores
+    everything instead of waiting for the next worker tick (or showing an
+    empty screen when socket events are delayed)."""
+    data = {
+        "status": ENGINE.status(),
+        "positions": [],
+        "chart": {},
+        "indicators": {},
+        "active_symbol": ENGINE.active_symbol,
+    }
+    # Positions (from engine trader or monitor trader)
+    trader = ENGINE.trader or getattr(ENGINE, "monitor_trader", None)
+    if trader:
+        symbols = list(ENGINE.workers.keys()) or CONFIG.get("symbols_list") or []
+        for sym in symbols:
+            try:
+                pos = trader.get_position(sym)
+                worker = ENGINE.workers.get(sym)
+                data["positions"].append({
+                    "symbol": sym,
+                    "side": pos.side,
+                    "size": pos.size,
+                    "entry_price": pos.entry_price,
+                    "mark_price": pos.mark_price,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                    "leverage": pos.leverage,
+                    "tp_stage": worker.tp_stage if (worker and pos.side != "NONE") else 0,
+                    "tp_price": worker.tp_price if (worker and pos.side != "NONE" and worker.tp_price) else 0.0,
+                    "sl_price": worker.sl_price if (worker and pos.side != "NONE" and worker.sl_price) else 0.0,
+                    "tp_mode": worker.tp_mode if worker else (CONFIG.get("tp_mode") or "fixed"),
+                    "target_roe": getattr(worker, "target_roe_pct", 80.0) if worker else 80.0,
+                })
+            except Exception:
+                pass
+    # Cached chart + indicators per symbol (instant restore after refresh)
+    for sym, w in ENGINE.workers.items():
+        try:
+            df = getattr(w, "_last_df", None)
+            if df is not None and len(df):
+                data["chart"][sym] = {
+                    "candles": w._candles_to_list(df),
+                    "emas": w._emas_to_list(df),
+                }
+            ind = w.strategy.latest_indicators(df) if df is not None and len(df) else None
+            if ind:
+                ind["mark_price"] = getattr(w, "_last_mark_price", 0) or (float(df.iloc[-1]["close"]) if len(df) else 0)
+                data["indicators"][sym] = ind
+        except Exception:
+            pass
+    return jsonify(data)
+
+
 @app.route("/api/positions", methods=["GET"])
 @app.route("/api/position", methods=["GET"])
 def get_positions():
@@ -415,7 +510,9 @@ def get_positions():
     if not trader:
         return jsonify({"success": False, "error": "Bot trader not connected", "positions": []})
     req_sym = request.args.get("symbol", "").strip().upper()
-    symbols = [req_sym] if req_sym else (ENGINE.symbols or [CONFIG.get("symbol", "BTCUSDT")])
+    # FIX: ENGINE.symbols never exists as an attribute -> AttributeError 500.
+    # Use the live worker registry, then fall back to config.
+    symbols = [req_sym] if req_sym else (list(ENGINE.workers.keys()) or CONFIG.get("symbols_list") or [CONFIG.get("symbol", "BTCUSDT")])
     if not symbols:
         symbols = ["BTCUSDT"]
 
@@ -851,6 +948,19 @@ def get_balance():
 def on_connect():
     socketio.emit("log", {"level": "info", "msg": "UI connected to bot"})
     socketio.emit("status", ENGINE.status())
+    # FIX: push a FULL snapshot on every (re)connect so a refreshed page
+    # immediately gets chart + indicators + positions without waiting for
+    # the next worker tick (or when socket events race the page load).
+    try:
+        socketio.emit("snapshot", build_snapshot_payload())
+    except Exception as e:
+        logger.warning("Snapshot emit failed: %s", e)
+
+
+def build_snapshot_payload():
+    """Same payload as /api/snapshot but for socket emission."""
+    with app.test_request_context("/api/snapshot"):
+        return snapshot().get_json()
 
 @socketio.on("disconnect")
 def on_disconnect():
@@ -878,5 +988,37 @@ if __name__ == "__main__":
     logger.info("="*60)
     logger.info(" Bot Engine - Starting (port %d)", port)
     logger.info("="*60)
+
+    # ============================================================
+    # AUTO-RESUME: if the bot was trading before this process died
+    # (VPS reboot / engine crash / SaaS respawn), restart the trading
+    # loop automatically. Without this, every restart silently KILLED
+    # trading and left open positions unmanaged (user sees STOPPED +
+    # START button + 'already running' confusion afterwards).
+    # ============================================================
+    _state = _read_runtime_state()
+    _should_resume = (
+        CONFIG.get("api_key") and CONFIG.get("api_secret")
+        and (
+            _state.get("trading") is True
+            or CONFIG.get("auto_start") is True
+        )
+    )
+    if _should_resume:
+        def _auto_resume():
+            try:
+                logger.info("AUTO-RESUME: trading was ON before restart - restarting trading loop")
+                result = ENGINE.start(CONFIG)
+                if result.get("success"):
+                    _persist_runtime_state(trading=True)
+                    socketio.emit("status", ENGINE.status())
+                    socketio.emit("log", {"level": "success",
+                                          "msg": "♻️ Bot auto-resumed after engine restart (positions continue to be managed)"})
+                else:
+                    logger.warning("AUTO-RESUME failed: %s", result.get("error"))
+            except Exception as e:
+                logger.exception("AUTO-RESUME crashed: %s", e)
+        threading.Thread(target=_auto_resume, daemon=True).start()
+
     # NOTE: For production, use gunicorn with eventlet worker instead of this dev server
     socketio.run(app, host=host, port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
