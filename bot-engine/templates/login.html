@@ -183,6 +183,194 @@
             .login-btn { padding: 11px; font-size: 13px; }
         }
     </style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <style id="concept-sync">
+/* ==================================================================
+   WEEXIONIC CONCEPT SYNC v1 — approved UI/UX concept design language
+   Applied as append-only override layer. No HTML structure changes.
+   Refines: tokens, display typography, gradient CTAs, card surfaces,
+   glow highlights, inputs, scrollbars. All original classes preserved.
+   ================================================================== */
+
+/* ---------- 1. Design tokens (values refined, names untouched) ---------- */
+:root {
+    --bg-base: #07090d;
+    --bg-surface: #0b0e13;
+    --bg-card: #10141b;
+    --bg-card-alt: #141924;
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.12);
+    --text-primary: #eef1f6;
+    --text-secondary: #9aa4b2;
+    --text-muted: #6b7686;
+    --violet: #9d7bff;
+    --grad-gold: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
+    --grad-green: linear-gradient(135deg, #0ecb81 0%, #2ed390 100%);
+    --grad-red: linear-gradient(135deg, #f6465d 0%, #ff6b81 100%);
+    --font-display: 'Space Grotesk', 'Inter', sans-serif;
+}
+
+/* ---------- 2. Display typography — Space Grotesk headlines ---------- */
+h1, h2, h3, .hero-title, .doc-title, .card-title, .admin-title,
+.section-title, .plan-name, .login-title, .brand-text h1 {
+    font-family: var(--font-display) !important;
+    letter-spacing: -0.4px;
+}
+
+h1 span, h2 span, h2 em, .doc-title em, .section-title em {
+    letter-spacing: inherit;
+}
+
+/* Gold glow gradient text — signature concept look */
+.hero-title .highlight,
+.glow-text {
+    background: linear-gradient(100deg, #fcd535 8%, #f0b90b 45%, #ffe98a 90%);
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+.brand-text h1 span { color: var(--gold); }
+
+/* ---------- 3. Buttons — gradient CTAs with premium depth ---------- */
+.btn-gold, .btn-buy-plan, .btn-select.btn-gold {
+    background: var(--grad-gold) !important;
+    color: #151b2e !important;
+    border-radius: 12px !important;
+    box-shadow: 0 6px 24px rgba(240, 185, 11, 0.28),
+                inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
+    transition: transform 0.18s ease, box-shadow 0.25s ease, filter 0.2s ease !important;
+}
+.btn-gold:hover, .btn-buy-plan:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.06);
+    box-shadow: 0 10px 34px rgba(240, 185, 11, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
+}
+.btn-gold:active, .btn-buy-plan:active { transform: translateY(1px) scale(0.98); }
+
+.btn-ghost, .btn-outline {
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 12px !important;
+    transition: all 0.2s ease !important;
+}
+.btn-ghost:hover, .btn-outline:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(240, 185, 11, 0.4) !important;
+    transform: translateY(-1px);
+}
+
+/* ---------- 4. Cards — gradient surfaces + signature gold hairline ---------- */
+.feature-card, .pricing-card, .login-card, .order-card, .card,
+.content-card, .admin-card, .terminal-preview-card, .license-key {
+    position: relative;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.012)), var(--bg-card) !important;
+    border: 1px solid var(--border-subtle) !important;
+}
+.feature-card::before, .pricing-card::before, .order-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 28px; right: 28px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(240, 185, 11, 0.5), transparent);
+    pointer-events: none;
+}
+.feature-card:hover, .pricing-card:hover, .order-card:hover {
+    border-color: rgba(240, 185, 11, 0.3) !important;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 0 40px rgba(240, 185, 11, 0.06);
+}
+
+/* ---------- 5. Inputs — focus rings in brand gold ---------- */
+.input, .form-input, .login-input, input[type="text"], input[type="email"],
+input[type="password"], input[type="number"], select, textarea {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 12px !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+.input:focus, .form-input:focus, .login-input:focus,
+input:focus, select:focus, textarea:focus {
+    outline: none !important;
+    border-color: rgba(240, 185, 11, 0.55) !important;
+    box-shadow: 0 0 0 3px rgba(240, 185, 11, 0.12) !important;
+}
+.label, .form-label, .login-label {
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    font-weight: 600 !important;
+}
+
+/* ---------- 6. Page atmosphere — deep space bg + aurora glows ---------- */
+body {
+    background:
+        radial-gradient(900px 480px at 50% -140px, rgba(240, 185, 11, 0.07), transparent 62%),
+        radial-gradient(700px 420px at 88% 12%, rgba(75, 159, 255, 0.04), transparent 60%),
+        radial-gradient(600px 400px at 8% 28%, rgba(157, 123, 255, 0.035), transparent 60%),
+        var(--bg-base) !important;
+    color: var(--text-primary);
+}
+
+/* ---------- 7. Chips, pills, badges — refined ---------- */
+.badge-live, .hero-tag, .exchange-chip, .ema-pill {
+    border-radius: 999px !important;
+}
+.pulse-dot {
+    box-shadow: 0 0 0 0 rgba(14, 203, 129, 0.6);
+    animation: cs-pulse 2s infinite;
+}
+@keyframes cs-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(14, 203, 129, 0.55); }
+    70% { box-shadow: 0 0 0 9px rgba(14, 203, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(14, 203, 129, 0); }
+}
+
+/* ---------- 8. Scrollbars + selection — brand consistency ---------- */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb {
+    background: #262d3a; border-radius: 99px;
+    border: 2px solid var(--bg-base);
+}
+::-webkit-scrollbar-thumb:hover { background: #3a4352; }
+::selection { background: rgba(240, 185, 11, 0.28); color: #fff; }
+
+/* ---------- 9. Tables — crisp headers ---------- */
+table { border-collapse: collapse; }
+th {
+    font-family: 'Inter', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 700 !important;
+}
+tr:hover td { background: rgba(255, 255, 255, 0.018); }
+
+
+/* --- engine login: concept brand-glow card --- */
+.login-card { border-radius: 24px !important;
+    background:
+        radial-gradient(340px 200px at 85% -30%, rgba(240,185,11,.14), transparent 65%),
+        linear-gradient(180deg, rgba(255,255,255,.032), rgba(255,255,255,.012)), var(--bg-card) !important;
+    box-shadow: 0 30px 90px rgba(0,0,0,.6), 0 0 60px rgba(240,185,11,.05) !important; }
+.login-card::before { content: ""; position: absolute; top: 0; left: 40px; right: 40px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(240,185,11,.5), transparent); }
+.login-title { letter-spacing: -0.5px; }
+.login-logo-img { filter: drop-shadow(0 6px 22px rgba(240,185,11,.3)); }
+.login-btn { background: var(--grad-gold) !important; color: #151b2e !important;
+    border-radius: 13px !important; font-weight: 800 !important;
+    box-shadow: 0 6px 24px rgba(240,185,11,.28), inset 0 1px 0 rgba(255,255,255,.45) !important;
+    transition: transform .18s ease, box-shadow .25s ease !important; }
+.login-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 34px rgba(240,185,11,.4) !important; }
+.login-btn:active { transform: translateY(1px) scale(.98); }
+.hw-id-box { font-family: 'JetBrains Mono', monospace !important; border-radius: 12px !important;
+    background: var(--bg-card-alt) !important; border: 1px dashed rgba(240,185,11,.35) !important; }
+.login-info { background: rgba(240,185,11,.05) !important;
+    border: 1px solid rgba(240,185,11,.18) !important; border-radius: 14px !important; }
+
+</style>
 </head>
 <body>
     <div class="login-card">

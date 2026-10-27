@@ -2127,3 +2127,52 @@ body > footer a:hover { color: var(--gold-primary); }
     .ws-quick-actions .btn { border-radius: 11px; }
     .btn-account { border-radius: 11px; }
 }
+
+
+/* ==========================================================================
+   TOKEN SYNC v4 — approved concept design language (append-only)
+   Space Grotesk display type, deeper space bg, refined surfaces.
+   Variable NAMES untouched (frozen contract). Values only.
+   ========================================================================== */
+:root {
+    --bg-base: #07090d;
+    --bg-surface: #10141b;
+    --bg-surface-elevated: #141924;
+    --bg-input: #0b0e13;
+    --bg-inset: #0b0e13;
+    --bg-header: rgba(7, 9, 13, 0.92);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-hover: rgba(255, 255, 255, 0.14);
+    --violet: #9d7bff;
+    --font-display: 'Space Grotesk', 'Inter', sans-serif;
+}
+
+/* Display typography — Space Grotesk on headings/brand/values */
+.topbar .brand h1, .panel-title, .modal-title h3, .section-label,
+.dash-brand h1, .brand-text h1 {
+    font-family: var(--font-display) !important;
+    letter-spacing: -0.3px;
+}
+
+/* Page atmosphere — aurora glows over deep space */
+body {
+    background-image:
+        radial-gradient(1100px 480px at 50% -160px, rgba(240, 185, 11, 0.07) 0%, rgba(14, 203, 129, 0.02) 42%, transparent 78%),
+        radial-gradient(700px 420px at 92% 8%, rgba(75, 159, 255, 0.035), transparent 60%),
+        radial-gradient(620px 400px at 4% 30%, rgba(157, 123, 255, 0.03), transparent 60%) !important;
+}
+
+/* Panels — gradient surfaces + hover lift */
+.panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.006)), var(--bg-surface) !important;
+}
+.panel:hover { border-color: rgba(255, 255, 255, 0.11); }
+
+/* Coin chips + pills already premium; refine focus rings globally */
+input:focus, select:focus, textarea:focus {
+    border-color: rgba(240, 185, 11, 0.55) !important;
+    box-shadow: 0 0 0 3px rgba(240, 185, 11, 0.1) !important;
+}
+
+::selection { background: rgba(240, 185, 11, 0.28); color: #fff; }
+
