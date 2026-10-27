@@ -1139,6 +1139,38 @@ def _wait_for_bot_ready(port: int, timeout: float = 12.0) -> bool:
         time.sleep(0.4)
     return False
 
+def _kill_stale_engines(user_id: str, keep_pid: int = None):
+    """Kill any orphan bot-engine processes tracked for this user.
+
+    Prevents the duplicate-engine split-brain: after a SaaS restart the old
+    engine process keeps running while the DB/shared-file entries may be
+    stale, causing status/start to hit DIFFERENT engines. Called before
+    spawning a fresh engine and while syncing state.
+    """
+    candidates = {}
+    db_entry = DB.get("bot_processes", {}).get(user_id)
+    if db_entry and db_entry.get("pid"):
+        candidates[db_entry["pid"]] = db_entry.get("port")
+    shared = _load_bot_processes()
+    sh_entry = shared.get(user_id)
+    if sh_entry and sh_entry.get("pid"):
+        candidates[sh_entry["pid"]] = sh_entry.get("port")
+
+    killed_any = False
+    for pid, p_port in candidates.items():
+        if keep_pid is not None and pid == keep_pid:
+            continue
+        if is_process_alive(pid):
+            logger.warning("Killing STALE bot-engine for user %s: PID=%s port=%s", user_id, pid, p_port)
+            kill_process(pid)
+            killed_any = True
+
+    if killed_any or (shared.get(user_id) and not db_entry):
+        shared.pop(user_id, None)
+        _save_bot_processes(shared)
+    return killed_any
+
+
 def ensure_bot_engine_running(user_id: str) -> dict:
     """Ensure bot-engine process is running for this user.
 
@@ -1149,11 +1181,25 @@ def ensure_bot_engine_running(user_id: str) -> dict:
     with _spawn_lock:
         status = get_bot_status(user_id)
         if status["running"]:
+            # Sync the shared file so cross-restart lookups keep working
+            shared = _load_bot_processes()
+            if shared.get(user_id, {}).get("pid") != status.get("pid"):
+                shared[user_id] = {
+                    "pid": status["pid"],
+                    "port": status["port"],
+                    "started_at": status.get("started_at"),
+                    "should_run": True,
+                }
+                _save_bot_processes(shared)
             return {"success": True, "port": status["port"]}
 
         user = DB["users"].get(user_id)
         if not user:
             return {"success": False, "error": "User not found"}
+
+        # Kill orphan engines from previous runs BEFORE spawning a new one
+        # (prevents duplicate engines -> split-brain status/start answers).
+        _kill_stale_engines(user_id)
 
         try:
             port = find_free_port()
@@ -1189,6 +1235,11 @@ def ensure_bot_engine_running(user_id: str) -> dict:
                 "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "should_run": True,
             }
+            # FIX: also persist to the shared file so get_bot_status keeps working
+            # across SaaS restarts (the JSON DB does not reload bot_processes).
+            shared = _load_bot_processes()
+            shared[user_id] = DB["bot_processes"][user_id]
+            _save_bot_processes(shared)
             save_db(DB)
 
             logger.info("Started bot-engine (detached) for user %s: PID=%s, port=%s", user_id, proc.pid, port)
@@ -1218,19 +1269,58 @@ def ensure_bot_engine_running(user_id: str) -> dict:
             return {"success": False, "error": str(e)}
 
 def start_user_bot(user_id: str) -> dict:
-    """Start a user's bot-engine instance."""
+    """Start a user's bot-engine instance (idempotent — also RESUMES trading
+    when the engine process is alive but its trading loop is stopped)."""
     with _spawn_lock:
         user = DB["users"].get(user_id)
         if not user:
             return {"success": False, "error": "User not found"}
 
         existing = DB.get("bot_processes", {}).get(user_id)
+        if not existing or not existing.get("pid"):
+            shared = _load_bot_processes()
+            existing = shared.get(user_id)
+
         if existing and existing.get("pid"):
-            try:
-                os.kill(existing["pid"], 0)
-                return {"success": True, "port": existing["port"], "message": "Bot already running"}
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+            if is_process_alive(existing["pid"]):
+                port = existing.get("port")
+                # FIX ('already running' dead-end): the engine PROCESS being
+                # alive does NOT mean the bot is TRADING. After any engine
+                # restart the trading loop starts stopped. Ask the engine;
+                # if it is not trading, resume it via /api/start (idempotent).
+                engine_status = None
+                if port:
+                    try:
+                        with urllib.request.urlopen(
+                                f"http://127.0.0.1:{port}/api/status", timeout=5) as r:
+                            engine_status = json.loads(r.read().decode("utf-8"))
+                    except Exception as e:
+                        logger.warning("Could not query engine status for %s: %s", user_id, e)
+                if engine_status and engine_status.get("running"):
+                    return {"success": True, "port": port,
+                            "message": "Bot already running", "bot_status": engine_status}
+                if port:
+                    try:
+                        req = urllib.request.Request(
+                            f"http://127.0.0.1:{port}/api/start", data=b"{}",
+                            method="POST", headers={"Content-Type": "application/json"})
+                        with urllib.request.urlopen(req, timeout=25) as r:
+                            result = json.loads(r.read().decode("utf-8"))
+                        if result.get("success"):
+                            return {"success": True, "port": port,
+                                    "message": "Bot resumed on running engine", "engine_result": result}
+                        return result
+                    except Exception as e:
+                        logger.warning("Engine resume failed for %s: %s", user_id, e)
+                return {"success": True, "port": port, "message": "Bot engine already running"}
+            else:
+                # Stale entry — engine died; clean up so we spawn fresh below
+                _kill_stale_engines(user_id)
+                DB.get("bot_processes", {}).pop(user_id, None)
+                shared = _load_bot_processes()
+                shared.pop(user_id, None)
+                _save_bot_processes(shared)
+                save_db(DB)
 
         config = user.get("bot_config", {})
         if not config.get("api_key_enc"):
@@ -1326,7 +1416,13 @@ def stop_user_bot(user_id: str) -> dict:
     return {"success": True, "message": "Bot stopped"}
 
 def is_process_alive(pid: int) -> bool:
-    """Check if a process is alive (cross-platform)."""
+    """Check if a process is alive (cross-platform).
+
+    FIX: a kill -9'd child whose parent hasn't wait()ed yet stays as a ZOMBIE
+    in the process table. os.kill(pid, 0) succeeds for zombies, which made
+    the old check report dead engines as 'running' forever (connection
+    refused on every proxied request). Zombies are NOT alive.
+    """
     try:
         if sys.platform == 'win32':
             import ctypes
@@ -1339,6 +1435,18 @@ def is_process_alive(pid: int) -> bool:
             return False
         else:
             os.kill(pid, 0)
+            # Linux/zsh fine — now exclude zombies via /proc/<pid>/stat
+            try:
+                with open(f"/proc/{pid}/stat", "r") as f:
+                    stat = f.read()
+                # state field sits after the final ')' (comm can contain spaces/parens)
+                state = stat[stat.rindex(")") + 2:].split(" ")[0]
+                if state == "Z":
+                    return False
+            except (FileNotFoundError, ProcessLookupError):
+                return False  # /proc entry gone -> definitely dead
+            except (OSError, ValueError, IndexError):
+                pass  # can't parse -> fall through to os.kill result
             return True
     except (ProcessLookupError, PermissionError, OSError):
         return False
@@ -2292,34 +2400,104 @@ def bot_engine_proxy(path=''):
         resp = req_lib.request(method, url, headers=fwd_headers, data=body,
                                stream=True, timeout=proxy_timeout, allow_redirects=False)
     except req_lib.exceptions.ConnectionError:
-        # Engine dead (stale PID/port after a restart). Clear the stale entry
-        # and auto-respawn a fresh instance immediately.
-        logger.warning("Bot-engine connection refused for %s (port %s). Marking stopped and auto-restarting.",
-                       user["id"], port)
-        DB.get("bot_processes", {}).pop(user["id"], None)
-        save_db(DB)
+        # Engine refused connection. This can mean TWO very different things:
+        #   1. Engine process is ALIVE but still BOOTING (Python imports take 2-4s)
+        #   2. Engine process actually DIED
+        # The old code treated BOTH as "dead" -> popped the DB entry and spawned
+        # ANOTHER engine on every request during boot -> duplicate-engine cascade
+        # (split brain: status says STOPPED, start says "already running").
+        proc_info = DB.get("bot_processes", {}).get(user["id"]) or {}
+        pid = proc_info.get("pid")
+        engine_alive = is_process_alive(pid) if pid else False
 
-        import threading
-        def _restart_bg():
-            result = ensure_bot_engine_running(user["id"])
-            if not result.get("success"):
-                logger.error("Auto-restart bot-engine failed for %s: %s",
-                             user["id"], result.get("error"))
+        if engine_alive and path.startswith('socket.io'):
+            # Socket long-poll during boot: just tell the client to retry,
+            # NEVER respawn here (a booting engine serves socket.io a moment later).
+            return jsonify({"status": "starting", "error": "Bot engine starting... Please wait."}), 503
 
-        threading.Thread(target=_restart_bg, daemon=True).start()
+        if engine_alive:
+            # Engine is alive but hasn't bound its port yet — WAIT for it instead
+            # of spawning a duplicate. Poll up to 20s, then retry the request once.
+            if _wait_for_bot_ready(port, timeout=20.0):
+                try:
+                    url2 = f"http://127.0.0.1:{port}/{path}"
+                    if request.query_string:
+                        url2 += f"?{request.query_string.decode()}"
+                    h2 = dict(fwd_headers)
+                    body2 = request.get_data() if method in ('POST', 'PUT', 'PATCH') else None
+                    resp = req_lib.request(method, url2, headers=h2, data=body2,
+                                           stream=True, timeout=proxy_timeout, allow_redirects=False)
+                    logger.info("Bot-engine for %s became ready on port %s; request retried OK.", user["id"], port)
+                    # fall through to normal response processing below
+                except req_lib.exceptions.ConnectionError:
+                    return jsonify({"status": "starting", "error": "Bot engine starting... Please wait."}), 503
+                except Exception as e:
+                    return f"Proxy error: {str(e)}", 500
+            else:
+                # Still not answering after 20s although the PID is alive.
+                # The engine is stuck (or a zombie slipped through) — kill it,
+                # clear state and respawn ONCE so the user is never stuck on
+                # an infinite 'starting...' screen.
+                logger.warning("Bot-engine for %s (pid %s) alive but not answering on port %s after 20s. Killing and respawning.",
+                               user["id"], pid, port)
+                kill_process(pid)
+                DB.get("bot_processes", {}).pop(user["id"], None)
+                shared = _load_bot_processes()
+                shared.pop(user["id"], None)
+                _save_bot_processes(shared)
+                save_db(DB)
 
-        if path.startswith('socket.io') or path.startswith('api/'):
-            return jsonify({"status": "starting", "error": "Bot engine restarting... Please wait."}), 503
+                import threading
+                def _restart_bg():
+                    result = ensure_bot_engine_running(user["id"])
+                    if not result.get("success"):
+                        logger.error("Auto-restart bot-engine failed for %s: %s",
+                                     user["id"], result.get("error"))
+                threading.Thread(target=_restart_bg, daemon=True).start()
 
-        return '''<html><head><meta http-equiv="refresh" content="3"></head>
-        <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
-        <div style="max-width:400px;margin:0 auto;">
-            <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
-            <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Restarting...</h2>
-            <p style="color:#848e9c;font-size:14px;">Reconnecting to engine. Page will auto-refresh in 3 seconds...</p>
-        </div>
-        <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
-        </body></html>''', 200
+                if path.startswith('socket.io') or path.startswith('api/'):
+                    return jsonify({"status": "starting", "error": "Bot engine restarting... Please wait."}), 503
+                return '''<html><head><meta http-equiv="refresh" content="3"></head>
+                <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
+                <div style="max-width:400px;margin:0 auto;">
+                    <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
+                    <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Restarting...</h2>
+                    <p style="color:#848e9c;font-size:14px;">Reconnecting to engine. Page will auto-refresh in 3 seconds...</p>
+                </div>
+                <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
+                </body></html>'''
+        else:
+            # Engine process is genuinely DEAD (stale PID/port after a restart).
+            # Clear the stale entry and auto-respawn a fresh instance immediately.
+            logger.warning("Bot-engine DEAD (pid %s) for %s (port %s). Marking stopped and auto-restarting.",
+                           pid, user["id"], port)
+            DB.get("bot_processes", {}).pop(user["id"], None)
+            shared = _load_bot_processes()
+            shared.pop(user["id"], None)
+            _save_bot_processes(shared)
+            save_db(DB)
+
+            import threading
+            def _restart_bg():
+                result = ensure_bot_engine_running(user["id"])
+                if not result.get("success"):
+                    logger.error("Auto-restart bot-engine failed for %s: %s",
+                                 user["id"], result.get("error"))
+
+            threading.Thread(target=_restart_bg, daemon=True).start()
+
+            if path.startswith('socket.io') or path.startswith('api/'):
+                return jsonify({"status": "starting", "error": "Bot engine restarting... Please wait."}), 503
+
+            return '''<html><head><meta http-equiv="refresh" content="3"></head>
+            <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
+            <div style="max-width:400px;margin:0 auto;">
+                <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
+                <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Restarting...</h2>
+                <p style="color:#848e9c;font-size:14px;">Reconnecting to engine. Page will auto-refresh in 3 seconds...</p>
+            </div>
+            <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
+            </body></html>'''
     except Exception as e:
         return f"Proxy error: {str(e)}", 500
 

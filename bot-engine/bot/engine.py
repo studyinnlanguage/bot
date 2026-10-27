@@ -58,6 +58,12 @@ class SymbolWorker(threading.Thread):
         self.stop_event = threading.Event()
         self.last_signal = Signal.HOLD
         self.candles_processed = 0
+        # FIX: initialize attributes status() reads BEFORE the first tick,
+        # otherwise status() raises AttributeError on a freshly spawned worker
+        # ('SymbolWorker' object has no attribute 'last_check') and crashes
+        # the auto-resume path.
+        self.last_check = None
+        self.last_trade_side = None
         self.trades_today = 0
         self._last_trade_date = datetime.now(timezone.utc).date()
         # STRICT RULE: On startup, must wait for a genuine FRESH crossover before trading
