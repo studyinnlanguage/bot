@@ -7,8 +7,12 @@ import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
-/** Saves crash traces to app-private storage so any future "has stopped" can be diagnosed. */
+/** Saves crash traces to app-private storage AND posts them to the SaaS server
+ *  (/api/client/crash) so phone-side crashes/errors are visible in VPS logs. */
 public class CrashLog {
+
+    /** App version tag attached to every remote report. */
+    public static final String VERSION = "v3.6";
 
     @SuppressWarnings("ResultOfMethodCallIgnored")
     static void save(Throwable t) {
@@ -33,6 +37,37 @@ public class CrashLog {
                 FileOutputStream fo2 = new FileOutputStream(f, false);
                 fo2.write(tail);
                 fo2.close();
+            }
+            report(null, "crash", trace);
+        } catch (Throwable ignore) { }
+    }
+
+    /**
+     * Fire-and-forget POST of an error/crash trace to the server. Safe to call
+     * from any thread (spawns a short daemon thread); never throws.
+     */
+    public static void report(final Session session, final String tag, final String detail) {
+        try {
+            Thread th = new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        Context c = App.ctx();
+                        if (c == null) return;
+                        final Session s = session != null ? session : new Session(c);
+                        String server = s.hasServer() ? s.server() : Session.DEFAULT_SERVER;
+                        if (server == null || server.length() == 0) return;
+                        org.json.JSONObject jo = new org.json.JSONObject();
+                        jo.put("kind", tag != null && tag.startsWith("crash") ? "crash" : "error");
+                        jo.put("tag", tag + " " + VERSION);
+                        jo.put("message", detail == null ? "" : detail);
+                        ApiClient.post(server + "/api/client/crash", jo.toString(), s.cookie());
+                    } catch (Throwable ignore) { }
+                }
+            });
+            th.setDaemon(true);
+            th.start();
+            if ("crash".equals(tag)) {
+                try { th.join(2500); } catch (InterruptedException ignore) { }
             }
         } catch (Throwable ignore) { }
     }

@@ -5,7 +5,7 @@
     android:background="@color/bg"
     android:orientation="vertical">
 
-    <!-- Top bar -->
+    <!-- Top bar — v3.6: logo removed (lives only on Login). Space goes to live status. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
@@ -15,17 +15,9 @@
         android:paddingLeft="16dp"
         android:paddingRight="16dp">
 
-        <ImageView
-            android:id="@+id/imgLogo"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:src="@drawable/logo_w"
-            android:contentDescription="@string/app_name" />
-
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="10dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
