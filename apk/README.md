@@ -1,6 +1,14 @@
-# Weexionic Android App v3.6.0
+# Weexionic Android App v3.7.0
 
 **Download:** [Weexionic-App.apk](apk/Weexionic-App.apk) — file par tap karein → "Download raw" se save karein (~4.6 MB).
+
+## v3.7.0 — SAME EMAIL SE APP ACCESS + EXCHANGE 403 KA PAKKA HAL
+- **"PAIR WITH WEB APP" (NAYA — sab se bara fix)** — aap ne kaha tha: *"web app use kar raha hun, same email se app kyun nahi khulti?"* Ab kholi jayegi. Website kholo (home page) → top par **"📱 Pair App"** button → 6-character ka code dikhega → app mein **PAIR WITH WEB APP** button dabao → code type karo → **WAHI account app mein khul jayega**. Na Google, na browser, na password — aur Google-only accounts ke liye bhi kaam karta hai. Code 10 minute baad expire hota hai aur sirf ek dafa chalta hai (security).
+- **Google login ka crash (screenshot wala "Weexionic has stopped")** — splash + routing ab poori tarah guarded hain: har path pe try/catch, kabhi app crash dialog nahi aayega. Aur agar kabhi koi masla ho to app khud error ko server log mein bhej degi (remote reporting se exact wajah mil jayegi).
+- **Exchange 403 (region block) ka ONE-TAP hal** — warn card ab kehta hai *"TAP HERE to switch the bot to WEEX"*. Tap karo → confirm karo → bot ka exchange WEEX (demo) pe switch ho jata hai → phir app khud 3-step guide dikhata hai: WEEX app se free demo API keys banao (Profile → API Settings) → Bot Settings mein paste karo → START. Binance region-blocked hai to bhi bot ab chal sakta hai.
+- **Version number ab KABHI ghalat nahi hoga** — Account page pe version ab APK manifest se live parha jata hai (pehle hardcode tha, isliye "v3.0.0" dikhta tha).
+- **Web site pe bhi Pair App** — desktop nav + mobile menu dono jagah "📱 Pair App" button + bara gold code card (copy-friendly).
+- E2E TESTED: pair create → claim → same account in app → WEEX switch → config save — **10/10 PASS**.
 
 ## v3.6.0 — PURA APP DIAGNOSE + 5 BARE MASLE FIX
 - **Bot ab sahi se STOP hota hai (root cause fix)** — asli wajah mil gayi thi: server ka watchdog (auto-restart monitor) ghalat purani memory se stopped bot ko har 30 second baad DOBARA ZINDA kar deta tha. Ab watchdog hamesha shared process file (single source of truth) se parhta hai + STOP ke foran baad respawn double-check karta hai. STOP ka matlab ab STOP hai.

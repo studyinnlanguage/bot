@@ -1936,6 +1936,65 @@ def api_logout():
     session.pop("user_id", None)
     return jsonify({"success": True})
 
+# ============================================================
+# MOBILE APP PAIRING — the website shows a one-time 6-char code;
+# the user types it in the app and instantly gets a session.
+# No Google round-trip, no browser, no password. Works for EVERY
+# account (email/password or Google-only). Solves "I use the web
+# app — why can't the mobile app open the same account?"
+# ============================================================
+APP_PAIR_CODES: dict[str, dict] = {}  # code -> {"user_id": str, "exp": float}
+_PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O/1/I/L confusion
+
+
+def _pair_code() -> str:
+    return "".join(secrets.choice(_PAIR_ALPHABET) for _ in range(6))
+
+
+@app.route("/api/auth/pair/create", methods=["POST"])
+def api_pair_create():
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    user = current_user()
+    if not user:
+        return jsonify({"success": False, "error": "User not found"}), 404
+    now = time.time()
+    for c in [c for c, e in APP_PAIR_CODES.items() if e["exp"] < now]:
+        APP_PAIR_CODES.pop(c, None)
+    code = _pair_code()
+    while code in APP_PAIR_CODES:
+        code = _pair_code()
+    APP_PAIR_CODES[code] = {"user_id": user["id"], "exp": now + 600}
+    logger.info("Pair code created for %s (valid 10 min)", user.get("email"))
+    return jsonify({"success": True, "code": code, "expires_in": 600})
+
+
+@app.route("/api/auth/pair/claim", methods=["POST"])
+def api_pair_claim():
+    """Android app: trade a one-time pairing code for a real session cookie.
+    Always answers JSON (never HTML) — the app's parser needs JSON."""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        data = {}
+    code = str(data.get("code") or "").strip().upper()
+    entry = APP_PAIR_CODES.pop(code, None) if code else None
+    if not entry or time.time() > entry["exp"]:
+        return jsonify({"success": False, "error": "Code invalid or expired — on the website tap Pair Mobile App again and enter the NEW code"}), 410
+    user = DB["users"].get(entry["user_id"])
+    if not user or user.get("banned"):
+        return jsonify({"success": False, "error": "Account unavailable — contact support"}), 401
+    _dedupe_users_by_email(user["id"])
+    session["user_id"] = user["id"]
+    session.permanent = True
+    logger.info("App paired via pairing code: %s", user.get("email"))
+    return jsonify({
+        "success": True,
+        "user": {"id": user["id"], "email": user["email"], "name": user["name"]},
+        "subscription": user.get("subscription", {}),
+    })
+
+
 @app.route("/api/auth/me", methods=["GET"])
 def api_me():
     if not is_logged_in():

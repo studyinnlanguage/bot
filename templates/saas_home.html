@@ -1900,6 +1900,9 @@ section { scroll-margin-top: 84px; }
                         <a href="/bot/" onclick="closeMobileMenu()" class="btn-primary" style="display:flex; justify-content:center; text-align:center; padding:12px 16px; border-radius:8px; width:100%; font-weight:700; text-decoration:none; margin-bottom:8px;">
                             ⚡ Open Dashboard
                         </a>
+                        <a href="#" onclick="closeMobileMenu(); openPairModal(); return false;" class="btn-ghost" style="display:flex; justify-content:center; text-align:center; padding:10px 16px; border-radius:8px; width:100%; font-weight:600; text-decoration:none; margin-bottom:8px;">
+                            📱 Pair Mobile App
+                        </a>
                         <a href="/?logout=1" class="btn-ghost" style="display:flex; justify-content:center; text-align:center; padding:10px 16px; border-radius:8px; width:100%; font-weight:600; text-decoration:none;">
                             ⏻ Sign Out
                         </a>
@@ -1912,6 +1915,7 @@ section { scroll-margin-top: 84px; }
                         <a href="/bot/" class="btn-primary">
                             <span>⚡ Open Dashboard</span>
                         </a>
+                        <button class="btn-ghost" onclick="openPairModal()" title="Open the same account in the mobile app">📱 Pair App</button>
                         <a href="/?logout=1" class="btn-ghost" title="Logout">⏻</a>
                     {% else %}
                         <a href="/login" class="btn-ghost">Sign In</a>
@@ -2452,6 +2456,32 @@ section { scroll-margin-top: 84px; }
         </div>
     </footer>
 
+    <!-- 12b. Pair Mobile App Modal -->
+    <div class="modal-overlay" id="pairModal">
+        <div class="modal-card">
+            <button class="modal-close-btn" onclick="closePairModal()" aria-label="Close">&times;</button>
+
+            <h3 style="font-size: 20px; font-weight: 800; margin-bottom: 6px;">📱 Pair Mobile App</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                Open the <b>Weexionic app</b> → tap <b>PAIR WITH WEB APP</b> → type this code.
+                The app opens the SAME account you are using right now — instantly, no Google, no password.
+            </p>
+
+            <div style="background:rgba(240,185,11,0.06); border:1px solid rgba(240,185,11,0.25); border-radius:12px; padding:18px 12px; text-align:center; margin-bottom:12px;">
+                <div id="pairCodeBox" style="font-family:'JetBrains Mono',monospace; font-size:34px; font-weight:800; letter-spacing:8px; color:var(--gold); user-select:all;">······</div>
+                <div id="pairMsg" style="font-size:11.5px; color:var(--text-muted); margin-top:8px;">Generating a fresh code…</div>
+            </div>
+
+            <button onclick="createPairCode()" class="btn-ghost" style="width:100%; padding:10px 16px; border-radius:8px; font-weight:600; cursor:pointer;">↻&nbsp; Generate New Code</button>
+
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:14px; line-height:1.6;">
+                • Each code works once and expires after <b>10 minutes</b>.<br>
+                • Works for Google accounts too — no password required.<br>
+                • The app then shows your live bot, balance and trades — same as this website.
+            </div>
+        </div>
+    </div>
+
     <!-- 12. Quick Buy / Instant Checkout Modal -->
     <div class="modal-overlay" id="checkoutModal">
         <div class="modal-card">
@@ -2522,6 +2552,33 @@ section { scroll-margin-top: 84px; }
     </div>
 
     <script>
+        // ---- Pair Mobile App ----
+        function openPairModal() {
+            document.getElementById('pairModal').classList.add('open');
+            createPairCode();
+        }
+        function closePairModal() {
+            document.getElementById('pairModal').classList.remove('open');
+        }
+        function createPairCode() {
+            const box = document.getElementById('pairCodeBox');
+            const msg = document.getElementById('pairMsg');
+            box.textContent = '······';
+            msg.textContent = 'Generating a fresh code…';
+            fetch('/api/auth/pair/create', { method: 'POST', credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(d => {
+                    if (d && d.success) {
+                        box.textContent = d.code;
+                        msg.textContent = 'Valid for 10 minutes — type it in the app';
+                    } else {
+                        box.textContent = 'ERROR';
+                        msg.textContent = (d && d.error) ? d.error : 'Could not create a code — please log in first';
+                    }
+                })
+                .catch(() => { msg.textContent = 'Network error — please try again'; });
+        }
+
         // Toggle Mobile Navigation
         function toggleMobileMenu() {
             const nav = document.getElementById('navLinks');
