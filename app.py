@@ -204,6 +204,9 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
 
+# Android app OAuth exchange: one-time tokens for Google login from the mobile app
+APP_OAUTH_TOKENS = {}
+
 # SaaS email (for sending license keys to users after payment verification)
 def _get_smtp_config():
     """Retrieve SaaS SMTP settings from DB or environment variables (supports multiple naming conventions)."""
@@ -1812,6 +1815,10 @@ def api_login():
             user = u
             break
 
+    # Google-only account (no password set) — guide to the app's Google button
+    if user and not (user.get("password_hash") or "").strip():
+        return jsonify({"success": False, "error": "Yeh account Google se bana hai — app mein GOOGLE button se login karein"})
+
     if not user or not verify_password(password, user.get("password_hash", "")):
         return jsonify({"success": False, "error": "Invalid email or password"})
 
@@ -1838,6 +1845,27 @@ def api_login():
     return jsonify({
         "success": True,
         "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]} if user.get('role') == 'admin' else {"id": user["id"], "email": user["email"], "name": user["name"]},
+        "subscription": user.get("subscription", {}),
+    })
+
+@app.route("/api/auth/exchange", methods=["POST"])
+def api_auth_exchange():
+    """Android app: trade a one-time OAuth token for a real session cookie."""
+    data = request.get_json(force=True)
+    token = (data.get("token") or "").strip()
+    entry = APP_OAUTH_TOKENS.pop(token, None) if token else None
+    if not entry or time.time() > entry["exp"]:
+        return jsonify({"success": False, "error": "Exchange token invalid ya expire — app mein dobara Google button dabao"}), 401
+    user = DB["users"].get(entry["user_id"])
+    if not user or user.get("banned"):
+        return jsonify({"success": False, "error": "Account unavailable"}), 401
+    _dedupe_users_by_email(user["id"])
+    session["user_id"] = user["id"]
+    session.permanent = True
+    logger.info("App token exchange: %s", user.get("email"))
+    return jsonify({
+        "success": True,
+        "user": {"id": user["id"], "email": user["email"], "name": user["name"]},
         "subscription": user.get("subscription", {}),
     })
 
@@ -2871,6 +2899,9 @@ def google_auth():
     # Fix 10: Generate and store OAuth state to prevent CSRF on OAuth flow
     oauth_state = secrets.token_hex(16)
     session["oauth_state"] = oauth_state
+    # Android app flow: remember this so the callback can hand off to the app
+    if request.args.get("app") == "1":
+        session["oauth_app"] = True
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
@@ -2998,6 +3029,15 @@ def google_callback():
 
         session["user_id"] = user["id"]
         session.permanent = True
+        if session.pop("oauth_app", None):
+            # Hand off to the Android app via one-time exchange token
+            now_ts = time.time()
+            for tk in [t for t, v in list(APP_OAUTH_TOKENS.items()) if v["exp"] < now_ts]:
+                APP_OAUTH_TOKENS.pop(tk, None)
+            xchg = secrets.token_hex(32)
+            APP_OAUTH_TOKENS[xchg] = {"user_id": user["id"], "exp": now_ts + 180}
+            logger.info("Google login (Android app): %s", google_email)
+            return redirect("/static/app_bridge.html?token=" + xchg)
         logger.info("Google login: %s", google_email)
         return redirect("/")
 

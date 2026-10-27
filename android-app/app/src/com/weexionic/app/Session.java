@@ -12,6 +12,8 @@ public class Session {
     private static final String K_NAME = "name";
     private static final String K_PLAN = "plan";
     private static final String K_EXPIRY = "expiry";
+    private static final String K_PASSX = "passx";
+    private static final String K_REMEMBER = "remember";
 
     private final SharedPreferences p;
 
@@ -39,6 +41,33 @@ public class Session {
 
     public boolean hasServer() { return server().trim().length() > 0; }
     public boolean hasSession() { return hasServer() && cookie().length() > 0; }
+
+    public boolean remember() { return p.getBoolean(K_REMEMBER, true); }
+    public void remember(boolean v) { p.edit().putBoolean(K_REMEMBER, v).apply(); }
+
+    /** Obfuscated (XOR+Base64) password for silent auto-relogin. Private-mode prefs only. */
+    public String savedPass() {
+        String s = p.getString(K_PASSX, "");
+        if (s == null || s.length() == 0) return "";
+        try {
+            byte[] b = android.util.Base64.decode(s, android.util.Base64.NO_WRAP);
+            byte[] k = "WeexionicSfx".getBytes("UTF-8");
+            for (int i = 0; i < b.length; i++) b[i] ^= k[i % k.length];
+            return new String(b, "UTF-8");
+        } catch (Exception e) { return ""; }
+    }
+
+    public void savedPass(String v) {
+        try {
+            if (v == null || v.length() == 0) { p.edit().remove(K_PASSX).apply(); return; }
+            byte[] b = v.getBytes("UTF-8");
+            byte[] k = "WeexionicSfx".getBytes("UTF-8");
+            for (int i = 0; i < b.length; i++) b[i] ^= k[i % k.length];
+            p.edit().putString(K_PASSX, android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP)).apply();
+        } catch (Exception e) { }
+    }
+
+    public boolean hasSavedLogin() { return email().length() > 0 && savedPass().length() > 0; }
 
     public void logout() {
         p.edit().remove(K_COOKIE).remove(K_EMAIL).remove(K_NAME).remove(K_PLAN).remove(K_EXPIRY).apply();
