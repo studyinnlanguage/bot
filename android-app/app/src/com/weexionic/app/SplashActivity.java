@@ -7,9 +7,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.animation.AccelerateDecelerateInterpolator;
-import android.widget.ImageView;
+import android.widget.TextView;
 
-/** Branded splash with pulsing logo; routes to Main (session) or Login. */
+/**
+ * Branded splash (v3.6: wordmark-only — the badge logo lives ONLY on the login
+ * screen, per the user's design brief). Routes to Main (session) or Login.
+ */
 public class SplashActivity extends Activity {
 
     @Override
@@ -17,16 +20,16 @@ public class SplashActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.splash);
 
-        ImageView logo = findViewById(R.id.imgSplashLogo);
-        ValueAnimator pulse = ValueAnimator.ofFloat(1f, 1.08f, 1f);
+        TextView title = findViewById(R.id.tvSplashTitle);
+        ValueAnimator pulse = ValueAnimator.ofFloat(1f, 1.06f, 1f);
         pulse.setDuration(1100);
         pulse.setRepeatCount(ValueAnimator.INFINITE);
         pulse.setInterpolator(new AccelerateDecelerateInterpolator());
         pulse.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             public void onAnimationUpdate(ValueAnimator a) {
                 float s = (Float) a.getAnimatedValue();
-                logo.setScaleX(s);
-                logo.setScaleY(s);
+                title.setScaleX(s);
+                title.setScaleY(s);
             }
         });
         pulse.start();

@@ -342,3 +342,157 @@
 2026-08-18 01:02:34,352 [INFO] saas: Auto-migration: Adding missing column 'rejection_reason' to table 'orders'
 2026-08-18 01:02:34,352 [INFO] saas: PostgreSQL database tables initialized and verified successfully
 2026-08-18 01:02:34,352 [INFO] saas: Loaded 1 users, 1 licenses, 1 orders from PostgreSQL
+2026-10-27 19:13:54,423 [INFO] saas: Admin panel: ENABLED (secret path: /x7k2-admin)
+2026-10-27 19:13:54,423 [CRITICAL] saas: [SECURITY] ENCRYPTION_KEY env var NOT SET! Using insecure default key. All user API keys are at risk. Set ENCRYPTION_KEY=<32+ char random string> IMMEDIATELY.
+2026-10-27 19:13:54,423 [INFO] saas: ============================================================
+2026-10-27 19:13:54,423 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-10-27 19:13:54,423 [INFO] saas:  Bot engine dir: /home/z/my-project/bot-cloned/bot-engine
+2026-10-27 19:13:54,424 [INFO] saas:  Admin panel: ENABLED (password set via env)
+2026-10-27 19:13:54,424 [INFO] saas:  Payment wallet: TLponfWC...5Bpp (TRC20 (USDT))
+2026-10-27 19:13:54,424 [INFO] saas:  Google OAuth: NOT configured
+2026-10-27 19:13:54,424 [INFO] saas: ============================================================
+2026-10-27 19:13:54,424 [ERROR] saas: PostgreSQL init failed: invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+
+2026-10-27 19:13:54,424 [ERROR] saas: PostgreSQL load failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — falling back to database.json
+2026-10-27 19:13:54,424 [INFO] saas: Loaded database.json (1 users)
+2026-10-27 19:13:54,424 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:13:54,437 [INFO] saas: SaaS webapp running on port 5599
+2026-10-27 19:13:54,440 [INFO] werkzeug: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5599
+ * Running on http://21.0.10.232:5599
+2026-10-27 19:13:54,440 [INFO] werkzeug: [33mPress CTRL+C to quit[0m
+2026-10-27 19:14:17,288 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:17] "POST /api/auth/login HTTP/1.1" 200 -
+2026-10-27 19:14:17,298 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:17] "GET /api/auth/me HTTP/1.1" 200 -
+2026-10-27 19:14:17,306 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:17] "[31m[1mPOST /api/bot/stop HTTP/1.1[0m" 401 -
+2026-10-27 19:14:17,315 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:17] "[31m[1mPOST /api/bot/start HTTP/1.1[0m" 401 -
+2026-10-27 19:14:17,325 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:17] "[31m[1mGET /api/market/tickers HTTP/1.1[0m" 401 -
+2026-10-27 19:14:17,338 [ERROR] saas: [CLIENT-ERROR] tag=e2e-test v3.6 user=?
+synthetic error line 1
+java.lang.Exception: at Test.f(Test.java:1)
+2026-10-27 19:14:17,338 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:17] "POST /api/client/crash HTTP/1.1" 200 -
+2026-10-27 19:14:25,196 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:14:25,196 [INFO] saas: New user signup: localdiag@weexionic.com (role=user)
+2026-10-27 19:14:25,197 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:25] "POST /api/auth/signup HTTP/1.1" 200 -
+2026-10-27 19:14:25,206 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:25] "POST /api/auth/login HTTP/1.1" 200 -
+2026-10-27 19:14:25,215 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:25] "GET /api/auth/me HTTP/1.1" 200 -
+2026-10-27 19:14:25,222 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:25] "[31m[1mPOST /api/bot/stop HTTP/1.1[0m" 401 -
+2026-10-27 19:14:25,230 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:25] "[31m[1mPOST /api/bot/start HTTP/1.1[0m" 401 -
+2026-10-27 19:14:25,239 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:25] "[31m[1mGET /api/market/tickers HTTP/1.1[0m" 401 -
+2026-10-27 19:14:25,248 [ERROR] saas: [CLIENT-ERROR] tag=e2e-test v3.6 user=?
+synthetic error line 1
+java.lang.Exception: at Test.f(Test.java:1)
+2026-10-27 19:14:25,248 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:25] "POST /api/client/crash HTTP/1.1" 200 -
+2026-10-27 19:14:26,301 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:14:26,302 [INFO] saas: User login: localdiag@weexionic.com (role=user)
+2026-10-27 19:14:26,302 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:26] "POST /api/auth/login HTTP/1.1" 200 -
+2026-10-27 19:14:26,313 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:26] "GET /api/auth/me HTTP/1.1" 200 -
+2026-10-27 19:14:26,321 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:14:26,321 [INFO] saas: Stopped bot-engine for user 5d3e4d28-2a3e-4b88-994e-8a4b7eb41fd0 (port=None, pid=None)
+2026-10-27 19:14:26,322 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:26] "POST /api/bot/stop HTTP/1.1" 200 -
+2026-10-27 19:14:26,329 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:26] "[31m[1mPOST /api/bot/start HTTP/1.1[0m" 403 -
+2026-10-27 19:14:26,417 [WARNING] saas: Binance public tickers failed: HTTP Error 400: Bad Request
+2026-10-27 19:14:26,887 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:26] "GET /api/market/tickers HTTP/1.1" 200 -
+2026-10-27 19:14:26,899 [ERROR] saas: [CLIENT-ERROR] tag=e2e-test v3.6 user=localdiag@weexionic.com
+synthetic error line 1
+java.lang.Exception: at Test.f(Test.java:1)
+2026-10-27 19:14:26,900 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:14:26] "POST /api/client/crash HTTP/1.1" 200 -
+2026-10-27 19:15:03,253 [INFO] saas: Shutdown signal received - stopping all bot-engine processes...
+2026-10-27 19:15:04,776 [INFO] saas: Admin panel: ENABLED (secret path: /x7k2-admin)
+2026-10-27 19:15:04,777 [CRITICAL] saas: [SECURITY] ENCRYPTION_KEY env var NOT SET! Using insecure default key. All user API keys are at risk. Set ENCRYPTION_KEY=<32+ char random string> IMMEDIATELY.
+2026-10-27 19:15:04,777 [INFO] saas: ============================================================
+2026-10-27 19:15:04,777 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-10-27 19:15:04,777 [INFO] saas:  Bot engine dir: /home/z/my-project/bot-cloned/bot-engine
+2026-10-27 19:15:04,777 [INFO] saas:  Admin panel: ENABLED (password set via env)
+2026-10-27 19:15:04,777 [INFO] saas:  Payment wallet: TLponfWC...5Bpp (TRC20 (USDT))
+2026-10-27 19:15:04,777 [INFO] saas:  Google OAuth: NOT configured
+2026-10-27 19:15:04,777 [INFO] saas: ============================================================
+2026-10-27 19:15:04,777 [ERROR] saas: PostgreSQL init failed: invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+
+2026-10-27 19:15:04,777 [ERROR] saas: PostgreSQL load failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — falling back to database.json
+2026-10-27 19:15:04,777 [INFO] saas: Loaded database.json (2 users)
+2026-10-27 19:15:04,777 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:15:04,778 [INFO] saas: DB migration: fixed/updated 2 user records
+2026-10-27 19:15:04,778 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:15:04,791 [INFO] saas: SaaS webapp running on port 5599
+2026-10-27 19:15:04,794 [INFO] werkzeug: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5599
+ * Running on http://21.0.10.232:5599
+2026-10-27 19:15:04,794 [INFO] werkzeug: [33mPress CTRL+C to quit[0m
+2026-10-27 19:15:09,336 [WARNING] saas: Binance public tickers failed: HTTP Error 400: Bad Request
+2026-10-27 19:15:09,897 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:15:09] "GET /api/market/tickers HTTP/1.1" 200 -
+2026-10-27 19:15:22,763 [INFO] saas: Shutdown signal received - stopping all bot-engine processes...
+2026-10-27 19:16:17,860 [INFO] saas: Admin panel: ENABLED (secret path: /x7k2-admin)
+2026-10-27 19:16:17,860 [CRITICAL] saas: [SECURITY] ENCRYPTION_KEY env var NOT SET! Using insecure default key. All user API keys are at risk. Set ENCRYPTION_KEY=<32+ char random string> IMMEDIATELY.
+2026-10-27 19:16:17,860 [INFO] saas: ============================================================
+2026-10-27 19:16:17,860 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-10-27 19:16:17,860 [INFO] saas:  Bot engine dir: /home/z/my-project/bot-cloned/bot-engine
+2026-10-27 19:16:17,860 [INFO] saas:  Admin panel: ENABLED (password set via env)
+2026-10-27 19:16:17,860 [INFO] saas:  Payment wallet: TLponfWC...5Bpp (TRC20 (USDT))
+2026-10-27 19:16:17,860 [INFO] saas:  Google OAuth: NOT configured
+2026-10-27 19:16:17,860 [INFO] saas: ============================================================
+2026-10-27 19:16:17,860 [ERROR] saas: PostgreSQL init failed: invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+
+2026-10-27 19:16:17,860 [ERROR] saas: PostgreSQL load failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — falling back to database.json
+2026-10-27 19:16:17,860 [INFO] saas: Loaded database.json (2 users)
+2026-10-27 19:16:17,860 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:16:17,874 [INFO] saas: SaaS webapp running on port 5599
+2026-10-27 19:16:17,877 [INFO] werkzeug: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5599
+ * Running on http://21.0.10.232:5599
+2026-10-27 19:16:17,877 [INFO] werkzeug: [33mPress CTRL+C to quit[0m
+2026-10-27 19:16:22,349 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:22] "GET / HTTP/1.1" 200 -
+2026-10-27 19:16:22,361 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:22] "GET /login HTTP/1.1" 200 -
+2026-10-27 19:16:22,371 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:22] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:16:34,915 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:34] "GET /login HTTP/1.1" 200 -
+2026-10-27 19:16:34,962 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:34] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:16:35,904 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:35] "GET / HTTP/1.1" 200 -
+2026-10-27 19:16:35,916 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:35] "[36mGET /static/img/weexionic-logo.png HTTP/1.1[0m" 304 -
+2026-10-27 19:16:36,789 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:36] "GET / HTTP/1.1" 200 -
+2026-10-27 19:16:36,801 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:16:36] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:17:14,369 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:17:14] "GET / HTTP/1.1" 200 -
+2026-10-27 19:17:14,382 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:17:14] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:18:08,871 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:18:08] "GET / HTTP/1.1" 200 -
+2026-10-27 19:18:08,885 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:18:08] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:18:46,721 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:18:46] "GET / HTTP/1.1" 200 -
+2026-10-27 19:18:46,731 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:18:46] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:19:34,606 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:19:34] "GET / HTTP/1.1" 200 -
+2026-10-27 19:19:34,618 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:19:34] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:19:45,120 [INFO] saas: Shutdown signal received - stopping all bot-engine processes...
+2026-10-27 19:19:46,651 [INFO] saas: Admin panel: ENABLED (secret path: /x7k2-admin)
+2026-10-27 19:19:46,652 [CRITICAL] saas: [SECURITY] ENCRYPTION_KEY env var NOT SET! Using insecure default key. All user API keys are at risk. Set ENCRYPTION_KEY=<32+ char random string> IMMEDIATELY.
+2026-10-27 19:19:46,652 [INFO] saas: ============================================================
+2026-10-27 19:19:46,652 [INFO] saas:  TradeBot SaaS Webapp - Starting
+2026-10-27 19:19:46,652 [INFO] saas:  Bot engine dir: /home/z/my-project/bot-cloned/bot-engine
+2026-10-27 19:19:46,652 [INFO] saas:  Admin panel: ENABLED (password set via env)
+2026-10-27 19:19:46,652 [INFO] saas:  Payment wallet: TLponfWC...5Bpp (TRC20 (USDT))
+2026-10-27 19:19:46,652 [INFO] saas:  Google OAuth: NOT configured
+2026-10-27 19:19:46,652 [INFO] saas: ============================================================
+2026-10-27 19:19:46,652 [ERROR] saas: PostgreSQL init failed: invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+
+2026-10-27 19:19:46,652 [ERROR] saas: PostgreSQL load failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — falling back to database.json
+2026-10-27 19:19:46,652 [INFO] saas: Loaded database.json (2 users)
+2026-10-27 19:19:46,652 [ERROR] saas: PostgreSQL save failed (invalid dsn: missing "=" after "file:/home/z/my-project/db/custom.db" in connection info string
+) — writing database.json fallback
+2026-10-27 19:19:46,665 [INFO] saas: SaaS webapp running on port 5599
+2026-10-27 19:19:46,668 [INFO] werkzeug: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5599
+ * Running on http://21.0.10.232:5599
+2026-10-27 19:19:46,668 [INFO] werkzeug: [33mPress CTRL+C to quit[0m
+2026-10-27 19:19:51,731 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:19:51] "GET / HTTP/1.1" 200 -
+2026-10-27 19:19:51,747 [INFO] werkzeug: 127.0.0.1 - - [27/Oct/2026 19:19:51] "GET /static/img/weexionic-logo.png HTTP/1.1" 200 -
+2026-10-27 19:20:07,761 [INFO] saas: Shutdown signal received - stopping all bot-engine processes...

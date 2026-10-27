@@ -1396,27 +1396,81 @@ def start_user_bot(user_id: str) -> dict:
             logger.error("Failed to start bot for %s: %s", user_id, e)
             return {"success": False, "error": str(e)}
 
+def _pids_listening_on_port(port: int) -> list:
+    """Find PIDs with a socket bound to 127.0.0.1:<port> (Linux ss/lsof, best-effort)."""
+    pids = []
+    try:
+        out = subprocess.run(["ss", "-ltnp"], capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            if f":{port} " in line or line.rstrip().endswith(f":{port}"):
+                import re as _re
+                m = _re.search(r"pid=(\d+)", line)
+                if m and int(m.group(1)) not in pids:
+                    pids.append(int(m.group(1)))
+    except Exception:
+        pass
+    if not pids:
+        try:
+            out = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True, timeout=5)
+            for line in out.stdout.splitlines():
+                s = line.strip()
+                if s.isdigit() and int(s) not in pids:
+                    pids.append(int(s))
+        except Exception:
+            pass
+    return pids
+
+
 def stop_user_bot(user_id: str) -> dict:
-    """Stop a user's bot-engine instance."""
+    """Stop a user's bot-engine instance. BULLETPROOF version:
+    1) graceful engine /api/stop (trading loop ends cleanly)
+    2) kill the recorded pid (and its children)
+    3) port-scan fallback kill — even if the process table lost track
+    4) clear BOTH the in-memory DB and the shared process file (watchdog's truth)
+    """
+    stopped_something = False
     proc_info = DB.get("bot_processes", {}).get(user_id)
     if not proc_info:
         shared = _load_bot_processes()
         proc_info = shared.get(user_id)
-    if not proc_info or not proc_info.get("pid"):
-        return {"success": True, "message": "Bot not running"}
 
-    pid = proc_info["pid"]
-    kill_process(pid)
+    port = (proc_info or {}).get("port")
+
+    # 1) Ask the engine to stop trading gracefully (best-effort, 5s)
+    if port:
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/stop", data=b"{}",
+                method="POST", headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=5).read()
+            stopped_something = True
+        except Exception:
+            pass
+
+    # 2) Kill the recorded pid
+    pid = (proc_info or {}).get("pid")
+    if pid:
+        kill_process(pid)
+        stopped_something = True
+
+    # 3) Port-scan fallback: ANY process still bound to the engine port dies
+    if port:
+        for extra_pid in _pids_listening_on_port(port):
+            if extra_pid != pid:
+                kill_process(extra_pid)
+                stopped_something = True
+
     _close_log_handle(user_id)
 
-    proc_info["should_run"] = False
+    # 4) Purge every state location — especially the SHARED file the watchdog reads
     DB.get("bot_processes", {}).pop(user_id, None)
     shared = _load_bot_processes()
-    shared.pop(user_id, None)
-    _save_bot_processes(shared)
+    if user_id in shared:
+        shared.pop(user_id, None)
+        _save_bot_processes(shared)
     save_db(DB)
-    logger.info("Stopped bot-engine for user %s", user_id)
-    return {"success": True, "message": "Bot stopped"}
+    logger.info("Stopped bot-engine for user %s (port=%s, pid=%s)", user_id, port, pid)
+    return {"success": True, "message": "Bot stopped" if stopped_something else "Bot not running"}
 
 def is_process_alive(pid: int) -> bool:
     """Check if a process is alive (cross-platform).
@@ -2274,8 +2328,14 @@ def api_bot_start():
 
     sub = check_subscription(user)
     if not sub["active"]:
+        plan = (sub.get("plan") or "none").upper()
+        days = sub.get("days_left", 0)
         return jsonify({"success": False,
-                        "error": "License inactive/expired. Please contact admin for a license."}), 403
+                        "error": ("License inactive/expired (plan: %s, %s). "
+                                  "Open %s in your phone browser, log in and activate a plan "
+                                  "from Packages — the app unlocks automatically."
+                                  % (plan, ("%d days left" % days) if days else "no active days",
+                                     "weexionic.duckdns.org"))}), 403
 
     result = start_user_bot(user["id"])
     return jsonify(result)
@@ -2340,6 +2400,127 @@ def api_bot_status():
         "balance": bot_balance,
         "config_summary": config_summary,
     })
+
+# ============================================================
+# PUBLIC MARKET TICKERS — Markets tab always has live prices
+# (works even when the bot engine is stopped: fetched server-side
+# from Binance public API with WEEX fallback + 10s cache)
+# ============================================================
+_ticker_cache = {"data": None, "ts": 0.0}
+
+@app.route("/api/market/tickers", methods=["GET"])
+def api_market_tickers():
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+
+    user = current_user()
+    if not user:
+        return jsonify({"success": False, "error": "User not found"}), 404
+
+    raw = request.args.get("symbols", "")
+    syms = []
+    for part in raw.replace(" ", "").split(","):
+        p = part.strip().upper()
+        if p and p not in syms:
+            syms.append(p)
+    # default interest list when the user hasn't configured coins yet
+    if not syms:
+        syms = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "BNBUSDT"]
+
+    now = time.time()
+    if (_ticker_cache["data"] is not None and now - _ticker_cache["ts"] < 10
+            and not raw.strip()):
+        return jsonify(_ticker_cache["data"])
+
+    result = {"success": True, "source": "", "tickers": {}}
+
+    # 1) Binance USDT-M futures public tickers (no auth)
+    try:
+        q = ",".join('"%s"' % s for s in syms[:24])
+        with urllib.request.urlopen(
+                "https://fapi.binance.com/fapi/v1/ticker/24hr?symbols=[" + q + "]",
+                timeout=6) as r:
+            arr = json.loads(r.read().decode("utf-8"))
+        if isinstance(arr, list):
+            for t in arr:
+                s = t.get("symbol", "")
+                result["tickers"][s] = {
+                    "price": float(t.get("lastPrice") or 0),
+                    "change_pct": float(t.get("priceChangePercent") or 0),
+                    "high": float(t.get("highPrice") or 0),
+                    "low": float(t.get("lowPrice") or 0),
+                    "quote_volume": float(t.get("quoteVolume") or 0),
+                }
+            result["source"] = "binance"
+    except Exception as e:
+        logger.warning("Binance public tickers failed: %s", e)
+
+    # 2) WEEX fallback for any symbol Binance refused (geo-block / listing)
+    missing = [s for s in syms[:24] if s not in result["tickers"]]
+    for s in missing[:12]:
+        try:
+            with urllib.request.urlopen(
+                    "https://api-contract.weex.com/capi/v3/market/symbolPrice?symbol=" + s,
+                    timeout=5) as r:
+                d = json.loads(r.read().decode("utf-8"))
+            # WEEX answers FLAT: {"symbol":"BTCUSDT","price":"80681.42","time":...}
+            # (older shape nested under "data" — support both)
+            data = d.get("data") if isinstance(d.get("data"), dict) else d
+            px = data.get("price") or data.get("lastPrice")
+            if px:
+                chg = data.get("change24h") or data.get("priceChangePercent") or 0
+                try:
+                    chg = float(chg)
+                except (TypeError, ValueError):
+                    chg = 0
+                result["tickers"][s] = {
+                    "price": float(px),
+                    "change_pct": chg,
+                    "high": float(data.get("high24h") or 0),
+                    "low": float(data.get("low24h") or 0),
+                    "quote_volume": 0,
+                }
+                if not result["source"]:
+                    result["source"] = "weex"
+        except Exception:
+            continue
+
+    if not result["tickers"]:
+        result["success"] = False
+        result["error"] = "No public price source reachable right now — try again shortly"
+        return jsonify(result)
+
+    if not raw.strip():
+        _ticker_cache["data"] = result
+        _ticker_cache["ts"] = now
+    return jsonify(result)
+
+# ============================================================
+# CLIENT ERROR/CRASH SINK — the Android app posts crash traces and
+# raw API errors here so problems on a user's phone are visible in
+# the VPS logs (no adb needed).
+# ============================================================
+@app.route("/api/client/crash", methods=["POST"])
+def api_client_crash():
+    data = request.get_json(silent=True) or {}
+    kind = str(data.get("kind") or "crash")[:32]
+    tag = str(data.get("tag") or "app")[:64]
+    body = str(data.get("trace") or data.get("message") or "")[:8000]
+    email = "?"
+    try:
+        u = current_user()
+        if u:
+            email = u.get("email", "?")
+    except Exception:
+        pass
+    logger.error("[CLIENT-%s] tag=%s user=%s\n%s", kind.upper(), tag, email, body)
+    try:
+        with open(LOG_DIR / "client_errors.log", "a", encoding="utf-8") as f:
+            f.write("=== %s [%s] %s user=%s ===\n%s\n"
+                    % (datetime.now(timezone.utc).isoformat(), kind, tag, email, body))
+    except Exception:
+        pass
+    return jsonify({"success": True})
 
 @app.route("/api/bot/proxy", methods=["GET", "POST"])
 def api_bot_proxy():
@@ -3970,7 +4151,15 @@ def _watchdog():
     logger.info("Watchdog thread started - monitoring bot-engine processes")
     while True:
         try:
-            for user_id, proc_info in list(DB.get("bot_processes", {}).items()):
+            # CRITICAL FIX (bot-comes-back-after-stop): iterate the SHARED process
+            # file, NOT this worker's in-memory DB. With multiple Gunicorn workers
+            # each worker has its own stale in-memory copy — after a user pressed
+            # STOP (handled by another worker) this worker's stale entry still had
+            # should_run=True, so the watchdog RESURRECTED the stopped bot every
+            # 30 seconds ("bot stop nahi ho raha"). The shared file is the single
+            # source of truth and stop_user_bot() removes the user from it.
+            shared = _load_bot_processes()
+            for user_id, proc_info in list(shared.items()):
                 if not proc_info.get("should_run", False):
                     continue
 
@@ -3979,19 +4168,33 @@ def _watchdog():
                     continue
 
                 if not is_process_alive(pid):
+                    # RE-CHECK the shared file right before respawning: a STOP may
+                    # have landed while we were checking liveness. If the entry is
+                    # gone / flagged off / has a new pid, another worker already
+                    # handled it — never resurrect a just-stopped bot.
+                    now_shared = _load_bot_processes()
+                    now_entry = now_shared.get(user_id)
+                    if (not now_entry or not now_entry.get("should_run", False)
+                            or now_entry.get("pid") != pid):
+                        logger.info("Watchdog: %s was stopped while we checked — NOT restarting.", user_id)
+                        continue
+
                     # Check restart count
                     restart_count = _watchdog_restart_counts.get(user_id, 0)
                     if restart_count >= WATCHDOG_MAX_RESTARTS:
                         logger.error("Watchdog: user %s exceeded max restarts (%d). Stopping.",
                                    user_id, WATCHDOG_MAX_RESTARTS)
+                        now_shared.pop(user_id, None)
+                        _save_bot_processes(now_shared)
                         DB.get("bot_processes", {}).pop(user_id, None)
                         save_db(DB)
                         continue
 
                     logger.warning("Watchdog: bot-engine died for user %s, restarting... (attempt %d/%d)",
                                   user_id, restart_count + 1, WATCHDOG_MAX_RESTARTS)
-                    old_port = proc_info.get("port")
                     DB.get("bot_processes", {}).pop(user_id, None)
+                    now_shared.pop(user_id, None)
+                    _save_bot_processes(now_shared)
                     save_db(DB)
 
                     result = ensure_bot_engine_running(user_id)

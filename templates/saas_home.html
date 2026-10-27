@@ -318,6 +318,9 @@
             gap: 48px;
             align-items: center;
         }
+        /* GRID BLOWOUT FIX: terminal mock's min-content must never widen the track */
+        .hero-grid > * { min-width: 0; }
+        .hero-visual, .terminal-preview-card { min-width: 0; max-width: 100%; overflow: hidden; }
         .hero-tag {
             display: inline-flex;
             align-items: center;
@@ -1218,7 +1221,7 @@
 
         @media (max-width: 1024px) {
             .hero-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 gap: 36px;
             }
             .hero-desc {

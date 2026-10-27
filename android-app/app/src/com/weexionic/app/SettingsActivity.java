@@ -41,7 +41,31 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_settings);
+        try {
+            setContentView(R.layout.activity_settings);
+        } catch (Throwable t) {
+            // NEVER hard-crash the settings screen — show why and bail out cleanly.
+            try { CrashLog.report(null, "settings-inflate", stackOf(t)); } catch (Exception ignore) { }
+            Toast.makeText(this, "Settings screen failed to open — please update the app", Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        try {
+            initUi();
+        } catch (Throwable t) {
+            try { CrashLog.report(null, "settings-init", stackOf(t)); } catch (Exception ignore) { }
+            Toast.makeText(this, "Settings screen error — reopening may fix it", Toast.LENGTH_LONG).show();
+            finish();
+        }
+    }
+
+    private static String stackOf(Throwable t) {
+        java.io.StringWriter sw = new java.io.StringWriter();
+        t.printStackTrace(new java.io.PrintWriter(sw));
+        return String.valueOf(sw);
+    }
+
+    private void initUi() {
 
         try {
             fBold = Typeface.createFromAsset(getAssets(), "SpaceGrotesk-Bold.ttf");
@@ -193,6 +217,8 @@ public class SettingsActivity extends Activity {
                 final ApiClient.Result r = ApiClient.get(
                         session.server() + "/api/bot/config", session.cookie());
                 if (!r.ok()) {
+                    CrashLog.report(session, "settings-load", "HTTP " + r.code + " body="
+                            + (r.body == null ? "" : r.body.trim().substring(0, Math.min(200, r.body.trim().length()))));
                     runOnUiThread(new Runnable() {
                         public void run() {
                             Toast.makeText(SettingsActivity.this,
@@ -347,6 +373,7 @@ public class SettingsActivity extends Activity {
                                         Toast.LENGTH_LONG).show();
                                 finish();
                             } else {
+                                CrashLog.report(session, "settings-save", emsg + " (HTTP " + r.code + ")");
                                 err(emsg);
                             }
                         }

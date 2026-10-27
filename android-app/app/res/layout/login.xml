@@ -18,11 +18,11 @@
             android:layout_width="match_parent"
             android:layout_height="40dp" />
 
-        <!-- Brand -->
+        <!-- Brand — new circular badge (v3.6: logo lives ONLY on the login screen) -->
         <ImageView
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:src="@drawable/logo_glow"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:src="@drawable/logo_badge"
             android:contentDescription="@string/app_name" />
 
         <TextView
@@ -262,7 +262,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="22dp"
             android:layout_marginBottom="34dp"
-            android:text="v3.5  •  NATIVE APP  •  SECURE &amp; ALWAYS ON"
+            android:text="v3.6  •  NATIVE APP  •  SECURE &amp; ALWAYS ON"
             android:textColor="@color/text_dim"
             android:textSize="9sp"
             android:letterSpacing="0.12" />

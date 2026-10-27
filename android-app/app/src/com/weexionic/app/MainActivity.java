@@ -32,6 +32,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -105,6 +106,8 @@ public class MainActivity extends Activity {
     private JSONObject lastSnapshot = null;
     private JSONObject lastReferral = null;
     private JSONArray lastLogs = null;
+    private JSONObject lastTickers = null;          // public prices (engine-independent)
+    private final HashSet<String> reportedKeys = new HashSet<String>(); // remote-report throttle
     private double lastBalance = 0;
     private boolean balOk = false;
     private String balErrMsg = null;
@@ -171,6 +174,9 @@ public class MainActivity extends Activity {
         btnStart = findViewById(R.id.btnStart);
         btnStop = findViewById(R.id.btnStop);
         cardWarn = findViewById(R.id.cardWarn);
+        cardWarn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { startActivity(new Intent(MainActivity.this, SettingsActivity.class)); }
+        });
         tvWarn = findViewById(R.id.tvWarn);
         sparkHome = findViewById(R.id.sparkHome);
         llHomeCoins = findViewById(R.id.llHomeCoins);
@@ -428,6 +434,10 @@ public class MainActivity extends Activity {
                     }
                     if (!loggedIn) {
                         failStreak++;
+                        if (failStreak == 2) {
+                            reportRemoteOnce("auth-fail", "HTTP " + me.code + " body="
+                                    + (me.body == null ? "" : me.body.trim().substring(0, Math.min(200, me.body.trim().length()))));
+                        }
                         if (failStreak >= 3) { onAuthExpired(); return; }
                         runOnUiThread(new Runnable() {
                             public void run() {
@@ -494,6 +504,10 @@ public class MainActivity extends Activity {
                                 }
                                 if (!running) lastSnapshot = null;
                             } catch (Exception ignored) { }
+                        } else {
+                            // status endpoint failing — surface the REAL reason remotely (once)
+                            reportRemoteOnce("status-fail", "HTTP " + bs.code + " body="
+                                    + (bs.body == null ? "" : bs.body.trim().substring(0, Math.min(200, bs.body.trim().length()))));
                         }
                     }
 
@@ -553,6 +567,42 @@ public class MainActivity extends Activity {
                         }
                     }
 
+                    // 3b) MARKETS TAB — public tickers fallback: prices ALWAYS available
+                    // even when the engine is stopped / has no coins / exchange blocked.
+                    JSONObject tick = null;
+                    if (curTab == 1) {
+                        String symQ = "";
+                        try {
+                            JSONObject csm2 = lastBotStatus == null ? null
+                                    : lastBotStatus.optJSONObject("config_summary");
+                            JSONArray cs = csm2 == null ? null : csm2.optJSONArray("symbols");
+                            if (cs != null && cs.length() > 0) {
+                                StringBuilder sb2 = new StringBuilder();
+                                for (int i = 0; i < cs.length() && i < 12; i++) {
+                                    if (sb2.length() > 0) sb2.append(',');
+                                    sb2.append(cs.optString(i, ""));
+                                }
+                                symQ = sb2.toString();
+                            }
+                        } catch (Exception ignore) { }
+                        String q = symQ.length() > 0
+                                ? "?symbols=" + urlencode(symQ) : "";
+                        ApiClient.Result tkr = ApiClient.get(base + "/api/market/tickers" + q, ck);
+                        if (tkr.ok()) {
+                            try {
+                                JSONObject jt = new JSONObject(tkr.body);
+                                if (jt.optBoolean("success", false)
+                                        && jt.optJSONObject("tickers") != null
+                                        && jt.optJSONObject("tickers").length() > 0) {
+                                    tick = jt;
+                                }
+                            } catch (Exception ignore) { }
+                        } else {
+                            reportRemoteOnce("tickers-fail", "HTTP " + tkr.code + " body="
+                                    + (tkr.body == null ? "" : tkr.body.trim().substring(0, Math.min(160, tkr.body.trim().length()))));
+                        }
+                    }
+
                     // 4) referral data for wallet tab
                     JSONObject ref = null;
                     if (curTab == 3) {
@@ -574,11 +624,13 @@ public class MainActivity extends Activity {
                     final JSONObject fUser = user, fSub = sub;
                     final JSONObject fSnap = snap, fHist = hist, fRef = (ref != null ? ref : lastReferral);
                     final JSONArray fLogs = lastLogs;
+                    final JSONObject fTick = tick;
                     runOnUiThread(new Runnable() {
                         public void run() {
                             try {
                                 ticking = false;
                                 renderCommon(fUser, fSub, fRun, fBal, fBok, fEx, fMode, fCoins, fTrades, fLev, fTf, fBalErr);
+                                if (fTick != null) lastTickers = fTick;
                                 if (fSnap != null) {
                                     if (tab == 0) renderHomeSpark(fSnap);
                                     if (tab == 0) renderHomeCoins(fSnap, fRun);
@@ -587,7 +639,15 @@ public class MainActivity extends Activity {
                                     if (tab == 2 && seg == 0) renderPositions(fSnap);
                                 } else {
                                     if (tab == 0) renderHomeCoins(null, fRun);
-                                    if (tab == 1) renderMarketsEmpty(fRun);
+                                    if (tab == 1) {
+                                        // Markets: engine data unavailable → public tickers fallback
+                                        if (fTick != null && fTick.optJSONObject("tickers") != null
+                                                && fTick.optJSONObject("tickers").length() > 0) {
+                                            renderMarketsTickers(fTick);
+                                        } else {
+                                            renderMarketsEmpty(fRun);
+                                        }
+                                    }
                                     if (tab == 2) {
                                         chart.setData(null, null);
                                         tvTradePrice.setText("—");
@@ -661,8 +721,15 @@ public class MainActivity extends Activity {
                             + ApiClient.hostOf(session.server()) + " in a browser and activate a plan to start the bot.");
                 } else if (!bok) {
                     String why = balErr == null ? "" : balErr.trim();
-                    tvWarn.setText("Can't reach the exchange"
-                            + (why.isEmpty() ? " — verify your API keys in Bot Settings" : ": " + why));
+                    String low = why.toLowerCase(Locale.US);
+                    if (low.contains("403") || low.contains("451") || low.contains("restricted")) {
+                        tvWarn.setText("The exchange has BLOCKED this server's region (HTTP 403). "
+                                + "Prices, chart and trades can't load from here. Fix: Bot Settings → "
+                                + "Exchange → WEEX, add your WEEX API keys, Save, then START. Tap this card to open settings.");
+                    } else {
+                        tvWarn.setText("Can't reach the exchange"
+                                + (why.isEmpty() ? " — verify your API keys in Bot Settings (tap this card)" : ": " + why));
+                    }
                 } else {
                     tvWarn.setText("Engine is running but no coin is live — check coins in Bot Settings");
                 }
@@ -731,7 +798,24 @@ public class MainActivity extends Activity {
                     }
                 } else {
                     llHomeCoins.addView(emptyNote(
-                            "No coins configured yet — add coins in Bot Settings, then press START"));
+                            "No coins configured yet — the bot watches nothing until you add coins"));
+                    Button bAdd = new Button(this, null, 0);
+                    bAdd.setText("ADD COINS IN BOT SETTINGS");
+                    bAdd.setTextColor(0xFF0A0C10);
+                    bAdd.setTextSize(13);
+                    bAdd.setTypeface(Typeface.DEFAULT_BOLD);
+                    bAdd.setBackgroundResource(R.drawable.btn_gold);
+                    bAdd.setAllCaps(true);
+                    LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(46));
+                    blp.topMargin = dp(10);
+                    bAdd.setLayoutParams(blp);
+                    bAdd.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View v) {
+                            playSfx(sTap);
+                            startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+                        }
+                    });
+                    llHomeCoins.addView(bAdd);
                 }
                 return;
             }
@@ -792,6 +876,66 @@ public class MainActivity extends Activity {
 
     private void renderMarketsEmpty(boolean running) {
         llMarketsEmpty(running);
+    }
+
+    /** Markets from PUBLIC tickers — engine-independent, always live. */
+    private void renderMarketsTickers(JSONObject tick) {
+        try {
+            LinearLayout ll = findViewById(R.id.llMarkets);
+            ll.removeAllViews();
+            JSONObject tk = tick.optJSONObject("tickers");
+            String src = tick.optString("source", "public").toUpperCase(Locale.US);
+
+            TextView head = tv("LIVE PUBLIC PRICES  •  " + src, 9, true, TDIM);
+            head.setAllCaps(true);
+            head.setLetterSpacing(0.12f);
+            head.setLayoutParams(lp(-1, -2, 0, 0, 0, dp(8)));
+            ll.addView(head);
+
+            List<String> syms = sortedKeys(tk);
+            for (String sym : syms) {
+                JSONObject t = tk.optJSONObject(sym);
+                if (t == null) continue;
+                double last = t.optDouble("price", 0);
+                double chg = t.optDouble("change_pct", 0);
+                int col = chg >= 0 ? GREEN : RED;
+
+                LinearLayout row = new LinearLayout(this);
+                row.setLayoutParams(lp(-1, -2, 0, 0, 0, 10));
+                row.setBackgroundResource(R.drawable.bg_card);
+                row.setPadding(dp(16), dp(14), dp(16), dp(14));
+                row.setGravity(Gravity.CENTER_VERTICAL);
+
+                LinearLayout left = new LinearLayout(this);
+                left.setLayoutParams(lp(0, -2, 1f, 0, 0, 0));
+                left.setOrientation(LinearLayout.VERTICAL);
+                TextView tSym = tv(sym, 14, true, TPRI);
+                left.addView(tSym);
+                TextView tSub = tv(last > 0 ? String.format(Locale.US, "$%,.2f", last) : "—",
+                        16, true, col);
+                applyFont(tSub, fNum);
+                left.addView(tSub);
+
+                TextView tChg = tv((chg >= 0 ? "+" : "") + String.format(Locale.US, "%.2f%%", chg) + "\n24h", 12, true, col);
+                tChg.setGravity(Gravity.END);
+                LinearLayout right = new LinearLayout(this);
+                right.setLayoutParams(lp(0, -2, 0, 0, 0, 0));
+                right.setOrientation(LinearLayout.VERTICAL);
+                right.setGravity(Gravity.END);
+                right.addView(tChg);
+
+                row.addView(left);
+                LinearLayout mid = new LinearLayout(this);
+                mid.setLayoutParams(lp(dp(12), 1, 0, 0, 0, 0));
+                row.addView(mid);
+                row.addView(right);
+                ll.addView(row);
+            }
+            if (syms.isEmpty()) llMarketsEmpty(false);
+        } catch (Throwable t) {
+            try { CrashLog.save(t); } catch (Exception ignore) { }
+            llMarketsEmpty(false);
+        }
     }
 
     private void llMarketsEmpty(boolean running) {
@@ -1443,6 +1587,16 @@ public class MainActivity extends Activity {
         Toast.makeText(this, m, Toast.LENGTH_LONG).show();
     }
 
+    /** Report a phone-side error to the server ONCE per unique key (no spam). */
+    private void reportRemoteOnce(String key, String detail) {
+        try {
+            if (detail == null || detail.length() == 0) return;
+            String k = key + "|" + detail.hashCode();
+            if (!reportedKeys.add(k)) return;   // already reported
+            CrashLog.report(session, key, detail);
+        } catch (Throwable ignore) { }
+    }
+
     private static List<String> sortedKeys(JSONObject o) {
         List<String> out = new ArrayList<String>();
         if (o == null) return out;
@@ -1535,16 +1689,18 @@ public class MainActivity extends Activity {
                             if (ok) {
                                 msg = start ? "Bot STARTED" : "Bot STOPPED";
                             } else {
-                                msg = jo.optString("error", "Action failed (" + r.code + ")");
+                                msg = describeFailure(r, start ? "start" : "stop");
                             }
                         } catch (Exception e) {
-                            msg = r.error != null ? r.error : "Action failed";
+                            msg = describeFailure(r, start ? "start" : "stop");
                         }
                         playSfx(ok ? (start ? sStart : sStop) : sErr);
                         if (ok) {
                             Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
-                            if (start) verifyStart();
+                            if (start) verifyStart(); else verifyStop();
                         } else {
+                            CrashLog.report(session, "bot-" + (start ? "start" : "stop"),
+                                    describeFailure(r, start ? "start" : "stop"));
                             // config issue → Settings; license issue → dedicated dialog (never a dead-end)
                             String low = msg == null ? "" : msg.toLowerCase();
                             boolean licIssue = low.contains("license") || r.code == 403;
@@ -1562,6 +1718,58 @@ public class MainActivity extends Activity {
                         tickNow();
                     }
                 });
+            }
+        }).start();
+    }
+
+    /** Build an HONEST failure line: HTTP code + the server's own words. */
+    private String describeFailure(ApiClient.Result r, String action) {
+        String action2 = action == null ? "action" : action;
+        if (r == null) return action2 + " failed — no response";
+        if (r.error != null && r.code == 0) return r.error;
+        String server = "";
+        try {
+            JSONObject jo = new JSONObject(r.body == null ? "" : r.body);
+            server = jo.optString("error", jo.optString("message", ""));
+        } catch (Exception e) {
+            if (r.body != null && r.body.trim().length() > 0) {
+                server = r.body.trim().replace("\n", " ");
+                if (server.length() > 120) server = server.substring(0, 120) + "…";
+            }
+        }
+        if (server == null || server.isEmpty()) {
+            if (r.code == 403) return "Not allowed (403) — your plan is inactive or expired.\nActivate a plan, then try again.";
+            if (r.code == 401) return "Session expired (401) — please log in again";
+            if (r.code >= 500) return "Server trouble (" + r.code + ") — try again in a moment";
+            return action2 + " failed (HTTP " + r.code + ")";
+        }
+        return server + "  (HTTP " + r.code + ")";
+    }
+
+    /** After STOP: confirm the engine REALLY stopped (kill confirm, honest). */
+    private void verifyStop() {
+        final String base = session.server(), ck = session.cookie();
+        new Thread(new Runnable() {
+            public void run() {
+                boolean stillRunning = false;
+                for (int i = 0; i < 3; i++) {
+                    try { Thread.sleep(2000); } catch (Exception ignore) { }
+                    ApiClient.Result s = ApiClient.get(base + "/api/bot/status", ck);
+                    try {
+                        JSONObject jb = new JSONObject(s.body);
+                        if (jb.optBoolean("running", false)) { stillRunning = true; break; }
+                    } catch (Exception ignore) { }
+                }
+                final boolean fStill = stillRunning;
+                if (!fStill) return; // clean stop — silent success
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        Toast.makeText(MainActivity.this,
+                                "Stop requested — the engine is still shutting down, status updates in a few seconds",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+                CrashLog.report(session, "stop-verify", "Engine still RUNNING ~6s after STOP");
             }
         }).start();
     }

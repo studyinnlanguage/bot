@@ -269,6 +269,21 @@ class SymbolWorker(threading.Thread):
         except Exception as e:
             err_msg = str(e)
             logger.error(f"[{symbol}] Failed to fetch klines after retries: {err_msg}")
+            # 403/451 = exchange BLOCKS this server's region/IP entirely — give the
+            # user one clear actionable message instead of endless "API error" spam.
+            is_geo_block = any(x in err_msg for x in ["403", "451", "restricted location",
+                                                      "Restricted Location", "Service unavailable from"])
+            if is_geo_block:
+                if not getattr(self.engine, "_geo_block_warned", False):
+                    self.engine._geo_block_warned = True
+                    self.engine._emit("log", {
+                        "level": "error",
+                        "msg": ("[{}] Exchange blocked this server (HTTP 403 restricted location). "
+                                "Prices, chart and signals CANNOT load from here. FIX: open Bot Settings "
+                                "→ Exchange → WEEX, add your WEEX API keys, Save, then START. "
+                                "(Binance alternative: use a VPS in a Binance-supported country.)").format(symbol)
+                    })
+                return
             is_invalid_sym = any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"])
             if is_invalid_sym:
                 if not hasattr(self, "_warned_invalid_sym"):
