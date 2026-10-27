@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
+    android:background="@drawable/splash_bg"
     android:fillViewport="true"
     android:scrollbars="none">
 
@@ -19,9 +19,9 @@
             android:layout_height="64dp" />
 
         <ImageView
-            android:layout_width="78dp"
-            android:layout_height="78dp"
-            android:src="@drawable/logo_w"
+            android:layout_width="110dp"
+            android:layout_height="110dp"
+            android:src="@drawable/logo_glow"
             android:contentDescription="@string/app_name" />
 
         <TextView

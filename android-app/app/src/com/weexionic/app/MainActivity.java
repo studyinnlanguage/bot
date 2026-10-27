@@ -6,6 +6,8 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.media.AudioAttributes;
+import android.media.SoundPool;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -47,7 +49,12 @@ public class MainActivity extends Activity {
     private int failStreak = 0;
     private boolean busyAction = false;
 
-    private Typeface fBold, fMed;
+    private Typeface fBold, fMed, fNum;
+
+    // sfx
+    private SoundPool sfx;
+    private int sTap, sStart, sStop, sErr;
+    private boolean sfxReady = false;
 
     // tab roots
     private View homeView, marketsView, chartViewRoot, tradesView, accountView;
@@ -85,9 +92,11 @@ public class MainActivity extends Activity {
         try {
             fBold = Typeface.createFromAsset(getAssets(), "SpaceGrotesk-Bold.ttf");
             fMed = Typeface.createFromAsset(getAssets(), "SpaceGrotesk-Medium.ttf");
+            fNum = Typeface.createFromAsset(getAssets(), "JetBrainsMono-Bold.ttf");
         } catch (Exception e) {
-            fBold = fMed = null;
+            fBold = fMed = fNum = null;
         }
+        initSfx();
 
         bindViews();
         wireActions();
@@ -150,13 +159,38 @@ public class MainActivity extends Activity {
             tvGreet.setText("Welcome back, " + nm);
         }
         tvEmail.setText(session.email());
-        applyFont(tvBalance, fBold);
+        applyFont(tvBalance, fNum);
         applyFont(tvGreet, fMed);
-        applyFont(tvMarkPrice, fBold);
+        applyFont(tvMarkPrice, fNum);
     }
 
     private void applyFont(TextView v, Typeface f) {
         if (v != null && f != null) v.setTypeface(f);
+    }
+
+    private void initSfx() {
+        try {
+            AudioAttributes aa = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build();
+            sfx = new SoundPool.Builder().setMaxStreams(4).setAudioAttributes(aa).build();
+            sTap = sfx.load(this, R.raw.snd_tap, 1);
+            sStart = sfx.load(this, R.raw.snd_start, 1);
+            sStop = sfx.load(this, R.raw.snd_stop, 1);
+            sErr = sfx.load(this, R.raw.snd_error, 1);
+            sfx.setOnLoadCompleteListener(new SoundPool.OnLoadCompleteListener() {
+                public void onLoadComplete(SoundPool sp, int id, int status) { sfxReady = true; }
+            });
+        } catch (Exception e) {
+            sfx = null;
+        }
+    }
+
+    private void playSfx(int id) {
+        if (sfx != null && sfxReady && id > 0) {
+            try { sfx.play(id, 0.85f, 0.85f, 1, 0, 1f); } catch (Exception ignore) {}
+        }
     }
 
     private void wireActions() {
@@ -197,6 +231,7 @@ public class MainActivity extends Activity {
     // ---------- Tabs ----------
 
     private void setTab(int t) {
+        if (t != tab) playSfx(sTap);
         tab = t;
         homeView.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
         marketsView.setVisibility(t == 1 ? View.VISIBLE : View.GONE);
@@ -236,6 +271,12 @@ public class MainActivity extends Activity {
         super.onPause();
         if (ui != null) ui.removeCallbacksAndMessages(null);
         tickScheduled = false;
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (sfx != null) { try { sfx.release(); } catch (Exception ignore) {} sfx = null; }
     }
 
     private void scheduleTick() {
@@ -461,7 +502,7 @@ public class MainActivity extends Activity {
                 TextView tSym = tv(sym, 14, true, TPRI);
                 left.addView(tSym);
                 TextView tPrice = tv(String.format(Locale.US, "$%.2f", last), 16, true, col);
-                applyFont(tPrice, fBold);
+                applyFont(tPrice, fNum);
                 left.addView(tPrice);
 
                 SparkView spark = new SparkView(this);
@@ -663,7 +704,7 @@ public class MainActivity extends Activity {
                             13, true, TPRI);
                     tSym.setLayoutParams(lp(0, -2, 1f, 0, 0, 0));
                     TextView tPnl = tv(String.format(Locale.US, "%s$%.2f", pnl >= 0 ? "+" : "", pnl), 14, true, col);
-                    applyFont(tPnl, fBold);
+                    applyFont(tPnl, fNum);
                     h.addView(tSym);
                     h.addView(tPnl);
                     card.addView(h);
@@ -808,9 +849,11 @@ public class MainActivity extends Activity {
                         btnStart.setEnabled(true); btnStop.setEnabled(true);
                         btnStart.setAlpha(1f); btnStop.setAlpha(1f);
                         String msg;
+                        boolean ok = false;
                         try {
                             JSONObject jo = new JSONObject(r.body);
-                            if (r.ok() && jo.optBoolean("success", false)) {
+                            ok = r.ok() && jo.optBoolean("success", false);
+                            if (ok) {
                                 msg = start ? "Bot STARTED" : "Bot STOPPED";
                             } else {
                                 msg = jo.optString("error", "Action failed (" + r.code + ")");
@@ -818,6 +861,7 @@ public class MainActivity extends Activity {
                         } catch (Exception e) {
                             msg = r.error != null ? r.error : "Action failed";
                         }
+                        playSfx(ok ? (start ? sStart : sStop) : sErr);
                         Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
                         ticking = false;
                         tickNow();
