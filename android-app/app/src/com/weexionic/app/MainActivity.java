@@ -67,6 +67,10 @@ public class MainActivity extends Activity {
     private TextView tvPill, tvGreet, tvBalance, tvBalanceSub, tvCoins, tvTrades,
             tvLev, tvTf, tvMode, tvHomePill, tvUpdated;
     private Button btnStart, btnStop;
+    private View cardWarn;
+    private TextView tvWarn;
+    private SparkView sparkHome;
+    private int homeTick = 0;
 
     // markets / chart / trades
     private LinearLayout llMarkets, llChips, llIndicators, llTrades;
@@ -136,6 +140,9 @@ public class MainActivity extends Activity {
         tvUpdated = findViewById(R.id.tvUpdated);
         btnStart = findViewById(R.id.btnStart);
         btnStop = findViewById(R.id.btnStop);
+        cardWarn = findViewById(R.id.cardWarn);
+        tvWarn = findViewById(R.id.tvWarn);
+        sparkHome = findViewById(R.id.sparkHome);
 
         llMarkets = findViewById(R.id.llMarkets);
         llChips = findViewById(R.id.llChips);
@@ -164,6 +171,13 @@ public class MainActivity extends Activity {
         applyFont(tvBalance, fNum);
         applyFont(tvGreet, fMed);
         applyFont(tvMarkPrice, fNum);
+
+        findViewById(R.id.rowSettings).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                playSfx(sTap);
+                startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+            }
+        });
     }
 
     private void applyFont(TextView v, Typeface f) {
@@ -336,20 +350,22 @@ public class MainActivity extends Activity {
                 failStreak = 0;
                 reloginTries = 0;
 
-                // 2) bot status + balance
+                // 2) bot status + balance + config summary (hamesha — honest state)
                 double bal = 0; boolean bok = false;
                 String exchange = "", mode = "";
                 int coins = 0, trades = 0;
                 String lev = "—", tf = "—";
                 boolean running = botRunning;
-                if (running) {
+                {
                     ApiClient.Result bs = ApiClient.get(base + "/api/bot/status", ck);
                     if (bs.ok()) {
                         try {
                             JSONObject jb = new JSONObject(bs.body);
                             lastBotStatus = jb;
+                            running = jb.optBoolean("running", running);
                             JSONObject st = jb.optJSONObject("bot_status");
                             JSONObject bbal = jb.optJSONObject("balance");
+                            JSONObject csm = jb.optJSONObject("config_summary");
                             if (bbal != null && bbal.optBoolean("success", false)) {
                                 bal = bbal.optDouble("balance", 0);
                                 bok = true;
@@ -357,27 +373,40 @@ public class MainActivity extends Activity {
                                 mode = bbal.optBoolean("testnet", true) ? "TESTNET" : "LIVE";
                             }
                             if (st != null) {
+                                // engine TRADING state (process-alive != trading)
                                 running = st.optBoolean("running", running);
                                 trades = st.optInt("trades_today", 0);
                                 if (exchange.isEmpty()) exchange = st.optString("exchange", "");
                                 if (mode.isEmpty()) mode = st.optBoolean("testnet", true) ? "TESTNET" : "LIVE";
                                 JSONArray syms = st.optJSONArray("symbols");
                                 coins = syms == null ? 0 : syms.length();
-                                lev = st.optInt("leverage", 0) > 0 ? st.optInt("leverage", 0) + "x" : "—";
-                                tf = st.optString("timeframe", "");
-                                if (tf == null || tf.isEmpty()) tf = "—";
+                                if (st.optInt("leverage", 0) > 0) lev = st.optInt("leverage", 0) + "x";
+                                String tfs = st.optString("timeframe", "");
+                                if (tfs != null && !tfs.isEmpty()) tf = tfs;
                             }
+                            if (csm != null) {
+                                // config summary se STOPPED state pe bhi settings dikhein
+                                if (exchange.isEmpty()) exchange = csm.optString("exchange", "binance");
+                                if (mode.isEmpty()) mode = csm.optBoolean("testnet", false) ? "TESTNET" : "LIVE";
+                                if ("—".equals(lev) && csm.optInt("leverage", 0) > 0)
+                                    lev = csm.optInt("leverage", 0) + "x";
+                                if ("—".equals(tf)) {
+                                    String t2 = csm.optString("timeframe", "");
+                                    if (t2 != null && !t2.isEmpty()) tf = t2;
+                                }
+                                if (!running) coins = csm.optInt("symbols_count", 0);
+                            }
+                            if (!running) lastSnapshot = null;
                         } catch (Exception ignored) { }
                     }
-                } else {
-                    lastBotStatus = null;
-                    lastSnapshot = null;
                 }
 
-                // 3) snapshot for markets/chart/trades tabs
+                // 3) snapshot for home-spark / markets / chart / trades tabs
                 JSONObject snap = null;
                 JSONObject hist = null;
-                if (running && curTab >= 1 && curTab <= 3) {
+                boolean wantSnap = running && ((curTab >= 1 && curTab <= 3)
+                        || (curTab == 0 && (homeTick++ % 2 == 0)));
+                if (wantSnap) {
                     ApiClient.Result sr = ApiClient.get(base + "/api/bot/proxy?path=/api/snapshot", ck);
                     if (sr.ok()) {
                         try {
@@ -409,6 +438,7 @@ public class MainActivity extends Activity {
                         ticking = false;
                         renderCommon(fUser, fSub, fRun, fBal, fBok, fEx, fMode, fCoins, fTrades, fLev, fTf);
                         if (fSnap != null) {
+                            if (tab == 0) renderHomeSpark(fSnap);
                             if (tab == 1) renderMarkets(fSnap);
                             if (tab == 2) renderChart(fSnap);
                             if (tab == 3 && seg == 0) renderPositions(fSnap);
@@ -434,22 +464,37 @@ public class MainActivity extends Activity {
         tvHomePill.setBackgroundResource(running ? R.drawable.bg_pill_green : R.drawable.bg_pill_gray);
         tvHomePill.setTextColor(running ? GREEN : TSEC);
         tvHomePill.setText(running ? "RUNNING" : "STOPPED");
+        // honest control: running pe sirf STOP, warna START
+        btnStart.setVisibility(running ? View.GONE : View.VISIBLE);
+        btnStop.setVisibility(running ? View.VISIBLE : View.GONE);
         if (bok) {
             tvBalance.setText(String.format(Locale.US, "$%.2f", bal));
             tvBalanceSub.setText((ex.isEmpty() ? "" : ex.toUpperCase(Locale.US) + "  •  ") + mode);
             lastBalance = bal; balOk = true;
         } else {
             tvBalance.setText("$0.00");
-            tvBalanceSub.setText(running ? "Exchange balance unavailable" : "Bot start karein — balance yahan aayega");
+            tvBalanceSub.setText(running ? "Exchange balance unavailable"
+                    : (ex.isEmpty() ? "" : ex.toUpperCase(Locale.US) + "  •  ") + mode + "  —  START se balance aayega");
             balOk = false;
         }
-        tvCoins.setText(running ? String.valueOf(coins) : "—");
+        // honest diagnostics: running lekin data nahi = exchange/connection issue
+        boolean warn = running && (!bok || coins == 0);
+        if (cardWarn != null) {
+            cardWarn.setVisibility(warn ? View.VISIBLE : View.GONE);
+            if (warn) {
+                if (!bok) {
+                    tvWarn.setText("Exchange se connect nahi ho raha — Bot Settings mein API keys verify karein");
+                } else {
+                    tvWarn.setText("Engine chal raha hai lekin koi coin live nahi — Bot Settings mein coins check karein");
+                }
+            }
+        }
+        tvCoins.setText(coins > 0 ? String.valueOf(coins) : (running ? "0" : "—"));
         tvTrades.setText(running ? String.valueOf(trades) : "—");
-        tvLev.setText(running ? lev : "—");
-        tvTf.setText(running ? tf : "—");
-        tvMode.setText(running
-                ? (ex.isEmpty() ? "" : ex.toUpperCase(Locale.US) + " " + mode + "  •  ") + "EMA 8/13/21/55  •  strict 1:1 RR"
-                : "EMA 8/13/21/55  •  strict 1:1 RR");
+        tvLev.setText(lev);
+        tvTf.setText(tf);
+        tvMode.setText((ex.isEmpty() ? "" : ex.toUpperCase(Locale.US) + " " + mode + "  •  ")
+                + "EMA 8/13/21/55  •  strict 1:1 RR");
         String t = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
         tvUpdated.setText("Updated  " + t);
 
@@ -463,6 +508,24 @@ public class MainActivity extends Activity {
             String p = sub.optString("plan", "—");
             tvPlan.setText("•  " + (p.isEmpty() ? "—" : p.toUpperCase(Locale.US)));
             tvExpiry.setText(fmtExpiry(sub.optString("expires_at", "")));
+        }
+    }
+
+    /** Home hero sparkline — active/first symbol ke last closes. */
+    private void renderHomeSpark(JSONObject snap) {
+        try {
+            JSONObject chart = snap.optJSONObject("chart");
+            if (chart == null || chart.length() == 0) { sparkHome.setCloses(null); return; }
+            String sym = snap.optString("active_symbol", "");
+            if (sym == null || sym.isEmpty() || !chart.has(sym)) {
+                List<String> ks = sortedKeys(chart);
+                sym = ks.isEmpty() ? null : ks.get(0);
+            }
+            if (sym == null) { sparkHome.setCloses(null); return; }
+            JSONObject cd = chart.optJSONObject(sym);
+            sparkHome.setCloses(cd == null ? null : cd.optJSONArray("candles"));
+        } catch (Exception e) {
+            sparkHome.setCloses(null);
         }
     }
 
@@ -871,12 +934,28 @@ public class MainActivity extends Activity {
         AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
             .setTitle(start ? "Start Bot?" : "Stop Bot?")
             .setMessage(start
-                ? "Trading engine start ho jayega — live positions manage hongi."
+                ? "Trading engine aap ki saved settings (coins, leverage, order size) se start hoga."
                 : "Bot ruk jayega. Khuli positions open reh sakti hain — manual manage karna paray ga.")
             .setPositiveButton(start ? "START" : "STOP", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface di, int w) { botAction(start); }
             })
             .setNegativeButton("CANCEL", null)
+            .show();
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(GOLD);
+        d.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(TSEC);
+    }
+
+    /** START fail hua config ki wajah se — seedha Bot Settings offer karo. */
+    private void showSettingsNeeded(String why) {
+        AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("Settings Zaroori Hain")
+            .setMessage(why + "\n\nAbhi Bot Settings kholein?")
+            .setPositiveButton("BOT SETTINGS", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface di, int w) {
+                    startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+                }
+            })
+            .setNegativeButton("LATER", null)
             .show();
         d.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(GOLD);
         d.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(TSEC);
@@ -911,7 +990,19 @@ public class MainActivity extends Activity {
                             msg = r.error != null ? r.error : "Action failed";
                         }
                         playSfx(ok ? (start ? sStart : sStop) : sErr);
-                        Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                        if (ok) {
+                            Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                        } else {
+                            // config issue pe seedha Settings offer karo (silent no-op kabhi nahi)
+                            String low = msg == null ? "" : msg.toLowerCase();
+                            boolean cfgIssue = low.contains("api key") || low.contains("coin")
+                                    || low.contains("passphrase") || low.contains("settings");
+                            if (cfgIssue) {
+                                showSettingsNeeded(msg);
+                            } else {
+                                Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                            }
+                        }
                         ticking = false;
                         tickNow();
                     }

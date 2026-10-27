@@ -2297,8 +2297,30 @@ def api_bot_status():
         return jsonify({"success": False, "error": "User not found"}), 404
 
     status = get_bot_status(user["id"])
+
+    # App-facing config summary: lets the mobile app validate the bot config
+    # BEFORE starting (so "START" never silently no-ops on missing keys/coins)
+    # and show honest diagnostics when the engine is idle or can't reach the exchange.
+    cfg = user.get("bot_config", {})
+    config_summary = {
+        "exchange": cfg.get("exchange", "binance"),
+        "testnet": bool(cfg.get("testnet", False)),
+        "has_api_key": bool(cfg.get("api_key_enc")),
+        "has_passphrase": bool(cfg.get("api_passphrase_enc")),
+        "symbols_count": len(cfg.get("symbols_list") or []),
+        "symbols": cfg.get("symbols_list") or [],
+        "timeframe": cfg.get("timeframe", ""),
+        "leverage": cfg.get("leverage", 0),
+        "mode": cfg.get("mode", "both"),
+    }
+
     if not status["running"]:
-        return jsonify({"success": True, "running": False})
+        return jsonify({
+            "success": True,
+            "running": False,
+            "engine_alive": False,
+            "config_summary": config_summary,
+        })
 
     bot_data = proxy_to_bot(user["id"], "GET", "/api/status")
     bot_balance = proxy_to_bot(user["id"], "GET", "/api/balance")
@@ -2306,10 +2328,12 @@ def api_bot_status():
     return jsonify({
         "success": True,
         "running": True,
+        "engine_alive": True,
         "port": status["port"],
         "started_at": status.get("started_at"),
         "bot_status": bot_data,
         "balance": bot_balance,
+        "config_summary": config_summary,
     })
 
 @app.route("/api/bot/proxy", methods=["GET", "POST"])

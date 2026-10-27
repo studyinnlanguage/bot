@@ -18,61 +18,66 @@
             android:textSize="21sp"
             android:textStyle="bold" />
 
-        <ImageView
-            android:layout_width="match_parent"
-            android:layout_height="104dp"
-            android:layout_marginTop="12dp"
-            android:scaleType="centerCrop"
-            android:src="@drawable/account_header"
-            android:contentDescription="Account banner" />
-
-        <!-- Profile -->
-        <LinearLayout
+        <!-- Profile hero (concept wallet frame) -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/bg_card"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="20dp">
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_card_gold">
 
-            <TextView
-                android:id="@+id/tvAvatar"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
-                android:background="@drawable/bg_avatar"
-                android:gravity="center"
-                android:text="W"
-                android:textColor="@color/gold"
-                android:textSize="19sp"
-                android:textStyle="bold" />
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0.22"
+                android:scaleType="centerCrop"
+                android:src="@drawable/account_header"
+                android:contentDescription="Profile banner" />
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="14dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="20dp">
 
                 <TextView
-                    android:id="@+id/tvName"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Trader"
-                    android:textColor="@color/text_pri"
-                    android:textSize="16sp"
+                    android:id="@+id/tvAvatar"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:background="@drawable/bg_avatar"
+                    android:gravity="center"
+                    android:text="W"
+                    android:textColor="@color/gold"
+                    android:textSize="20sp"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvEmail"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="—"
-                    android:textColor="@color/text_sec"
-                    android:textSize="12sp" />
+                    android:layout_marginLeft="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvName"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Trader"
+                        android:textColor="@color/text_pri"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvEmail"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="—"
+                        android:textColor="@color/text_sec"
+                        android:textSize="12sp" />
+                </LinearLayout>
             </LinearLayout>
-        </LinearLayout>
+        </FrameLayout>
 
         <!-- Subscription -->
         <LinearLayout
@@ -100,7 +105,7 @@
                     android:id="@+id/tvPlan"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_pill_gray"
+                    android:background="@drawable/bg_pill_gold"
                     android:paddingLeft="12dp"
                     android:paddingRight="12dp"
                     android:paddingTop="5dp"
@@ -123,6 +128,51 @@
                     android:textColor="@color/text_sec"
                     android:textSize="12sp" />
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- Bot Settings (web jaisa poora control, ab app ke andar) -->
+        <LinearLayout
+            android:id="@+id/rowSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_card_gold"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="20dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Bot Settings"
+                    android:textColor="@color/gold"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Exchange, API keys, coins, leverage — sab yahan"
+                    android:textColor="@color/text_sec"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="›"
+                android:textColor="@color/gold"
+                android:textSize="22sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <!-- Server -->
@@ -154,7 +204,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Weexionic App v3.0.0  •  Native Engine Client"
+                android:text="Weexionic App v3.3.0  •  Native Engine Client"
                 android:textColor="@color/text_dim"
                 android:textSize="11sp" />
         </LinearLayout>
