@@ -1977,3 +1977,153 @@ body > footer a:hover { color: var(--gold-primary); }
     .topbar, .workspace-nav, .mobile-bottom-nav, .mobile-quick-strip, .chart-tools-strip { display: none !important; }
     body { background: #fff; color: #000; }
 }
+
+/* ============================================================
+   BUTTON POLISH v3 — premium tactile layer (pure CSS only)
+   No HTML / JS / strategy changes. Append-only override.
+   ============================================================ */
+
+/* --- 1. Tactile micro-interactions: every button feels alive --- */
+.btn,
+.ws-tab-btn,
+.draw-btn,
+.exchange-btn,
+.toggle-btn,
+.ref-tab-btn,
+.btn-quick-set-lev,
+.btn-del-item,
+.btn-account,
+.btn-logout,
+.btn-ghost-settings {
+    -webkit-tap-highlight-color: transparent;
+    transition: transform .16s ease, box-shadow .22s ease,
+                background-color .22s ease, background .22s ease,
+                border-color .22s ease, color .22s ease, filter .22s ease;
+}
+.btn:active:not(:disabled),
+.ws-tab-btn:active,
+.draw-btn:active,
+.exchange-btn:active,
+.toggle-btn:active,
+.ref-tab-btn:active,
+.btn-quick-set-lev:active,
+.btn-del-item:active {
+    transform: translateY(1px) scale(.97);
+}
+
+/* --- 2. Friendlier geometry --- */
+.btn { border-radius: 10px; font-weight: 700; letter-spacing: .3px; gap: 8px; }
+.btn-lg { border-radius: 12px; }
+.btn-sm { border-radius: 9px; }
+.btn-xs { border-radius: 8px; }
+
+/* --- 3. Filled CTAs (gold / green / red): 3D sheen + resting glow --- */
+.btn-primary,
+.btn-success,
+.btn-danger {
+    position: relative;
+    overflow: hidden;
+}
+.btn-primary { box-shadow: 0 2px 12px rgba(240,185,11,.22), inset 0 1px 0 rgba(255,255,255,.42); }
+.btn-success { box-shadow: 0 2px 12px rgba(14,203,129,.22), inset 0 1px 0 rgba(255,255,255,.26); }
+.btn-danger  { box-shadow: 0 2px 12px rgba(246,70,93,.22), inset 0 1px 0 rgba(255,255,255,.26); }
+
+.btn-primary:hover:not(:disabled),
+.btn-success:hover:not(:disabled),
+.btn-danger:hover:not(:disabled) {
+    transform: translateY(-1px);
+    filter: saturate(1.08) brightness(1.05);
+}
+.btn-primary:hover:not(:disabled) { box-shadow: 0 6px 22px rgba(240,185,11,.42), inset 0 1px 0 rgba(255,255,255,.42); }
+.btn-success:hover:not(:disabled) { box-shadow: 0 6px 22px rgba(14,203,129,.42), inset 0 1px 0 rgba(255,255,255,.26); }
+.btn-danger:hover:not(:disabled)  { box-shadow: 0 6px 22px rgba(246,70,93,.42), inset 0 1px 0 rgba(255,255,255,.26); }
+
+/* shine sweep on hover */
+.btn-primary::after,
+.btn-success::after,
+.btn-danger::after {
+    content: "";
+    position: absolute;
+    top: 0; left: -85%;
+    width: 55%; height: 100%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,.35) 50%, transparent 100%);
+    transform: skewX(-22deg);
+    transition: left .55s ease;
+    pointer-events: none;
+}
+.btn-primary:hover::after,
+.btn-success:hover::after,
+.btn-danger:hover::after { left: 130%; }
+
+/* --- 4. Disabled = intentional soft state, never "broken" --- */
+.btn:disabled { filter: saturate(.55); }
+#startBtn:disabled {
+    opacity: 1;
+    background: rgba(14, 203, 129, 0.10);
+    color: rgba(46, 189, 133, 0.80);
+    box-shadow: inset 0 0 0 1px rgba(14, 203, 129, 0.32);
+    filter: none;
+}
+#stopBtn:disabled {
+    opacity: 1;
+    background: rgba(246, 70, 93, 0.10);
+    color: rgba(255, 92, 114, 0.80);
+    box-shadow: inset 0 0 0 1px rgba(246, 70, 93, 0.32);
+    filter: none;
+}
+
+/* --- 5. Ghost / outline buttons: gentle hover lift --- */
+.btn-secondary:hover:not(:disabled),
+.btn-test-conn:hover:not(:disabled),
+.btn-outline-config:hover,
+.btn-outline-muted:hover,
+.btn-account:hover,
+.btn-ghost-settings:hover {
+    transform: translateY(-1px);
+}
+.btn-test-conn, .btn-secondary { border-radius: 10px; }
+
+/* --- 6. Gold outline (Close Position) + Emergency (Force Reset) --- */
+.btn-warning {
+    background: linear-gradient(135deg, rgba(240,185,11,.16), rgba(240,185,11,.06));
+    border-color: rgba(240,185,11,.45);
+    border-radius: 10px;
+    letter-spacing: .3px;
+}
+.btn-warning:hover:not(:disabled) {
+    background: rgba(240,185,11,.24);
+    box-shadow: 0 4px 16px rgba(240,185,11,.20);
+    transform: translateY(-1px);
+}
+.btn-emergency { border-radius: 10px; letter-spacing: .4px; }
+.btn-emergency:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(246,70,93,.16);
+}
+.btn-max-lev, .btn-quick-set-lev { border-radius: 8px; }
+
+/* --- 7. Keyboard focus rings (accessibility) --- */
+.btn:focus-visible,
+.ws-tab-btn:focus-visible,
+.draw-btn:focus-visible,
+.exchange-btn:focus-visible {
+    outline: 2px solid rgba(240,185,11,.65);
+    outline-offset: 2px;
+}
+
+/* --- 8. Active nav tab: soft gold aura --- */
+.ws-tab-btn.active { box-shadow: 0 0 0 1px rgba(240,185,11,.28), 0 4px 14px rgba(240,185,11,.14); }
+
+/* --- 9. Mobile: bigger touch targets, pill-soft corners --- */
+@media (max-width: 640px) {
+    .btn { min-height: 44px; border-radius: 12px; font-size: 13px; }
+    .btn-lg { min-height: 50px; font-weight: 800; letter-spacing: .6px; border-radius: 13px; }
+    .btn-sm { min-height: 38px; border-radius: 11px; }
+    .mob-quick-btn-group .btn {
+        border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.22);
+    }
+    .mob-quick-btn-group .btn:active:not(:disabled) { transform: scale(.96); }
+    .ws-quick-actions .btn { border-radius: 11px; }
+    .btn-account { border-radius: 11px; }
+}
