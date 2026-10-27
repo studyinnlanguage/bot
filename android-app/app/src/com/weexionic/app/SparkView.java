@@ -35,7 +35,7 @@ public class SparkView extends View {
                 vals[i] = candles.getJSONObject(n - take + i).optDouble("close", 0);
             }
             boolean upTrend = vals[take - 1] >= vals[0];
-            pLine.setColor(upTrend ? 0xFF0ECB81 : 0xFFF6465D);
+            pLine.setColor(upTrend ? 0xFF2EBD85 : 0xFFF6465D);
             invalidate();
         } catch (Exception e) {
             vals = null;

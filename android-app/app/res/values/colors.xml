@@ -1,19 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#FF07090D</color>
-    <color name="bg_elev">#FF0B0D12</color>
-    <color name="card">#FF0E1117</color>
-    <color name="card_hi">#FF131720</color>
-    <color name="hairline">#FF1B2130</color>
-    <color name="input_bg">#FF131720</color>
-    <color name="input_stroke">#FF232B3D</color>
-    <color name="gold">#FFF0B90B</color>
-    <color name="gold_hi">#FFF8D33A</color>
-    <color name="on_gold">#FF141414</color>
-    <color name="green">#FF0ECB81</color>
+    <!-- WEE-XIONIC concept palette: near-pure black canvas, warm dark cards,
+         one bright yellow accent, Binance-grade green/red for market data. -->
+    <color name="bg">#FF060606</color>
+    <color name="bg_elev">#FF0B0B0A</color>
+    <color name="card">#FF131311</color>
+    <color name="card_hi">#FF1A1A17</color>
+    <color name="hairline">#FF23231E</color>
+    <color name="input_bg">#FF141412</color>
+    <color name="input_stroke">#FF2A2A24</color>
+
+    <color name="gold">#FFF5C518</color>
+    <color name="gold_hi">#FFFFDD55</color>
+    <color name="gold_deep">#FFD9A400</color>
+    <color name="on_gold">#FF161408</color>
+
+    <color name="green">#FF2EBD85</color>
+    <color name="green_hi">#FF0ECB81</color>
     <color name="red">#FFF6465D</color>
-    <color name="text_pri">#FFF2F4F7</color>
-    <color name="text_sec">#FF8A93A5</color>
-    <color name="text_dim">#FF5B6472</color>
-    <color name="nav_bg">#FF0B0D12</color>
+    <color name="amber">#FFF0B90B</color>
+
+    <color name="text_pri">#FFF5F5F2</color>
+    <color name="text_sec">#FF9BA199</color>
+    <color name="text_dim">#FF666B66</color>
+
+    <color name="nav_bg">#FF0A0A09</color>
+
+    <!-- pill fills (concept status chips) -->
+    <color name="pill_green_bg">#FF12271E</color>
+    <color name="pill_red_bg">#FF2C1218</color>
+    <color name="pill_amber_bg">#FF2A220C</color>
+    <color name="pill_gray_bg">#FF1B1B18</color>
+
+    <!-- coin dots (concept: BTC orange / ETH violet / SOL teal) -->
+    <color name="coin_btc">#FFF7931A</color>
+    <color name="coin_eth">#FF8A92FF</color>
+    <color name="coin_sol">#FF14D1C1</color>
+    <color name="coin_xrp">#FF23A9D8</color>
+    <color name="coin_doge">#FFC2A633</color>
+    <color name="coin_bnb">#FFF3BA2F</color>
+    <color name="coin_alt">#FFB388FF</color>
+
+    <!-- EMA line colors (concept chart legend) -->
+    <color name="ema_8">#FFF5C518</color>
+    <color name="ema_13">#FFF6465D</color>
+    <color name="ema_21">#FF4A9EFF</color>
+    <color name="ema_55">#FFB388FF</color>
 </resources>

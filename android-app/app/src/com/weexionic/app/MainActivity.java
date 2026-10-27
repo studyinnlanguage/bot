@@ -49,8 +49,9 @@ import java.util.Locale;
 public class MainActivity extends Activity {
 
     private static final long TICK_MS = 4000;
-    private static final int GOLD = 0xFFF0B90B, GREEN = 0xFF0ECB81, RED = 0xFFF6465D;
-    private static final int TPRI = 0xFFF2F4F7, TSEC = 0xFF8A93A5, TDIM = 0xFF5B6472;
+    private static final int GOLD = 0xFFF5C518, GREEN = 0xFF2EBD85, RED = 0xFFF6465D;
+    private static final int AMBER = 0xFFF0B90B;
+    private static final int TPRI = 0xFFF5F5F2, TSEC = 0xFF9BA199, TDIM = 0xFF666B66;
 
     private Session session;
     private Handler ui;
@@ -76,11 +77,13 @@ public class MainActivity extends Activity {
     // topbar + home
     private TextView tvPill, tvGreet, tvBalance, tvBalanceSub, tvCoins, tvTrades,
             tvLev, tvTf, tvMode, tvHomePill, tvUpdated;
+    private TextView tvEquityPill, tvPnlToday;   // concept: +$ pill next to equity, Open PnL stat
     private Button btnStart, btnStop;
     private View cardWarn;
     private TextView tvWarn;
     private SparkView sparkHome;
     private LinearLayout llHomeCoins;
+    private View btnShortcutTerminal, btnShortcutPositions, btnShortcutHistory, btnShortcutAlerts;
     private int homeTick = 0;
 
     // trade tab
@@ -180,6 +183,12 @@ public class MainActivity extends Activity {
         tvWarn = findViewById(R.id.tvWarn);
         sparkHome = findViewById(R.id.sparkHome);
         llHomeCoins = findViewById(R.id.llHomeCoins);
+        tvEquityPill = findViewById(R.id.tvEquityPill);
+        tvPnlToday = findViewById(R.id.tvPnlToday);
+        btnShortcutTerminal = findViewById(R.id.btnShortcutTerminal);
+        btnShortcutPositions = findViewById(R.id.btnShortcutPositions);
+        btnShortcutHistory = findViewById(R.id.btnShortcutHistory);
+        btnShortcutAlerts = findViewById(R.id.btnShortcutAlerts);
 
         llChips = findViewById(R.id.llChips);
         chart = findViewById(R.id.chart);
@@ -246,6 +255,28 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(MainActivity.this, SettingsActivity.class));
             }
         });
+
+        // Concept shortcut tiles — jump straight into the terminal's sections
+        btnShortcutTerminal.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { playSfx(sTap); goTradeSeg(0); }
+        });
+        btnShortcutPositions.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { playSfx(sTap); goTradeSeg(0); }
+        });
+        btnShortcutHistory.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { playSfx(sTap); goTradeSeg(1); }
+        });
+        btnShortcutAlerts.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { playSfx(sTap); goTradeSeg(2); }
+        });
+    }
+
+    /** Open the Trade tab with a specific section selected (0 positions / 1 history / 2 signals). */
+    private void goTradeSeg(int s) {
+        setTab(2);
+        seg = s;
+        styleSeg();
+        renderTrades();
     }
 
     private void applyFont(TextView v, Typeface f) {
@@ -601,6 +632,24 @@ public class MainActivity extends Activity {
                             reportRemoteOnce("tickers-fail", "HTTP " + tkr.code + " body="
                                     + (tkr.body == null ? "" : tkr.body.trim().substring(0, Math.min(160, tkr.body.trim().length()))));
                         }
+                        // DISPLAY-ONLY fallback: older server builds may not ship
+                        // /api/market/tickers (404) or may be briefly unreachable.
+                        // Prices are public data — fetch them straight from the
+                        // exchange public endpoints so Markets is always live.
+                        // (No trading, no keys, nothing touches the engine.)
+                        if (tick == null) {
+                            List<String> want = new ArrayList<String>();
+                            if (symQ.length() > 0) {
+                                for (String p : symQ.split(",")) {
+                                    if (!p.trim().isEmpty()) want.add(p.trim().toUpperCase(Locale.US));
+                                }
+                            }
+                            if (want.isEmpty()) {
+                                want.add("BTCUSDT"); want.add("ETHUSDT"); want.add("SOLUSDT");
+                                want.add("XRPUSDT"); want.add("DOGEUSDT"); want.add("BNBUSDT");
+                            }
+                            tick = fetchPublicTickersDirect(want);
+                        }
                     }
 
                     // 4) referral data for wallet tab
@@ -710,6 +759,37 @@ public class MainActivity extends Activity {
                     + "  —  balance appears after START");
             balOk = false;
         }
+
+        // Concept equity pill + Open PnL stat — REAL value: sum of open positions' unrealized PnL
+        double openPnl = 0; boolean pnlOk = false;
+        try {
+            JSONArray pos = lastSnapshot == null ? null : lastSnapshot.optJSONArray("positions");
+            if (running && pos != null) {
+                for (int i = 0; i < pos.length(); i++) {
+                    JSONObject p = pos.getJSONObject(i);
+                    if (!"NONE".equals(p.optString("side", "NONE"))) {
+                        openPnl += p.optDouble("unrealized_pnl", 0);
+                        pnlOk = true;
+                    }
+                }
+            }
+        } catch (Exception ignore) { }
+        if (tvEquityPill != null) {
+            if (pnlOk && Math.abs(openPnl) > 0.005) {
+                tvEquityPill.setVisibility(View.VISIBLE);
+                tvEquityPill.setText(String.format(Locale.US, "%s$%.2f", openPnl >= 0 ? "+" : "-", Math.abs(openPnl)));
+                tvEquityPill.setTextColor(openPnl >= 0 ? GREEN : RED);
+                tvEquityPill.setBackgroundResource(openPnl >= 0 ? R.drawable.bg_pill_green : R.drawable.bg_pill_red);
+            } else {
+                tvEquityPill.setVisibility(View.GONE);
+            }
+        }
+        if (tvPnlToday != null) {
+            tvPnlToday.setText(pnlOk
+                    ? String.format(Locale.US, "%s$%.2f", openPnl >= 0 ? "+" : "-", Math.abs(openPnl))
+                    : "—");
+            tvPnlToday.setTextColor(pnlOk ? (openPnl >= 0 ? GREEN : RED) : TSEC);
+        }
         // honest diagnostics: license / running-but-no-data / balance error — each with its REAL reason
         boolean licBad = !licActive;
         boolean warn = licBad || (running && (!bok || coins == 0));
@@ -735,10 +815,10 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        tvCoins.setText(coins > 0 ? String.valueOf(coins) : (running ? "0" : "—"));
+        tvCoins.setText(coins > 0 ? coins + " live" : (running ? "0 live" : "—"));
         tvTrades.setText(running ? String.valueOf(trades) : "—");
         tvLev.setText(lev);
-        tvTf.setText(tf);
+        tvTf.setText("Timeframe  " + tf);
         tvMode.setText((ex.isEmpty() ? "" : ex.toUpperCase(Locale.US) + " " + mode + "  •  ")
                 + "EMA 8/13/21/55  •  strict 1:1 RR");
         String t = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
@@ -844,6 +924,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Concept coin palette — BTC orange, ETH violet, SOL teal, etc. */
+    private static int coinColor(String sym) {
+        if (sym == null) return 0xFFB388FF;
+        String s = sym.toUpperCase(Locale.US);
+        if (s.startsWith("BTC")) return 0xFFF7931A;
+        if (s.startsWith("ETH")) return 0xFF8A92FF;
+        if (s.startsWith("SOL")) return 0xFF14D1C1;
+        if (s.startsWith("XRP")) return 0xFF23A9D8;
+        if (s.startsWith("DOGE")) return 0xFFC2A633;
+        if (s.startsWith("BNB")) return 0xFFF3BA2F;
+        return 0xFFB388FF;
+    }
+
+    /** Colored coin dot (concept list bullet). */
+    private View coinDot(String sym) {
+        View d = new View(this);
+        android.graphics.drawable.Drawable bg = getResources().getDrawable(R.drawable.bg_dot).mutate();
+        bg.setColorFilter(coinColor(sym), android.graphics.PorterDuff.Mode.SRC_IN);
+        d.setBackground(bg);
+        d.setLayoutParams(lp(dp(10), dp(10), 0, 0, 0, 0));
+        return d;
+    }
+
     private LinearLayout coinRow(String sym, String price, double chg, String signal,
                                  int sigCol, boolean live) {
         LinearLayout row = new LinearLayout(this);
@@ -852,9 +955,13 @@ public class MainActivity extends Activity {
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
         row.setGravity(Gravity.CENTER_VERTICAL);
 
+        // concept: colored coin dot before the symbol
+        View dot = coinDot(sym);
+        row.addView(dot);
+
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
-        left.setLayoutParams(lp(0, -2, 1f, 0, 0, 0));
+        left.setLayoutParams(lp(0, -2, 1f, 0, dp(10), 0));
         TextView tSym = tv(sym, 14, true, TPRI);
         left.addView(tSym);
         if (live) {
@@ -866,8 +973,21 @@ public class MainActivity extends Activity {
             left.addView(tv("waiting for engine start", 11, false, TDIM));
         }
 
+        // concept status pill: BUY green / SELL red / STANDBY amber / HOLD gray
         TextView badge = tv(signal, 11, true, sigCol);
-        badge.setBackgroundResource(R.drawable.bg_chip);
+        if ("STANDBY".equals(signal)) {
+            badge.setBackgroundResource(R.drawable.bg_pill_amber);
+            badge.setTextColor(AMBER);
+        } else if ("BUY".equals(signal)) {
+            badge.setBackgroundResource(R.drawable.bg_pill_green);
+            badge.setTextColor(GREEN);
+        } else if ("SELL".equals(signal)) {
+            badge.setBackgroundResource(R.drawable.bg_pill_red);
+            badge.setTextColor(RED);
+        } else {
+            badge.setBackgroundResource(R.drawable.bg_pill_gray);
+            badge.setTextColor(TSEC);
+        }
         badge.setPadding(dp(10), dp(4), dp(10), dp(4));
         row.addView(left);
         row.addView(badge);
@@ -906,23 +1026,30 @@ public class MainActivity extends Activity {
                 row.setPadding(dp(16), dp(14), dp(16), dp(14));
                 row.setGravity(Gravity.CENTER_VERTICAL);
 
+                // concept/Binance: colored coin dot
+                row.addView(coinDot(sym));
+
                 LinearLayout left = new LinearLayout(this);
-                left.setLayoutParams(lp(0, -2, 1f, 0, 0, 0));
+                left.setLayoutParams(lp(0, -2, 1f, 0, dp(10), 0));
                 left.setOrientation(LinearLayout.VERTICAL);
                 TextView tSym = tv(sym, 14, true, TPRI);
                 left.addView(tSym);
+                // Binance style: last price WHITE, 24h change colored
                 TextView tSub = tv(last > 0 ? String.format(Locale.US, "$%,.2f", last) : "—",
-                        16, true, col);
+                        15, true, TPRI);
                 applyFont(tSub, fNum);
                 left.addView(tSub);
 
-                TextView tChg = tv((chg >= 0 ? "+" : "") + String.format(Locale.US, "%.2f%%", chg) + "\n24h", 12, true, col);
+                TextView tChg = tv((chg >= 0 ? "+" : "") + String.format(Locale.US, "%.2f%%", chg), 13, true, col);
                 tChg.setGravity(Gravity.END);
                 LinearLayout right = new LinearLayout(this);
                 right.setLayoutParams(lp(0, -2, 0, 0, 0, 0));
                 right.setOrientation(LinearLayout.VERTICAL);
                 right.setGravity(Gravity.END);
                 right.addView(tChg);
+                TextView t24 = tv("24h", 9, false, TDIM);
+                t24.setGravity(Gravity.END);
+                right.addView(t24);
 
                 row.addView(left);
                 LinearLayout mid = new LinearLayout(this);
@@ -972,13 +1099,16 @@ public class MainActivity extends Activity {
                 row.setPadding(dp(16), dp(14), dp(16), dp(14));
                 row.setGravity(Gravity.CENTER_VERTICAL);
 
+                // concept/Binance: colored coin dot
+                row.addView(coinDot(sym));
+
                 LinearLayout left = new LinearLayout(this);
-                left.setLayoutParams(lp(0, -2, 1f, 0, 0, 0));
+                left.setLayoutParams(lp(0, -2, 1f, 0, dp(10), 0));
                 left.setOrientation(LinearLayout.VERTICAL);
 
                 TextView tSym = tv(sym, 14, true, TPRI);
                 left.addView(tSym);
-                TextView tPrice = tv(String.format(Locale.US, "$%.2f", last), 16, true, col);
+                TextView tPrice = tv(String.format(Locale.US, "$%.2f", last), 15, true, TPRI);
                 applyFont(tPrice, fNum);
                 left.addView(tPrice);
 
@@ -993,6 +1123,9 @@ public class MainActivity extends Activity {
                 right.setOrientation(LinearLayout.VERTICAL);
                 right.setGravity(Gravity.END);
                 right.addView(tChg);
+                TextView t24 = tv("24h", 9, false, TDIM);
+                t24.setGravity(Gravity.END);
+                right.addView(t24);
 
                 row.addView(left);
                 row.addView(spark);
@@ -1332,6 +1465,83 @@ public class MainActivity extends Activity {
     private static String urlencode(String s) {
         try { return java.net.URLEncoder.encode(s, "UTF-8"); }
         catch (Exception e) { return s; }
+    }
+
+    /**
+     * DISPLAY-ONLY public price fetch (no auth, no keys, engine untouched).
+     * Shape matches the server's /api/market/tickers so renderers are shared.
+     * 1) Binance USDT-M futures public ticker
+     * 2) WEEX public symbolPrice fallback (per symbol)
+     * Returns null when neither source is reachable.
+     */
+    private static JSONObject fetchPublicTickersDirect(List<String> syms) {
+        JSONObject out = new JSONObject();
+        JSONObject tickers = new JSONObject();
+        try {
+            // 1) Binance public
+            try {
+                StringBuilder q = new StringBuilder("[");
+                for (int i = 0; i < syms.size() && i < 24; i++) {
+                    if (q.length() > 1) q.append(',');
+                    q.append('"').append(syms.get(i)).append('"');
+                }
+                q.append(']');
+                ApiClient.Result r = ApiClient.get(
+                        "https://fapi.binance.com/fapi/v1/ticker/24hr?symbols=" + urlencode(q.toString()), null);
+                if (r.ok()) {
+                    JSONArray arr = new JSONArray(r.body);
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject t = arr.getJSONObject(i);
+                        String s = t.optString("symbol", "");
+                        double px = t.optDouble("lastPrice", 0);
+                        if (s.isEmpty() || px <= 0) continue;
+                        JSONObject o = new JSONObject();
+                        o.put("price", px);
+                        o.put("change_pct", t.optDouble("priceChangePercent", 0));
+                        o.put("high", t.optDouble("highPrice", 0));
+                        o.put("low", t.optDouble("lowPrice", 0));
+                        o.put("quote_volume", t.optDouble("quoteVolume", 0));
+                        tickers.put(s, o);
+                    }
+                    if (tickers.length() > 0) {
+                        out.put("success", true);
+                        out.put("source", "public-direct");
+                        out.put("tickers", tickers);
+                        return out;
+                    }
+                }
+            } catch (Exception ignore) { }
+
+            // 2) WEEX public fallback (per symbol, capped)
+            for (int i = 0; i < syms.size() && i < 12; i++) {
+                String s = syms.get(i);
+                try {
+                    ApiClient.Result r = ApiClient.get(
+                            "https://api-contract.weex.com/capi/v3/market/symbolPrice?symbol=" + s, null);
+                    if (!r.ok()) continue;
+                    JSONObject d = new JSONObject(r.body);
+                    JSONObject data = d.optJSONObject("data") != null ? d.optJSONObject("data") : d;
+                    double px = data.optDouble("price", 0);
+                    if (px <= 0) continue;
+                    double chg;
+                    try { chg = data.optDouble("change24h", 0); } catch (Exception e2) { chg = 0; }
+                    JSONObject o = new JSONObject();
+                    o.put("price", px);
+                    o.put("change_pct", chg);
+                    o.put("high", data.optDouble("high24h", 0));
+                    o.put("low", data.optDouble("low24h", 0));
+                    o.put("quote_volume", 0);
+                    tickers.put(s, o);
+                } catch (Exception ignore) { }
+            }
+            if (tickers.length() > 0) {
+                out.put("success", true);
+                out.put("source", "public-direct");
+                out.put("tickers", tickers);
+                return out;
+            }
+        } catch (Exception ignore) { }
+        return null;
     }
 
     // ---------- Quick controls (real /api/bot/config) ----------

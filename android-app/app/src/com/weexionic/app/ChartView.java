@@ -40,7 +40,7 @@ public class ChartView extends View {
     private boolean hasData = false;
 
     private static final int[] EMA_COLORS = {
-            0xFFF0B90B, 0xFF4A9EFF, 0xFFB388FF, 0xFFF2F4F7
+            0xFFF5C518, 0xFFF6465D, 0xFF4A9EFF, 0xFFB388FF
     };
 
     public ChartView(Context c) { this(c, null); }
@@ -50,15 +50,15 @@ public class ChartView extends View {
     public ChartView(Context c, AttributeSet a, int st) {
         super(c, a, st);
         float d = getResources().getDisplayMetrics().density;
-        int upC = 0xFF0ECB81, dnC = 0xFFF6465D;
+        int upC = 0xFF2EBD85, dnC = 0xFFF6465D;
         pWickUp.setColor(upC); pWickUp.setStrokeWidth(Math.max(1f, d));
         pWickDn.setColor(dnC); pWickDn.setStrokeWidth(Math.max(1f, d));
         pBodyUp.setColor(upC);
         pBodyDn.setColor(dnC);
-        pGrid.setColor(0xFF161B26); pGrid.setStrokeWidth(d);
-        pText.setColor(0xFF5B6472); pText.setTextSize(10f * d);
-        pTextPrice.setColor(0xFF8A93A5); pTextPrice.setTextSize(9f * d);
-        pLast.setColor(0xFFF2F4F7); pLast.setStrokeWidth(d);
+        pGrid.setColor(0xFF1A1A16); pGrid.setStrokeWidth(d);
+        pText.setColor(0xFF666B66); pText.setTextSize(10f * d);
+        pTextPrice.setColor(0xFF9BA199); pTextPrice.setTextSize(9f * d);
+        pLast.setColor(0xFFF5F5F2); pLast.setStrokeWidth(d);
         pLast.setStyle(Paint.Style.STROKE);
         pLast.setPathEffect(new DashPathEffect(new float[]{4 * d, 4 * d}, 0));
         pTag.setColor(0xFFF2F4F7);
@@ -209,7 +209,7 @@ public class ChartView extends View {
         cv.drawLine(0, yl, plotW, yl, pLast);
         String tag = fmt(lastClose);
         float tw = pTagText.measureText(tag);
-        pTag.setColor(up ? 0xFF0ECB81 : 0xFFF6465D);
+        pTag.setColor(up ? 0xFF2EBD85 : 0xFFF6465D);
         cv.drawRect(plotW + 1, yl - 9 * d, W - 1, yl + 9 * d, pTag);
         pTagText.setColor(0xFF141414);
         pTagText.setTextAlign(Paint.Align.CENTER);

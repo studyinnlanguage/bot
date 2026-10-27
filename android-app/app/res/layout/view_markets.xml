@@ -19,14 +19,49 @@
         android:layout_height="wrap_content"
         android:layout_marginLeft="16dp"
         android:layout_marginTop="2dp"
-        android:text="Bot ke active coins — live prices"
+        android:text="Live 24h prices — your bot's coins and the market"
         android:textColor="@color/text_dim"
         android:textSize="11sp" />
+
+    <!-- Binance-style list header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="16dp"
+        android:layout_marginRight="16dp"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="9sp"
+            android:text="Symbol" />
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="9sp"
+            android:gravity="right"
+            android:text="Last Price" />
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="76dp"
+            android:layout_height="wrap_content"
+            android:textSize="9sp"
+            android:gravity="right"
+            android:text="24h %" />
+    </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="8dp"
         android:scrollbars="none">
 
         <LinearLayout

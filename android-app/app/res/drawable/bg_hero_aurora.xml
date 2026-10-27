@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Concept aurora hero: deep-space base + gold/blue radial glows (concept mockup style) -->
+<!-- WEE-XIONIC concept hero: warm black base + single bright gold bloom,
+     exactly like the mockup's Total Equity card. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
             <gradient
                 android:angle="315"
-                android:startColor="#FF10161F"
-                android:centerColor="#FF0B0F16"
-                android:endColor="#FF07090D" />
+                android:startColor="#FF15130C"
+                android:centerColor="#FF0E0D09"
+                android:endColor="#FF080807" />
             <corners android:radius="20dp" />
         </shape>
     </item>
@@ -15,11 +16,11 @@
         <shape android:shape="oval">
             <gradient
                 android:type="radial"
-                android:gradientRadius="220dp"
-                android:centerX="0.85"
-                android:centerY="0.05"
-                android:startColor="#33F0B90B"
-                android:endColor="#000F0B0B" />
+                android:gradientRadius="230dp"
+                android:centerX="0.88"
+                android:centerY="0.0"
+                android:startColor="#3DF5C518"
+                android:endColor="#00080807" />
             <corners android:radius="20dp" />
         </shape>
     </item>
@@ -27,11 +28,17 @@
         <shape android:shape="oval">
             <gradient
                 android:type="radial"
-                android:gradientRadius="200dp"
-                android:centerX="0.05"
-                android:centerY="0.95"
-                android:startColor="#333949AB"
-                android:endColor="#0007090D" />
+                android:gradientRadius="190dp"
+                android:centerX="0.0"
+                android:centerY="1.0"
+                android:startColor="#26B3882A"
+                android:endColor="#00080807" />
+            <corners android:radius="20dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <stroke android:width="1dp" android:color="#FF3A3320" />
             <corners android:radius="20dp" />
         </shape>
     </item>

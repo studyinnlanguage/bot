@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Top-bar W brand badge: rounded square, bright yellow gradient, dark W glyph sits on top -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#FFFFDD55"
+        android:centerColor="#FFF5C518"
+        android:endColor="#FFDDAE06"
+        android:type="linear" />
+    <corners android:radius="10dp" />
+</shape>

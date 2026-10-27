@@ -42,7 +42,7 @@
                 android:layout_height="wrap_content"
                 android:text="—"
                 android:textColor="@color/text_pri"
-                android:textSize="26sp"
+                android:textSize="28sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -54,6 +54,25 @@
                 android:textColor="@color/green"
                 android:textSize="13sp"
                 android:textStyle="bold" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:text="PERP"
+                android:textColor="@color/text_sec"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.08" />
         </LinearLayout>
 
         <!-- Native candlestick chart (concept chart frame) -->
@@ -131,7 +150,8 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="QUICK CONTROLS — APPLIED TO NEXT ENTRIES" />
+                    android:textColor="@color/gold"
+                    android:text="MANUAL OVERRIDE — NEXT ENTRIES" />
 
                 <TextView
                     android:id="@+id/tvTradeLevBadge"
