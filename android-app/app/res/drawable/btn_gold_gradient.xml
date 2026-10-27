@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Concept CTA: gold gradient with soft glow ring on press -->
+<!-- Concept CTA: bright WEE-XIONIC yellow gradient (mockup buttons) -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
-            <gradient android:angle="270" android:startColor="#FFD9A706" android:centerColor="#FFD9A706" android:endColor="#FFB7890A" />
+            <gradient android:angle="270" android:startColor="#FFE8B70A" android:centerColor="#FFDDAE06" android:endColor="#FFC99400" />
             <corners android:radius="14dp" />
         </shape>
     </item>
     <item android:state_enabled="false">
         <shape android:shape="rectangle">
-            <gradient android:angle="270" android:startColor="#FF5A4A10" android:centerColor="#FF4A3D10" android:endColor="#FF3A3010" />
+            <gradient android:angle="270" android:startColor="#FF4A4110" android:centerColor="#FF3D3610" android:endColor="#FF302B0E" />
             <corners android:radius="14dp" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <gradient android:angle="270" android:startColor="#FFF8D33A" android:centerColor="#FFF0B90B" android:endColor="#FFD9A706" />
+            <gradient android:angle="270" android:startColor="#FFFFDD55" android:centerColor="#FFF5C518" android:endColor="#FFE0AC05" />
             <corners android:radius="14dp" />
         </shape>
     </item>
