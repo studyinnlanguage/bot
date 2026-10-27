@@ -48,6 +48,8 @@ public class MainActivity extends Activity {
     private int tab = 0, seg = 0;
     private int failStreak = 0;
     private boolean busyAction = false;
+    private int reloginTries = 0;
+    private long lastReloginMs = 0;
 
     private Typeface fBold, fMed, fNum;
 
@@ -321,7 +323,7 @@ public class MainActivity extends Activity {
                 }
                 if (!loggedIn) {
                     failStreak++;
-                    if (failStreak >= 3) { expire(); return; }
+                    if (failStreak >= 3) { onAuthExpired(); return; }
                     runOnUiThread(new Runnable() {
                         public void run() {
                             ticking = false;
@@ -332,6 +334,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 failStreak = 0;
+                reloginTries = 0;
 
                 // 2) bot status + balance
                 double bal = 0; boolean bok = false;
@@ -755,6 +758,52 @@ public class MainActivity extends Activity {
                 toLogin();
             }
         });
+    }
+
+    /** 401 bhaag gaya — pehle silent relogin try karo (Remember me), warna login screen. */
+    private void onAuthExpired() {
+        if (session.hasSavedLogin() && reloginTries < 3
+                && System.currentTimeMillis() - lastReloginMs > 5000) {
+            silentRelogin();
+            return;
+        }
+        expire();
+    }
+
+    private void silentRelogin() {
+        reloginTries++;
+        lastReloginMs = System.currentTimeMillis();
+        final String email = session.email();
+        final String pass = session.savedPass();
+        final String base = session.server();
+        new Thread(new Runnable() {
+            public void run() {
+                String b = "{}";
+                try {
+                    JSONObject jo = new JSONObject();
+                    jo.put("email", email);
+                    jo.put("password", pass);
+                    b = jo.toString();
+                } catch (Exception ignore) { }
+                final ApiClient.Result r = ApiClient.post(base + "/api/auth/login", b, null);
+                boolean ok = false;
+                String ck = r.setCookie == null ? "" : r.setCookie;
+                if (r.ok() && ck.startsWith("session=")) {
+                    ApiClient.Result me = ApiClient.get(base + "/api/auth/me", ck);
+                    try {
+                        ok = me.ok() && new JSONObject(me.body).optBoolean("success", false);
+                    } catch (Exception ignore) { }
+                }
+                if (ok) {
+                    session.cookie(ck);
+                    reloginTries = 0;
+                    ticking = false;
+                    tickNow();
+                } else {
+                    expire();
+                }
+            }
+        }).start();
     }
 
     // ---------- View factories ----------

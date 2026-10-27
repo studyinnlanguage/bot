@@ -34,7 +34,7 @@ public class ApiClient {
             conn.setReadTimeout(READ_TIMEOUT);
             conn.setRequestMethod(method);
             conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("User-Agent", "WeexionicApp/3.1 (Android)");
+            conn.setRequestProperty("User-Agent", "WeexionicApp/3.2 (Android)");
             if (cookie != null && cookie.length() > 0) {
                 conn.setRequestProperty("Cookie", cookie);
             }
