@@ -16,7 +16,7 @@ import org.json.JSONObject;
  * Bot Settings — web dashboard jaisa poora control, ab app ke andar:
  * exchange, testnet, API credentials, coins, timeframe, leverage,
  * order size, stop-loss, TP mode, direction, max concurrent trades.
- * Server: GET/POST /api/bot/config (sirf filled keys overwrite hoti hain).
+ * Server: GET/POST /api/bot/config (only filled keys are overwritten).
  */
 public class SettingsActivity extends Activity {
 
@@ -196,7 +196,7 @@ public class SettingsActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         public void run() {
                             Toast.makeText(SettingsActivity.this,
-                                    "Settings load nahi hui — dobara koshish karein",
+                                    "Couldn't load settings — please try again",
                                     Toast.LENGTH_SHORT).show();
                         }
                     });
@@ -250,8 +250,8 @@ public class SettingsActivity extends Activity {
             if (mct > 0) etMaxTrades.setText(String.valueOf(mct));
 
             tvKeyState.setText(hasKey
-                    ? "Saved API key: YES — khaali chhoda to wahi rahegi"
-                    : "Saved API key: NAHI — pehli bar keys add karein");
+                    ? "Saved API key: YES — leave blank to keep it"
+                    : "Saved API key: NO — add your keys below");
             tvKeyState.setTextColor(getResources().getColor(
                     hasKey ? R.color.green : R.color.gold));
         } catch (Exception ignored) { }
@@ -279,7 +279,7 @@ public class SettingsActivity extends Activity {
 
             String symRaw = etSymbols.getText().toString().trim();
             if (symRaw.length() == 0) {
-                err("Kam az kam ek coin add karein (jaise BTCUSDT)");
+                err("Add at least one coin (e.g. BTCUSDT)");
                 return;
             }
             org.json.JSONArray arr = new org.json.JSONArray();
@@ -287,7 +287,7 @@ public class SettingsActivity extends Activity {
                 if (part.trim().length() > 0) arr.put(part.trim().toUpperCase());
             }
             if (arr.length() == 0) {
-                err("Kam az kam ek coin add karein (jaise BTCUSDT)");
+                err("Add at least one coin (e.g. BTCUSDT)");
                 return;
             }
             body.put("symbols_list", arr);
@@ -299,18 +299,18 @@ public class SettingsActivity extends Activity {
             body.put("amount_mode", amountMode);
             if ("fixed".equals(amountMode)) {
                 double amt = parseDblSafe(etAmount.getText().toString().trim(), 0);
-                if (amt <= 0) { err("FIXED mode mein order size (USDT) likhein"); return; }
+                if (amt <= 0) { err("FIXED mode: enter the order size in USDT"); return; }
                 body.put("amount", amt);
             } else {
                 double pct = parseDblSafe(etAmountPct.getText().toString().trim(), 0);
-                if (pct <= 0 || pct > 100) { err("Percent mode mein 1-100 ke beech value likhein"); return; }
+                if (pct <= 0 || pct > 100) { err("Percent mode: enter a value between 1 and 100"); return; }
                 body.put("amount_pct", pct);
             }
 
             String slRaw = etSl.getText().toString().trim();
             if (slRaw.length() > 0) {
                 double sl = parseDblSafe(slRaw, 0);
-                if (sl < 0.5 || sl > 50) { err("Stop Loss 0.5% se 50% ke beech rakhein"); return; }
+                if (sl < 0.5 || sl > 50) { err("Stop Loss must be between 0.5% and 50%"); return; }
                 body.put("stop_loss_pct", sl);
             }
 
@@ -330,7 +330,7 @@ public class SettingsActivity extends Activity {
                         public void run() {
                             busy(false);
                             boolean ok = false;
-                            String emsg = "Save nahi hua — dobara koshish karein";
+                            String emsg = "Save failed — please try again";
                             try {
                                 JSONObject jo = new JSONObject(r.body);
                                 ok = r.ok() && jo.optBoolean("success", false);
@@ -343,7 +343,7 @@ public class SettingsActivity extends Activity {
                             }
                             if (ok) {
                                 Toast.makeText(SettingsActivity.this,
-                                        "Settings saved — ab START dabao",
+                                        "Settings saved — press START when ready",
                                         Toast.LENGTH_LONG).show();
                                 finish();
                             } else {
@@ -354,7 +354,7 @@ public class SettingsActivity extends Activity {
                 }
             }).start();
         } catch (Exception e) {
-            err("Kuch galat tha — fields check karein");
+            err("Something looked wrong — please check the fields");
         }
     }
 

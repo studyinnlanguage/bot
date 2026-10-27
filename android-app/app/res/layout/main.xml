@@ -83,15 +83,15 @@
             android:visibility="gone" />
 
         <include
-            android:id="@+id/chartViewRoot"
-            layout="@layout/view_chart"
+            android:id="@+id/tradeView"
+            layout="@layout/view_trade"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
 
         <include
-            android:id="@+id/tradesView"
-            layout="@layout/view_trades"
+            android:id="@+id/walletView"
+            layout="@layout/view_wallet"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
@@ -104,10 +104,10 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- Bottom navigation: 5 tabs -->
+    <!-- Bottom navigation: Home / Markets / TRADE (FAB) / Wallet / Profile -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="58dp"
+        android:layout_height="60dp"
         android:background="@color/nav_bg"
         android:orientation="horizontal">
 
@@ -163,34 +163,43 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- Center gold Trade button -->
         <LinearLayout
-            android:id="@+id/tabChart"
+            android:id="@+id/tabTrade"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
 
-            <ImageView
-                android:id="@+id/icChart"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:src="@drawable/ic_chart_off"
-                android:contentDescription="Chart" />
+            <FrameLayout
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginTop="-8dp"
+                android:background="@drawable/bg_fab_gold">
+
+                <ImageView
+                    android:id="@+id/icTrade"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_trade_on"
+                    android:contentDescription="Trade" />
+            </FrameLayout>
 
             <TextView
-                android:id="@+id/lblChart"
+                android:id="@+id/lblTrade"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="Chart"
-                android:textColor="@color/text_dim"
+                android:layout_marginTop="1dp"
+                android:text="Trade"
+                android:textColor="@color/gold"
                 android:textSize="10sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/tabTrades"
+            android:id="@+id/tabWallet"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -198,18 +207,18 @@
             android:orientation="vertical">
 
             <ImageView
-                android:id="@+id/icTrades"
+                android:id="@+id/icWallet"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
-                android:src="@drawable/ic_trades_off"
-                android:contentDescription="Trades" />
+                android:src="@drawable/ic_wallet_off"
+                android:contentDescription="Wallet" />
 
             <TextView
-                android:id="@+id/lblTrades"
+                android:id="@+id/lblWallet"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
-                android:text="Trades"
+                android:text="Wallet"
                 android:textColor="@color/text_dim"
                 android:textSize="10sp"
                 android:textStyle="bold" />
@@ -228,14 +237,14 @@
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:src="@drawable/ic_account_off"
-                android:contentDescription="Account" />
+                android:contentDescription="Profile" />
 
             <TextView
                 android:id="@+id/lblAccount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
-                android:text="Account"
+                android:text="Profile"
                 android:textColor="@color/text_dim"
                 android:textSize="10sp"
                 android:textStyle="bold" />

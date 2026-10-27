@@ -3,358 +3,257 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WEEXIONIC TRADING BOT - Login</title>
+    <title>WEEXIONIC — Log in. Let the bot do the watching.</title>
     <link rel="icon" type="image/png" href="/static/img/weexionic-logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
     <style>
+        /* ============================================================
+           WEEXIONIC CONCEPT LOGIN — exact match to approved mockup
+           Left: gold brand panel ("Log in. Let the bot do the watching.")
+           Right: Welcome back + email/password + Google
+           ============================================================ */
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #07090d; --panel: #0b0d12; --card: #0e1117; --card-hi: #131720;
+            --line: #1b2130; --gold: #f0b90b; --gold-hi: #f8d33a;
+            --green: #0ecb81; --red: #f6465d;
+            --tpri: #f2f4f7; --tsec: #8a93a5; --tdim: #5b6472;
+        }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0b0e11 0%, #1a1d24 100%);
-            min-height: 100vh; display: flex; align-items: center; justify-content: center;
-            color: #eaecef; padding: 20px;
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); min-height: 100vh; color: var(--tpri);
         }
+        body::before {
+            content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            background:
+                radial-gradient(700px 420px at 12% 8%, rgba(240,185,11,.09), transparent 60%),
+                radial-gradient(800px 500px at 88% 92%, rgba(93,120,255,.07), transparent 60%);
+        }
+        .login-wrap {
+            position: relative; z-index: 1; min-height: 100vh;
+            display: grid; grid-template-columns: minmax(380px, 44%) 1fr;
+        }
+        /* ---------- left brand panel (concept) ---------- */
+        .brand-panel {
+            position: relative; overflow: hidden;
+            background:
+                radial-gradient(120% 90% at 20% 10%, rgba(240,185,11,.28), transparent 55%),
+                radial-gradient(90% 70% at 80% 95%, rgba(191,144,0,.22), transparent 60%),
+                linear-gradient(160deg, #191405 0%, #0d0a04 55%, #07080c 100%);
+            border-right: 1px solid rgba(240,185,11,.14);
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: 48px 54px;
+        }
+        .brand-logo { display: flex; align-items: center; gap: 12px; }
+        .brand-badge {
+            width: 40px; height: 40px; border-radius: 12px; background: var(--gold);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 20px; color: #141400;
+            box-shadow: 0 6px 22px rgba(240,185,11,.45);
+        }
+        .brand-name { font-weight: 700; letter-spacing: .14em; font-size: 15px; color: var(--tpri); }
+        .brand-name em { font-style: normal; color: var(--gold); }
+        .brand-headline { max-width: 430px; }
+        .brand-headline h1 {
+            font-size: 42px; line-height: 1.16; font-weight: 700; letter-spacing: -.01em;
+        }
+        .brand-headline h1 .g { color: var(--gold); }
+        .brand-headline p { margin-top: 18px; color: var(--tsec); font-size: 15px; line-height: 1.65; }
+        .brand-checks { margin-top: 26px; display: flex; flex-direction: column; gap: 12px; }
+        .brand-checks .chk { display: flex; gap: 10px; align-items: center; color: #d5dae3; font-size: 14px; }
+        .brand-checks .chk .ok {
+            width: 18px; height: 18px; border-radius: 50%; background: rgba(14,203,129,.15);
+            border: 1px solid rgba(14,203,129,.5); color: var(--green);
+            display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+        }
+        .brand-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; max-width: 430px; }
+        .brand-stats .st b {
+            display: block; font-size: 26px; color: var(--gold);
+            font-family: 'JetBrains Mono', monospace; letter-spacing: -.02em;
+        }
+        .brand-stats .st span { font-size: 10.5px; letter-spacing: .12em; color: var(--tdim); text-transform: uppercase; }
+        .brand-glow {
+            position: absolute; width: 420px; height: 420px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(240,185,11,.16), transparent 65%);
+            top: -120px; right: -140px; filter: blur(10px);
+        }
+        /* ---------- right form panel (concept Welcome back) ---------- */
+        .form-panel { display: flex; align-items: center; justify-content: center; padding: 40px 24px; position: relative; }
         .login-card {
-            background: #1e2126; border: 1px solid #2a2e36; border-radius: 16px;
-            padding: 40px; width: 100%; max-width: 440px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            width: 100%; max-width: 460px;
+            background: linear-gradient(180deg, rgba(240,185,11,.05), rgba(240,185,11,0) 140px), var(--card);
+            border: 1px solid var(--line); border-radius: 20px; padding: 38px 36px;
+            box-shadow: 0 30px 80px rgba(0,0,0,.55);
         }
-        .logo {
-            width: 72px; height: 72px; border-radius: 50%;
-            border: 2px solid rgba(14, 203, 129, 0.7);
-            box-shadow: 0 0 20px rgba(14, 203, 129, 0.45);
-            margin: 0 auto 20px; overflow: hidden; display: flex; align-items: center; justify-content: center;
-            background: #070a0f;
+        .back-home {
+            display: inline-flex; align-items: center; gap: 6px;
+            color: var(--tsec); text-decoration: none; font-size: 12px;
+            font-weight: 600; margin-bottom: 22px; transition: color .2s;
         }
-        .logo img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-        .title { text-align: center; font-size: 22px; font-weight: 800; margin-bottom: 6px; letter-spacing: 0.5px; }
-        .title span { color: #0ecb81; }
-        .subtitle { text-align: center; font-size: 13px; color: #848e9c; margin-bottom: 28px; line-height: 1.5; }
-        .tabs { display: flex; background: #0b0e11; border-radius: 10px; padding: 4px; margin-bottom: 24px; }
+        .back-home:hover { color: var(--gold); }
+        .welcome h2 { font-size: 27px; font-weight: 700; letter-spacing: -.01em; }
+        .welcome p { color: var(--tsec); font-size: 13.5px; margin-top: 6px; line-height: 1.55; }
+        .tabs { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px; margin: 24px 0 22px; }
         .tab {
-            flex: 1; padding: 10px; text-align: center; cursor: pointer; border-radius: 8px;
-            font-size: 13px; font-weight: 600; color: #848e9c; border: none; background: none; transition: all 0.2s;
+            flex: 1; padding: 11px; text-align: center; cursor: pointer; border-radius: 9px;
+            font-size: 13px; font-weight: 600; color: var(--tsec); border: none; background: none; transition: all .2s;
+            font-family: inherit;
         }
-        .tab.active { background: #f0b90b; color: #0b0e11; }
+        .tab.active { background: var(--gold); color: #0b0e11; box-shadow: 0 4px 18px rgba(240,185,11,.35); }
         .form-group { margin-bottom: 16px; }
-        .label { display: block; font-size: 12px; color: #848e9c; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .label {
+            display: block; font-size: 10.5px; color: var(--tsec); margin-bottom: 7px;
+            text-transform: uppercase; letter-spacing: .14em; font-weight: 600;
+        }
         .input {
-            width: 100%; padding: 14px 16px; background: #0b0e11; border: 1px solid #2a2e36;
-            color: #eaecef; border-radius: 10px; font-size: 14px; transition: border 0.2s;
+            width: 100%; padding: 14px 16px; background: var(--panel); border: 1px solid #232b3d;
+            color: var(--tpri); border-radius: 11px; font-size: 14px; transition: border .2s, box-shadow .2s;
+            font-family: inherit;
         }
-        .input:focus { outline: none; border-color: #f0b90b; }
+        .input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(240,185,11,.14); }
         .btn {
-            width: 100%; padding: 14px; background: linear-gradient(135deg, #f0b90b 0%, #f8d12f 100%);
-            color: #0b0e11; border: none; border-radius: 10px; font-size: 14px; font-weight: 700;
-            cursor: pointer; transition: transform 0.2s;
+            width: 100%; padding: 14px; background: linear-gradient(135deg, var(--gold-hi) 0%, var(--gold) 55%, #d9a400 100%);
+            color: #141400; border: none; border-radius: 11px; font-size: 14.5px; font-weight: 700;
+            cursor: pointer; transition: transform .18s, box-shadow .25s; font-family: inherit;
+            box-shadow: 0 10px 30px rgba(240,185,11,.28);
         }
-        .btn:hover { transform: translateY(-1px); }
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 14px 38px rgba(240,185,11,.4); }
+        .btn:disabled { opacity: .6; cursor: not-allowed; }
         .error {
-            background: rgba(246,70,93,0.1); border: 1px solid rgba(246,70,93,0.3);
-            color: #f6465d; padding: 12px 14px; border-radius: 8px; font-size: 13px;
+            background: rgba(246,70,93,.1); border: 1px solid rgba(246,70,93,.3);
+            color: var(--red); padding: 12px 14px; border-radius: 10px; font-size: 13px;
             margin-bottom: 16px; display: none;
         }
         .error.show { display: block; }
         .info {
-            background: rgba(240,185,11,0.08); border: 1px dashed rgba(240,185,11,0.3);
-            color: #f0b90b; padding: 12px; border-radius: 8px; font-size: 12px; line-height: 1.6; margin-top: 20px;
+            background: rgba(240,185,11,.06); border: 1px solid rgba(240,185,11,.2);
+            color: #e8c96a; padding: 13px; border-radius: 12px; font-size: 12px; line-height: 1.6; margin-top: 20px;
         }
-        .divider { display: flex; align-items: center; margin: 20px 0; color: #848e9c; font-size: 12px; }
-        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #2a2e36; }
+        .divider { display: flex; align-items: center; margin: 20px 0; color: var(--tdim); font-size: 11px; letter-spacing: .1em; }
+        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
         .divider span { padding: 0 12px; }
         .google-btn {
-            width: 100%; padding: 12px; background: #ffffff; color: #333;
-            border: 1px solid #ddd; border-radius: 10px; font-size: 14px; font-weight: 500;
+            width: 100%; padding: 13px; background: rgba(255,255,255,.04); color: var(--tpri);
+            border: 1px solid #262d3d; border-radius: 11px; font-size: 14px; font-weight: 600;
             cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;
-            transition: background 0.2s;
+            transition: background .2s, transform .18s; font-family: inherit;
         }
-        .google-btn:hover { background: #f5f5f5; }
+        .google-btn:hover { background: rgba(255,255,255,.08); transform: translateY(-1px); }
         .google-btn svg { width: 18px; height: 18px; }
-        .back-home {
-            display: inline-flex; align-items: center; gap: 6px;
-            color: #848e9c; text-decoration: none; font-size: 12px;
-            font-weight: 600; margin-bottom: 16px; transition: color 0.2s;
+        .agree-row { display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; color: var(--tsec); margin-bottom: 16px; line-height: 1.5; }
+        .legal-links-footer {
+            text-align: center; margin-top: 20px; padding-top: 16px;
+            border-top: 1px solid rgba(42,46,54,.6); font-size: 11px; color: var(--tdim);
         }
-        .back-home:hover { color: #0ecb81; }
-
-        @media (max-width: 480px) {
-            body { padding: 12px; }
-            .login-card { padding: 24px 18px; border-radius: 12px; }
-            .title { font-size: 19px; }
-            .input { padding: 12px 14px; font-size: 13.5px; }
-            .btn { padding: 12px; font-size: 13.5px; }
-            .subtitle { font-size: 12px; margin-bottom: 20px; }
-            .logo { width: 60px; height: 60px; margin-bottom: 14px; }
+        .legal-links-footer a { color: var(--tsec); text-decoration: none; margin: 0 4px; transition: color .2s; }
+        .legal-links-footer a:hover { color: var(--gold); }
+        @media (max-width: 980px) {
+            .login-wrap { grid-template-columns: 1fr; }
+            .brand-panel { display: none; }
+            .login-card { padding: 26px 20px; border-radius: 16px; }
         }
     </style>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-    <style id="concept-sync">
-/* ==================================================================
-   WEEXIONIC CONCEPT SYNC v1 — approved UI/UX concept design language
-   Applied as append-only override layer. No HTML structure changes.
-   Refines: tokens, display typography, gradient CTAs, card surfaces,
-   glow highlights, inputs, scrollbars. All original classes preserved.
-   ================================================================== */
-
-/* ---------- 1. Design tokens (values refined, names untouched) ---------- */
-:root {
-    --bg-base: #07090d;
-    --bg-surface: #0b0e13;
-    --bg-card: #10141b;
-    --bg-card-alt: #141924;
-    --border-subtle: rgba(255, 255, 255, 0.07);
-    --border-strong: rgba(255, 255, 255, 0.12);
-    --text-primary: #eef1f6;
-    --text-secondary: #9aa4b2;
-    --text-muted: #6b7686;
-    --violet: #9d7bff;
-    --grad-gold: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
-    --grad-green: linear-gradient(135deg, #0ecb81 0%, #2ed390 100%);
-    --grad-red: linear-gradient(135deg, #f6465d 0%, #ff6b81 100%);
-    --font-display: 'Space Grotesk', 'Inter', sans-serif;
-}
-
-/* ---------- 2. Display typography — Space Grotesk headlines ---------- */
-h1, h2, h3, .hero-title, .doc-title, .card-title, .admin-title,
-.section-title, .plan-name, .login-title, .brand-text h1 {
-    font-family: var(--font-display) !important;
-    letter-spacing: -0.4px;
-}
-
-h1 span, h2 span, h2 em, .doc-title em, .section-title em {
-    letter-spacing: inherit;
-}
-
-/* Gold glow gradient text — signature concept look */
-.hero-title .highlight,
-.glow-text {
-    background: linear-gradient(100deg, #fcd535 8%, #f0b90b 45%, #ffe98a 90%);
-    -webkit-background-clip: text !important;
-    background-clip: text !important;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-}
-
-.brand-text h1 span { color: var(--gold); }
-
-/* ---------- 3. Buttons — gradient CTAs with premium depth ---------- */
-.btn-gold, .btn-buy-plan, .btn-select.btn-gold {
-    background: var(--grad-gold) !important;
-    color: #151b2e !important;
-    border-radius: 12px !important;
-    box-shadow: 0 6px 24px rgba(240, 185, 11, 0.28),
-                inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
-    transition: transform 0.18s ease, box-shadow 0.25s ease, filter 0.2s ease !important;
-}
-.btn-gold:hover, .btn-buy-plan:hover {
-    transform: translateY(-2px);
-    filter: brightness(1.06);
-    box-shadow: 0 10px 34px rgba(240, 185, 11, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
-}
-.btn-gold:active, .btn-buy-plan:active { transform: translateY(1px) scale(0.98); }
-
-.btn-ghost, .btn-outline {
-    background: rgba(255, 255, 255, 0.04) !important;
-    color: var(--text-primary) !important;
-    border: 1px solid var(--border-strong) !important;
-    border-radius: 12px !important;
-    transition: all 0.2s ease !important;
-}
-.btn-ghost:hover, .btn-outline:hover {
-    background: rgba(255, 255, 255, 0.08) !important;
-    border-color: rgba(240, 185, 11, 0.4) !important;
-    transform: translateY(-1px);
-}
-
-/* ---------- 4. Cards — gradient surfaces + signature gold hairline ---------- */
-.feature-card, .pricing-card, .login-card, .order-card, .card,
-.content-card, .admin-card, .terminal-preview-card, .license-key {
-    position: relative;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.012)), var(--bg-card) !important;
-    border: 1px solid var(--border-subtle) !important;
-}
-.feature-card::before, .pricing-card::before, .order-card::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 28px; right: 28px; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(240, 185, 11, 0.5), transparent);
-    pointer-events: none;
-}
-.feature-card:hover, .pricing-card:hover, .order-card:hover {
-    border-color: rgba(240, 185, 11, 0.3) !important;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 0 40px rgba(240, 185, 11, 0.06);
-}
-
-/* ---------- 5. Inputs — focus rings in brand gold ---------- */
-.input, .form-input, .login-input, input[type="text"], input[type="email"],
-input[type="password"], input[type="number"], select, textarea {
-    background: var(--bg-card) !important;
-    border: 1px solid var(--border-strong) !important;
-    border-radius: 12px !important;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
-}
-.input:focus, .form-input:focus, .login-input:focus,
-input:focus, select:focus, textarea:focus {
-    outline: none !important;
-    border-color: rgba(240, 185, 11, 0.55) !important;
-    box-shadow: 0 0 0 3px rgba(240, 185, 11, 0.12) !important;
-}
-.label, .form-label, .login-label {
-    letter-spacing: 0.9px;
-    text-transform: uppercase;
-    font-weight: 600 !important;
-}
-
-/* ---------- 6. Page atmosphere — deep space bg + aurora glows ---------- */
-body {
-    background:
-        radial-gradient(900px 480px at 50% -140px, rgba(240, 185, 11, 0.07), transparent 62%),
-        radial-gradient(700px 420px at 88% 12%, rgba(75, 159, 255, 0.04), transparent 60%),
-        radial-gradient(600px 400px at 8% 28%, rgba(157, 123, 255, 0.035), transparent 60%),
-        var(--bg-base) !important;
-    color: var(--text-primary);
-}
-
-/* ---------- 7. Chips, pills, badges — refined ---------- */
-.badge-live, .hero-tag, .exchange-chip, .ema-pill {
-    border-radius: 999px !important;
-}
-.pulse-dot {
-    box-shadow: 0 0 0 0 rgba(14, 203, 129, 0.6);
-    animation: cs-pulse 2s infinite;
-}
-@keyframes cs-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(14, 203, 129, 0.55); }
-    70% { box-shadow: 0 0 0 9px rgba(14, 203, 129, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(14, 203, 129, 0); }
-}
-
-/* ---------- 8. Scrollbars + selection — brand consistency ---------- */
-::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-track { background: var(--bg-base); }
-::-webkit-scrollbar-thumb {
-    background: #262d3a; border-radius: 99px;
-    border: 2px solid var(--bg-base);
-}
-::-webkit-scrollbar-thumb:hover { background: #3a4352; }
-::selection { background: rgba(240, 185, 11, 0.28); color: #fff; }
-
-/* ---------- 9. Tables — crisp headers ---------- */
-table { border-collapse: collapse; }
-th {
-    font-family: 'Inter', sans-serif;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    font-weight: 700 !important;
-}
-tr:hover td { background: rgba(255, 255, 255, 0.018); }
-
-
-/* --- login: concept brand-glow card --- */
-body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-.login-card { border-radius: 24px !important; padding: 44px 40px !important;
-    background:
-        radial-gradient(340px 200px at 85% -30%, rgba(240,185,11,.14), transparent 65%),
-        linear-gradient(180deg, rgba(255,255,255,.032), rgba(255,255,255,.012)), var(--bg-card) !important;
-    box-shadow: 0 30px 90px rgba(0,0,0,.6), 0 0 60px rgba(240,185,11,.05) !important; }
-.login-card::before { content: ""; position: absolute; top: 0; left: 40px; right: 40px; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(240,185,11,.5), transparent); }
-.back-home { color: var(--text-muted); transition: color .18s ease; }
-.back-home:hover { color: var(--gold); }
-.login-card .logo img { filter: drop-shadow(0 6px 22px rgba(240,185,11,.3)); }
-.tabs { background: var(--bg-card-alt); border: 1px solid var(--border-subtle);
-    border-radius: 13px; padding: 4px; }
-.tab { border-radius: 10px; transition: all .2s ease; }
-.tab.active { background: var(--grad-gold) !important; color: #151b2e !important;
-    box-shadow: 0 4px 16px rgba(240,185,11,.3); }
-.login-card .btn { background: var(--grad-gold) !important; color: #151b2e !important;
-    border-radius: 13px !important; font-weight: 800 !important;
-    box-shadow: 0 6px 24px rgba(240,185,11,.28), inset 0 1px 0 rgba(255,255,255,.45) !important;
-    transition: transform .18s ease, box-shadow .25s ease !important; }
-.login-card .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 34px rgba(240,185,11,.4) !important; }
-.google-btn { border-radius: 12px !important; background: rgba(255,255,255,.045) !important;
-    border: 1px solid var(--border-strong) !important; transition: all .2s ease !important; }
-.google-btn:hover { background: rgba(255,255,255,.08) !important; transform: translateY(-1px); }
-.login-card .info { background: rgba(240,185,11,.05) !important;
-    border: 1px solid rgba(240,185,11,.18) !important; border-radius: 14px !important; }
-
-</style>
 </head>
 <body>
-    <div class="login-card">
-        <a href="/" class="back-home">← Back to Homepage</a>
-        <div class="logo">
-            <img src="/static/img/weexionic-logo.png" onerror="this.src='/bot/static/img/weexionic-logo.png'" alt="Weexionic">
-        </div>
-        <h1 class="title">WEEXIONIC <span>TRADING BOT</span></h1>
-        <p class="subtitle">Weexionic Quad-Trend Quantitative Strategy<br>24/7 Cloud Automated Execution</p>
+    <div class="login-wrap">
 
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('login', event)">Login</button>
-            <button class="tab" onclick="switchTab('signup', event)">Sign Up</button>
-        </div>
+        <!-- LEFT — concept brand panel -->
+        <aside class="brand-panel">
+            <div class="brand-glow"></div>
+            <div class="brand-logo">
+                <div class="brand-badge">W</div>
+                <div class="brand-name">WEEX<em>IONIC</em></div>
+            </div>
+            <div class="brand-headline">
+                <h1>Log in.<br>Let the bot do the <span class="g">watching.</span></h1>
+                <p>Your workers are already polling the market every 5 seconds — fresh crossovers don't wait for anyone.</p>
+                <div class="brand-checks">
+                    <div class="chk"><span class="ok">✓</span> Funds stay on your exchange — always</div>
+                    <div class="chk"><span class="ok">✓</span> Strict 1:1 risk locks on every trade</div>
+                    <div class="chk"><span class="ok">✓</span> Instant alerts on Telegram &amp; WhatsApp</div>
+                </div>
+            </div>
+            <div class="brand-stats">
+                <div class="st"><b>3</b><span>Exchanges</span></div>
+                <div class="st"><b>24/7</b><span>Autopilot</span></div>
+                <div class="st"><b>1:1</b><span>Risk Lock</span></div>
+            </div>
+        </aside>
 
-        <div id="errorMsg" class="error"></div>
+        <!-- RIGHT — login / signup -->
+        <main class="form-panel">
+            <div class="login-card">
+                <a href="/" class="back-home">← Back to Homepage</a>
+                <div class="welcome">
+                    <h2>Welcome back</h2>
+                    <p>Log in to your trading terminal — workers resume exactly where they left off.</p>
+                </div>
 
-        <form id="loginForm" onsubmit="return handleLogin(event)">
-            <div class="form-group">
-                <label class="label">Email</label>
-                <input type="email" id="loginEmail" class="input" placeholder="you@example.com" required>
-            </div>
-            <div class="form-group">
-                <label class="label">Password</label>
-                <input type="password" id="loginPassword" class="input" placeholder=".........." required>
-            </div>
-            <button type="submit" id="loginBtn" class="btn">Login</button>
-        </form>
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('login', event)">Log In</button>
+                    <button class="tab" onclick="switchTab('signup', event)">Create Account</button>
+                </div>
 
-        <form id="signupForm" onsubmit="return handleSignup(event)" style="display:none;">
-            <div class="form-group">
-                <label class="label">Name (optional)</label>
-                <input type="text" id="signupName" class="input" placeholder="Your name">
-            </div>
-            <div class="form-group">
-                <label class="label">Email</label>
-                <input type="email" id="signupEmail" class="input" placeholder="you@example.com" required>
-            </div>
-            <div class="form-group">
-                <label class="label">Password (min 6 chars)</label>
-                <input type="password" id="signupPassword" class="input" placeholder=".........." required minlength="6">
-            </div>
-            <div class="form-group">
-                <label class="label">Referral Code (optional)</label>
-                <input type="text" id="signupReferral" class="input" placeholder="ABC12345" style="text-transform:uppercase;" value="{{ ref_code or '' }}">
-            </div>
-            <div style="font-size:11.5px; color:#848e9c; margin-bottom:16px; display:flex; align-items:flex-start; gap:8px; line-height:1.45;">
-                <input type="checkbox" id="signupAgree" required style="accent-color:#0ecb81; margin-top:2px; cursor:pointer;">
-                <label for="signupAgree" style="cursor:pointer;">
-                    I have read and agree to the <a href="/terms" target="_blank" style="color:#f0b90b; text-decoration:none;">Terms of Service</a> &amp; <a href="/disclaimer" target="_blank" style="color:#f6465d; text-decoration:none;">Risk Disclaimer</a>. I accept full personal responsibility for my trading.
-                </label>
-            </div>
-            <button type="submit" id="signupBtn" class="btn">Create Account</button>
-        </form>
+                <div id="errorMsg" class="error"></div>
 
-        <div class="divider"><span>OR</span></div>
+                <form id="loginForm" onsubmit="return handleLogin(event)">
+                    <div class="form-group">
+                        <label class="label">Email Address</label>
+                        <input type="email" id="loginEmail" class="input" placeholder="trader@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Password</label>
+                        <input type="password" id="loginPassword" class="input" placeholder="••••••••" required>
+                    </div>
+                    <button type="submit" id="loginBtn" class="btn">Log in to Terminal →</button>
+                </form>
 
-        <a href="/auth/google" class="google-btn" style="text-decoration:none;">
-            <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 4.09 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-            Continue with Google
-        </a>
+                <form id="signupForm" onsubmit="return handleSignup(event)" style="display:none;">
+                    <div class="form-group">
+                        <label class="label">Name (optional)</label>
+                        <input type="text" id="signupName" class="input" placeholder="Your name">
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Email</label>
+                        <input type="email" id="signupEmail" class="input" placeholder="trader@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Password (min 6 chars)</label>
+                        <input type="password" id="signupPassword" class="input" placeholder="••••••••" required minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label class="label">Referral Code (optional)</label>
+                        <input type="text" id="signupReferral" class="input" placeholder="ABC12345" style="text-transform:uppercase;" value="{{ ref_code or '' }}">
+                    </div>
+                    <div class="agree-row">
+                        <input type="checkbox" id="signupAgree" required style="accent-color:#f0b90b; margin-top:2px; cursor:pointer;">
+                        <label for="signupAgree" style="cursor:pointer;">
+                            I have read and agree to the <a href="/terms" target="_blank" style="color:#f0b90b; text-decoration:none;">Terms of Service</a> &amp; <a href="/disclaimer" target="_blank" style="color:#f6465d; text-decoration:none;">Risk Disclaimer</a>. I accept full personal responsibility for my trading.
+                        </label>
+                    </div>
+                    <button type="submit" id="signupBtn" class="btn">Create Account →</button>
+                </form>
 
-        <div class="info">
-            <strong>Get started:</strong> Create an account, select a package, connect your exchange API,<br>
-            and automate your trades in minutes!<br><br>
-            Strategy: Weexionic Proprietary Quantitative Trend Engine<br>
-            Dynamic Multi-Tier Risk-Reward &amp; Protective Trailing SL
-        </div>
-        <div class="legal-links-footer" style="text-align: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(42,46,54,0.6); font-size: 11px; color: #5c687d;">
-            <a href="/disclaimer" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#f6465d'" onmouseout="this.style.color='#848e9c'">⚠️ Risk Disclaimer</a> &bull;
-            <a href="/terms" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#f0b90b'" onmouseout="this.style.color='#848e9c'">Terms of Service</a> &bull;
-            <a href="/privacy" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#0ecb81'" onmouseout="this.style.color='#848e9c'">Privacy Policy</a> &bull;
-            <a href="/security" target="_blank" style="color: #848e9c; text-decoration: none; margin: 0 4px; transition: color 0.2s;" onmouseover="this.style.color='#0ecb81'" onmouseout="this.style.color='#848e9c'">Security</a>
-        </div>
+                <div class="divider"><span>OR CONTINUE WITH</span></div>
+
+                <a href="/auth/google" class="google-btn" style="text-decoration:none;">
+                    <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 4.09 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                    Google
+                </a>
+
+                <div class="info">
+                    <strong>Get started:</strong> Create an account, select a package, connect your exchange API, and automate your trades in minutes.<br>
+                    Strategy: Weexionic Quad-Trend Engine — EMA 8/13/21/55 with strict 1:1 risk locks.
+                </div>
+                <div class="legal-links-footer">
+                    <a href="/disclaimer" target="_blank">Risk Disclaimer</a> &bull;
+                    <a href="/terms" target="_blank">Terms of Service</a> &bull;
+                    <a href="/privacy" target="_blank">Privacy Policy</a> &bull;
+                    <a href="/security" target="_blank">Security</a>
+                </div>
+            </div>
+        </main>
     </div>
 
     <script>
@@ -411,7 +310,7 @@ body { display: flex; align-items: center; justify-content: center; min-height: 
                 clearTimeout(timeoutId);
                 showError(err.name === 'AbortError' ? 'Server timeout. Try again.' : 'Network error');
             }
-            btn.disabled = false; btn.textContent = 'Login';
+            btn.disabled = false; btn.textContent = 'Log in to Terminal →';
             return false;
         }
         async function handleSignup(e) {
@@ -439,7 +338,7 @@ body { display: flex; align-items: center; justify-content: center; min-height: 
                 clearTimeout(timeoutId);
                 showError(err.name === 'AbortError' ? 'Server timeout. Try again.' : 'Network error');
             }
-            btn.disabled = false; btn.textContent = 'Create Account';
+            btn.disabled = false; btn.textContent = 'Create Account →';
             return false;
         }
     </script>

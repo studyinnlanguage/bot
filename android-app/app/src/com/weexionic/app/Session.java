@@ -5,6 +5,12 @@ import android.content.SharedPreferences;
 
 /** Tiny session/prefs store for Weexionic app. */
 public class Session {
+    /**
+     * Production server — baked into the app. Binance-grade UX: the user NEVER
+     * types a server address (v3.4 change: SERVER SETTINGS removed from login).
+     */
+    public static final String DEFAULT_SERVER = "https://weexionic.duckdns.org";
+
     private static final String PREFS = "weexionic";
     private static final String K_SERVER = "server";
     private static final String K_COOKIE = "cookie";
@@ -19,6 +25,8 @@ public class Session {
 
     public Session(Context c) {
         p = c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        // Auto-bake the production server on first run (and after reinstalls).
+        if (server().trim().length() == 0) server(DEFAULT_SERVER);
     }
 
     public String server() { return p.getString(K_SERVER, ""); }

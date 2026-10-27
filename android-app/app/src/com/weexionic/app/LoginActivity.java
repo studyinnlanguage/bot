@@ -18,15 +18,17 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 /**
- * Native Binance-style login: email + password (Remember me = silent auto-relogin)
- * + Google sign-in (browser OAuth round-trip via weexionic://oauth deep link).
+ * Concept-exact login (v3.4): "Log in. Let the bot do the watching."
+ * Server is baked in (Session.DEFAULT_SERVER) — the user never types an address.
+ * Google sign-in = one-time browser OAuth round-trip via weexionic://oauth deep link.
+ * v3.4: 100% English UI, crash-proof deep-link + JSON handling.
  */
 public class LoginActivity extends Activity {
 
     private Session session;
-    private EditText etEmail, etPassword, etServer;
-    private TextView tvError, btnEye, btnServerToggle;
-    private LinearLayout llServer, btnGoogle;
+    private EditText etEmail, etPassword;
+    private TextView tvError, btnEye;
+    private LinearLayout btnGoogle;
     private CheckBox chkRemember;
     private Button btnLogin;
     private boolean busy = false;
@@ -36,67 +38,58 @@ public class LoginActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.login);
-        session = new Session(this);
+        try {
+            setContentView(R.layout.login);
+            session = new Session(this);
 
-        etEmail = findViewById(R.id.etEmail);
-        etPassword = findViewById(R.id.etPassword);
-        etServer = findViewById(R.id.etServer);
-        tvError = findViewById(R.id.tvError);
-        btnEye = findViewById(R.id.btnEye);
-        btnServerToggle = findViewById(R.id.btnServerToggle);
-        llServer = findViewById(R.id.llServer);
-        btnLogin = findViewById(R.id.btnLogin);
-        chkRemember = findViewById(R.id.chkRemember);
-        btnGoogle = findViewById(R.id.btnGoogle);
+            etEmail = findViewById(R.id.etEmail);
+            etPassword = findViewById(R.id.etPassword);
+            tvError = findViewById(R.id.tvError);
+            btnEye = findViewById(R.id.btnEye);
+            btnLogin = findViewById(R.id.btnLogin);
+            chkRemember = findViewById(R.id.chkRemember);
+            btnGoogle = findViewById(R.id.btnGoogle);
 
-        etServer.setText(session.server());
-        if (!session.hasServer()) {
-            llServer.setVisibility(View.VISIBLE);
-            btnServerToggle.setText("SERVER SETTINGS  ▴");
+            if (session.remember()) {
+                String se = session.email();
+                if (se.length() > 0) etEmail.setText(se);
+                String sp = session.savedPass();
+                if (sp.length() > 0) etPassword.setText(sp);
+            }
+
+            btnEye.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    pwVisible = !pwVisible;
+                    etPassword.setInputType(pwVisible ? 145 : 129);
+                    btnEye.setText(pwVisible ? "HIDE" : "SHOW");
+                    etPassword.setSelection(etPassword.getText().length());
+                }
+            });
+
+            btnLogin.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!busy && !busyExchange) doLogin();
+                }
+            });
+
+            btnGoogle.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!busy && !busyExchange) doGoogle();
+                }
+            });
+
+            handleDeepLink(getIntent());
+        } catch (Throwable t) {
+            // Never hard-crash the login screen — surface a clean message instead.
+            try {
+                CrashLog.save(t);
+                Toast.makeText(this, "Startup error — please reopen the app", Toast.LENGTH_LONG).show();
+            } catch (Exception ignore) { }
+            finish();
         }
-        chkRemember.setChecked(session.remember());
-        if (session.remember()) {
-            String se = session.email();
-            if (se.length() > 0) etEmail.setText(se);
-            String sp = session.savedPass();
-            if (sp.length() > 0) etPassword.setText(sp);
-        }
-
-        btnEye.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pwVisible = !pwVisible;
-                etPassword.setInputType(pwVisible ? 145 : 129);
-                btnEye.setText(pwVisible ? "HIDE" : "SHOW");
-                etPassword.setSelection(etPassword.getText().length());
-            }
-        });
-
-        btnServerToggle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                boolean vis = llServer.getVisibility() == View.VISIBLE;
-                llServer.setVisibility(vis ? View.GONE : View.VISIBLE);
-                btnServerToggle.setText(vis ? "SERVER SETTINGS  ▾" : "SERVER SETTINGS  ▴");
-            }
-        });
-
-        btnLogin.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!busy) doLogin();
-            }
-        });
-
-        btnGoogle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!busy && !busyExchange) doGoogle();
-            }
-        });
-
-        handleDeepLink(getIntent());
     }
 
     @Override
@@ -121,43 +114,38 @@ public class LoginActivity extends Activity {
     // ---------- Google OAuth (browser round-trip) ----------
 
     private void doGoogle() {
-        String srv = Session.normalizeServer(etServer.getText().toString());
-        if (srv.length() == 0) {
-            llServer.setVisibility(View.VISIBLE);
-            btnServerToggle.setText("SERVER SETTINGS  ▴");
-            showErr("Google login ke liye pehle SERVER SETTINGS mein server address darj karein");
-            return;
-        }
-        session.server(srv);
-        showInfo("Google page khul raha hai — account choose karo, app khud wapas aa jayegi");
+        final String srv = session.hasServer() ? session.server() : Session.DEFAULT_SERVER;
+        showInfo("Opening Google — pick your account and the app returns automatically");
         try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(srv + "/auth/google?app=1")));
-        } catch (Exception e) {
-            showErr("Browser nahi khul saka — dobara koshish karein");
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(srv + "/auth/google?app=1"));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Throwable t) {
+            showErr("Couldn't open the browser — please try again");
         }
     }
 
     private void handleDeepLink(Intent i) {
-        if (i == null || i.getData() == null) return;
-        Uri d = i.getData();
-        if (!"weexionic".equals(d.getScheme()) || !"oauth".equals(d.getHost())) return;
-        String token = d.getQueryParameter("token");
-        if (token != null && token.length() > 0 && !busyExchange) doExchange(token);
+        try {
+            if (i == null || i.getData() == null) return;
+            Uri d = i.getData();
+            if (d == null || !"weexionic".equals(d.getScheme()) || !"oauth".equals(d.getHost())) return;
+            String token = d.getQueryParameter("token");
+            if (token != null && token.length() > 0 && !busyExchange) doExchange(token);
+        } catch (Throwable t) {
+            // Bad deep link must never crash the app.
+            try { CrashLog.save(t); } catch (Exception ignore) { }
+            showErr("Sign-in link was invalid — please try again");
+        }
     }
 
     private void doExchange(final String token) {
-        final String srv = session.hasServer()
-                ? session.server() : Session.normalizeServer(etServer.getText().toString());
-        if (srv.length() == 0) {
-            showErr("Server address nahi mila — SERVER SETTINGS set karein");
-            return;
-        }
-        session.server(srv);
+        final String srv = session.hasServer() ? session.server() : Session.DEFAULT_SERVER;
         busyExchange = true;
         busy = true;
         btnLogin.setEnabled(false);
-        btnLogin.setText("Google Login…");
-        showInfo("Google account verify ho raha hai…");
+        btnLogin.setText("Signing In…");
+        showInfo("Verifying your Google account…");
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -174,8 +162,8 @@ public class LoginActivity extends Activity {
                         busyExchange = false;
                         busy = false;
                         btnLogin.setEnabled(true);
-                        btnLogin.setText("Log In");
-                        finishLogin(r, srv, null); // google login: password save nahi hota
+                        btnLogin.setText("Log In to Terminal");
+                        finishLogin(r, srv, null); // google login: password is never saved
                     }
                 });
             }
@@ -190,20 +178,16 @@ public class LoginActivity extends Activity {
             im.hideSoftInputFromWindow(getCurrentFocus().getWindowToken(), 0);
         }
 
-        final String server = Session.normalizeServer(etServer.getText().toString());
+        final String server = session.hasServer() ? session.server() : Session.DEFAULT_SERVER;
         final String email = etEmail.getText().toString().trim();
         final String pass = etPassword.getText().toString();
 
-        if (server.length() == 0) {
-            showErr("Server address darj karein (SERVER SETTINGS kholein)");
-            return;
-        }
         if (TextUtils.isEmpty(email) || !email.contains("@")) {
-            showErr("Sahi email darj karein");
+            showErr("Please enter a valid email address");
             return;
         }
         if (pass.length() == 0) {
-            showErr("Password darj karein");
+            showErr("Please enter your password");
             return;
         }
 
@@ -243,7 +227,7 @@ public class LoginActivity extends Activity {
                         busy = false;
                         btnLogin.setEnabled(true);
                         btnLogin.setAlpha(1f);
-                        btnLogin.setText("Log In");
+                        btnLogin.setText("Log In to Terminal");
                         if (!ok) {
                             String msg;
                             try {
@@ -251,7 +235,8 @@ public class LoginActivity extends Activity {
                                 msg = jo.optString("error", null);
                             } catch (Exception e) { msg = null; }
                             if (msg == null || msg.isEmpty()) {
-                                msg = r.error != null ? r.error : "Login nahi ho saka — server/address check karein";
+                                msg = r.error != null ? r.error
+                                        : "Login failed — check your connection and try again";
                             }
                             showErr(msg);
                             return;
@@ -265,22 +250,23 @@ public class LoginActivity extends Activity {
 
     /** Shared login/exchange finisher: save session + optional password, go to Main. */
     private void finishLogin(ApiClient.Result r, String server, String passForSave) {
-        if (!r.ok() || r.setCookie == null || !r.setCookie.startsWith("session=")) {
-            String msg;
-            try {
-                JSONObject jo = new JSONObject(r.body);
-                msg = jo.optString("error", null);
-            } catch (Exception e) { msg = null; }
-            if (msg == null || msg.isEmpty()) {
-                msg = r.error != null ? r.error : "Login nahi ho saka — dobara koshish karein";
-            }
-            showErr(msg);
-            return;
-        }
         try {
+            if (r == null || !r.ok() || r.setCookie == null || !r.setCookie.startsWith("session=")) {
+                String msg;
+                try {
+                    JSONObject jo = new JSONObject(r == null ? "" : r.body);
+                    msg = jo.optString("error", null);
+                } catch (Exception e) { msg = null; }
+                if (msg == null || msg.isEmpty()) {
+                    msg = (r != null && r.error != null) ? r.error
+                            : "Login failed — please try again";
+                }
+                showErr(msg);
+                return;
+            }
             JSONObject jo = new JSONObject(r.body);
             if (!jo.optBoolean("success", false)) {
-                showErr(jo.optString("error", "Login fail — dobara koshish karein"));
+                showErr(jo.optString("error", "Login failed — please try again"));
                 return;
             }
             session.server(server);
@@ -295,7 +281,7 @@ public class LoginActivity extends Activity {
                 session.plan(sub.optString("plan", "—"));
                 session.expiry(sub.optString("expires_at", ""));
             }
-            // Remember me: sirf email/password login par password save hota hai
+            // Remember me: password is stored only for email/password logins.
             if (passForSave != null && passForSave.length() > 0) {
                 session.remember(true);
                 session.savedPass(passForSave);
@@ -309,8 +295,9 @@ public class LoginActivity extends Activity {
             Toast.makeText(LoginActivity.this, "Welcome, " + session.name() + "!", Toast.LENGTH_SHORT).show();
             startActivity(new Intent(LoginActivity.this, MainActivity.class));
             finish();
-        } catch (Exception e) {
-            showErr("Server response samajh nahi aaya");
+        } catch (Throwable t) {
+            try { CrashLog.save(t); } catch (Exception ignore) { }
+            showErr("Unexpected server response — please try again");
         }
     }
 }
