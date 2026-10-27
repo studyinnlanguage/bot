@@ -708,7 +708,7 @@ function updateChopIndicatorsUI(data) {
 function initChart() {
     try {
         if (typeof LightweightCharts === 'undefined') {
-            log('warn', 'Chart library load nahi hui.');
+            log('warn', 'Chart library failed to load.');
             return false;
         }
         const container = $('chart');
@@ -851,7 +851,7 @@ function renderChartForSymbol(symbol) {
 function initSocket() {
     try {
         if (typeof io === 'undefined') {
-            log('warn', 'Socket.IO load nahi hui. Status polling se hogi.');
+            log('warn', 'Socket.IO failed to load. Status will update via polling.');
             return false;
         }
         // Stable polling socket through SaaS proxy
@@ -1650,17 +1650,17 @@ function addCoin(customSym = null) {
     const ex = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
     if (ex === 'primexbt') {
         if (!/^[A-Z0-9\/\s\.\-_]+$/.test(sym)) {
-            log('warn', `${sym} valid nahi. PrimeXBT format: XAU/USD, BTC/USD, USTEC, US30 etc.`);
+            log('warn', `${sym} is not valid. PrimeXBT format: XAU/USD, BTC/USD, USTEC, US30 etc.`);
             return;
         }
     } else {
         if (!/^[A-Z0-9]+USDT$/.test(sym)) {
-            log('warn', `${sym} valid nahi. Format: BTCUSDT, ETHUSDT, BTCSUSDT etc.`);
+            log('warn', `${sym} is not valid. Format: BTCUSDT, ETHUSDT, BTCSUSDT etc.`);
             return;
         }
     }
     if (coins.includes(sym)) {
-        log('info', `${sym} pehle se added hai.`);
+        log('info', `${sym} is already added.`);
         if (input) input.value = '';
         return;
     }
@@ -1907,9 +1907,9 @@ async function refreshCoinDropdown(exchange) {
 }
 
 async function saveSettings() {
-    log('info', 'Save request bhej rahe hain...');
+    log('info', 'Sending save request...');
     if (coins.length === 0) {
-        log('warn', 'Kam az kam ek coin add karein.');
+        log('warn', 'Add at least one coin.');
         return;
     }
     const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
@@ -2030,10 +2030,10 @@ function updateEnvBadge(testnet, exchange) {
 // ===== Bot Controls =====
 async function startBot() {
     if (coins.length === 0) {
-        log('warn', 'Pehle coins add karein ya "Load All Coins" dabao.');
+        log('warn', 'Add coins first or press "Load All Coins".');
         return;
     }
-    log('info', 'Start request bhej rahe hain...');
+    log('info', 'Sending start request...');
     // Add 30s timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -2048,7 +2048,7 @@ async function startBot() {
             if ((data.error || '').toLowerCase().includes('already running')) {
                 await refreshStatus();
                 if (isRunning) {
-                    log('info', 'Bot pehle se running hai; status sync kar diya.');
+                    log('info', 'Bot is already running; status synced.');
                     return;
                 }
             }
@@ -2057,7 +2057,7 @@ async function startBot() {
     } catch (e) {
         clearTimeout(timeoutId);
         if (e.name === 'AbortError') {
-            log('error', 'Start timeout (30s). FORCE RESET dabao aur dobara try karo.');
+            log('error', 'Start timeout (30s). Press FORCE RESET and try again.');
         } else {
             log('error', `Start error: ${e}`);
         }
@@ -2065,7 +2065,7 @@ async function startBot() {
 }
 
 async function stopBot() {
-    log('info', 'Stop request bhej rahe hain...');
+    log('info', 'Sending stop request...');
     try {
         const r = await fetch('/api/stop', { method: 'POST' });
         const data = await r.json();
@@ -2082,11 +2082,11 @@ async function stopBot() {
 
 async function closePosition() {
     if (!activeSymbol) {
-        log('warn', 'Pehle ek coin select karein.');
+        log('warn', 'Select a coin first.');
         return;
     }
-    if (!confirm(`${activeSymbol} ki position close karein?`)) return;
-    log('warn', `[${activeSymbol}] Manual close request bhej rahe hain...`);
+    if (!confirm(`Close the ${activeSymbol} position at market?`)) return;
+    log('warn', `[${activeSymbol}] Sending manual close request...`);
     try {
         const r = await fetch('/api/close', {
             method: 'POST',
@@ -2119,7 +2119,7 @@ async function closePosition() {
 window.closePosition = closePosition;
 
 window.closeAllPositions = async function() {
-    if (!confirm('Kya aap saari active positions market close karna chahte hain?')) return;
+    if (!confirm('Close ALL active positions at market?')) return;
     log('warn', '⚡ Closing ALL active positions...');
     try {
         const r = await fetch('/api/close_all', {
@@ -2134,7 +2134,7 @@ window.closeAllPositions = async function() {
         }
         const data = await r.json();
         if (data.success) {
-            log('success', '✅ Saari active positions close request successfully process ho gayi!');
+            log('success', '✅ All active positions — close request processed successfully!');
             for (const sym in positionsBySymbol) {
                 positionsBySymbol[sym].side = 'NONE';
                 positionsBySymbol[sym].size = 0;
@@ -2183,7 +2183,7 @@ async function refreshStatus() {
         // STOPPED pill + START button while the engine was actually running.
         _statusFailStreak++;
         if (_statusFailStreak === 1 || _statusFailStreak % 10 === 0) {
-            log('warn', `Status update nahi mil rahi (${_statusFailStreak} attempts) — engine/prozy check kar rahe hain...`);
+            log('warn', `Status update not received (${_statusFailStreak} attempts) — checking engine/proxy...`);
         }
     }
 }
@@ -2259,8 +2259,8 @@ function attachListeners() {
     const forceStopBtn = $('forceStopBtn');
     if (forceStopBtn) {
         forceStopBtn.addEventListener('click', async () => {
-            if (!confirm('FORCE RESET karein? Yeh sab state clear kar dega. Position (agar open hai) Binance pe rahegi, lekin bot ka internal state reset ho jaayega.')) return;
-            log('warn', 'Force reset request bhej rahe hain...');
+            if (!confirm('FORCE RESET? This clears all bot state. Any open position stays on the exchange, but the bot internal state resets.')) return;
+            log('warn', 'Sending force reset request...');
             try {
                 const r = await fetch('/api/force_stop', { method: 'POST' });
                 const data = await r.json();
@@ -2304,11 +2304,11 @@ function attachListeners() {
 
             // Check if at least one channel is enabled
             if (!testData.telegram_enabled && !testData.email_enabled && !testData.whatsapp_enabled) {
-                log('warn', 'Pehle koi channel enable karein (Telegram/Email/WhatsApp checkbox on karein)');
+                log('warn', 'Enable at least one channel first (turn on the Telegram/Email/WhatsApp checkbox)');
                 return;
             }
 
-            log('info', 'Test notification bhej rahe hain (bina save kiye)...');
+            log('info', 'Sending test notification (without saving)...');
             testNotifBtn.disabled = true;
             testNotifBtn.textContent = 'Sending...';
             try {
@@ -2336,7 +2336,7 @@ function attachListeners() {
                         }
                     }
                     if (!hadAny) {
-                        log('warn', 'Koi channel enabled nahi hai. Checkbox on karein.');
+                        log('warn', 'No channel is enabled. Turn on a checkbox.');
                     }
                 } else {
                     log('error', `Test failed: ${data.error || 'unknown'}`);
@@ -2397,7 +2397,7 @@ function attachListeners() {
     const loadAllBtn = $('loadAllCoinsBtn');
     if (loadAllBtn) {
         loadAllBtn.addEventListener('click', async () => {
-            log('info', 'Market se coins load ho rahe hain...');
+            log('info', 'Loading coins from the market...');
             loadAllBtn.disabled = true;
             loadAllBtn.textContent = 'Loading...';
             try {
@@ -2426,7 +2426,7 @@ function attachListeners() {
                         log('success', `✅ ${data.symbols.length} coins load hue. Top ${topToAdd.length} coins active watchlist mein add ho gaye!`);
                         saveSettings();
                     } else {
-                        log('success', `✅ ${data.symbols.length} coins available. Dropdown se coin select karein ya '+ Top 10' dabayein.`);
+                        log('success', `✅ ${data.symbols.length} coins available. Pick one from the dropdown or press '+ Top 10'.`);
                     }
                 } else {
                     log('error', `Coins load fail: ${data.error || 'unknown'}`);
@@ -2517,7 +2517,7 @@ function attachListeners() {
                 if (levInput) levInput.value = finalLev;
                 if ($('posLeverage')) $('posLeverage').textContent = `${finalLev}x`;
                 if (data.adjusted) {
-                    log('warn', `⚠️ Binance Rule: ${activeSymbol} par max limit ${finalLev}x hai (${lev}x Binance allow nahi karta). Set to ${finalLev}x.`);
+                    log('warn', `⚠️ Binance rule: max leverage for ${activeSymbol} is ${finalLev}x (${lev}x not permitted). Set to ${finalLev}x.`);
                 } else {
                     log('success', `⚡ Leverage successfully set to ${finalLev}x!`);
                 }
@@ -2626,7 +2626,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try { window.fetchPositions(); } catch (e) { console.error(e); }
     try { if (typeof window.fetchTradeHistory === 'function') window.fetchTradeHistory(); } catch (e) { console.error(e); }
 
-    log('info', 'Welcome! Coins add karein, settings set karein, aur START dabayein.');
+    log('info', 'Welcome! Add coins, adjust settings, then press START.');
     log('info', 'Strategy: EMA 8,13,21,55 crossover (55 at bottom = LONG, 55 at top = SHORT)');
 
     try { initChart(); } catch (e) { console.error(e); }

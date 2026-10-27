@@ -97,9 +97,9 @@ public class ApiClient {
     private static String friendly(Exception e) {
         String m = String.valueOf(e.getMessage());
         if (m == null) m = "";
-        if (m.contains("UnknownHost") || m.contains("resolve")) return "Server nahi mila — address/internet check karein";
-        if (m.contains("timeout") || m.contains("Timeout")) return "Connection timeout — dobara koshish karein";
-        if (m.contains("Connect")) return "Server se connect nahi ho saka";
+        if (m.contains("UnknownHost") || m.contains("resolve")) return "Server not found — check your internet connection";
+        if (m.contains("timeout") || m.contains("Timeout")) return "Connection timed out — please try again";
+        if (m.contains("Connect")) return "Could not reach the server";
         return "Network error: " + m;
     }
 }

@@ -460,6 +460,9 @@ def snapshot():
         "chart": {},
         "indicators": {},
         "active_symbol": ENGINE.active_symbol,
+        # Last 40 engine messages (signals, API errors, trade events) — lets the
+        # Android app show the SAME live feed the web dashboard sees over socket.
+        "recent_logs": list(getattr(ENGINE, "_recent_logs", []))[-40:],
     }
     # Positions (from engine trader or monitor trader)
     trader = ENGINE.trader or getattr(ENGINE, "monitor_trader", None)
@@ -501,6 +504,19 @@ def snapshot():
         except Exception:
             pass
     return jsonify(data)
+
+
+@app.route("/api/logs", methods=["GET"])
+def api_logs():
+    """Recent engine messages for HTTP clients (Android app Signals feed).
+    Optional ?limit=N (default 60, max 250)."""
+    try:
+        limit = int(request.args.get("limit", 60))
+    except Exception:
+        limit = 60
+    limit = max(1, min(limit, 250))
+    logs = list(getattr(ENGINE, "_recent_logs", []))[-limit:]
+    return jsonify({"success": True, "logs": logs})
 
 
 @app.route("/api/positions", methods=["GET"])

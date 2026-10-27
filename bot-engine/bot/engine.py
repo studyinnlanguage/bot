@@ -1700,7 +1700,7 @@ class BotEngine:
                     if r.get("adjusted"):
                         self._emit("log", {
                             "level": "warn",
-                            "msg": f"[{sym}] ⚠️ Binance Official Limit: {sym} par maximum allowed leverage {actual}x hai ({leverage}x Binance allow nahi karta). Set to {actual}x."
+                            "msg": f"[{sym}] ⚠️ Binance limit: max allowed leverage for {sym} is {actual}x ({leverage}x not permitted). Set to {actual}x."
                         })
                     elif r.get("success"):
                         self._emit("log", {
@@ -2106,12 +2106,25 @@ class BotEngine:
         return f"${self.config.get('amount', 100)}"
 
     def _emit(self, event: str, data: dict):
-        """Emit a socketio event AND log to terminal (dual output for debugging)."""
+        """Emit a socketio event AND log to terminal AND keep a small ring buffer
+        so HTTP clients (Android app polls /api/snapshot + /api/logs) can read the
+        SAME live messages the web dashboard gets over Socket.IO."""
         try:
-            # Also log to terminal so we can see what's happening
             if event == "log":
                 level = (data.get("level") or "info").upper()
                 msg = data.get("msg", "")
+                # Ring buffer (mobile app visibility — web gets these via socket)
+                try:
+                    if not hasattr(self, "_recent_logs"):
+                        from collections import deque
+                        self._recent_logs = deque(maxlen=250)
+                    self._recent_logs.append({
+                        "ts": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                        "level": level.lower(),
+                        "msg": msg,
+                    })
+                except Exception:
+                    pass
                 if level == "ERROR":
                     logger.error(msg)
                 elif level == "WARN" or level == "WARNING":

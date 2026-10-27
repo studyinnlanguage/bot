@@ -1,32 +1,30 @@
-# Weexionic Android App v3.4.0
+# Weexionic Android App v3.5.0
 
 **Download:** [Weexionic-App.apk](apk/Weexionic-App.apk) — file par tap karein → "Download raw" se save karein (~4.1 MB).
 
-## v3.4.0 — "SERVER kyn mang raha hai" KHATAM + 100% ENGLISH + Concept Design (Web + Mobile dono)
-- **SERVER SETTINGS hamesha ke liye gaya** — login screen par ab server ka koi field NAHI hai. Server address app ke andar baked hai. Binance ki tarah: install karo, login karo, bas. (Jis wajah se "Weexionic has stopped" crash bhi fix kar diya gaya hai — global crash guard + error logging laga di hai)
-- **App 100% ENGLISH** — ek bhi Roman Urdu/Hindi string nahi bachi. Login, Home, Markets, Trade, Wallet, Profile, Settings, dialogs, toasts — sab English
-- **Concept design — bilkul mockup jaisa**:
-  - Login: "Log in. Let the bot do the watching." + gold CTA + Google + trust rows (Funds stay on your exchange / Strict 1:1 risk locks / Instant alerts)
-  - Bottom nav ab concept ke 5 tabs: **Home / Markets / TRADE (center gold button) / Wallet / Profile**
-  - **Trade tab (naya)**: symbol chips + candlestick chart + EMA 8/13/21/55 legend + Quad-Trend Signal + Quick Controls (Order Size / Leverage / Stop Loss / Direction LONG-BOTH-SHORT) + **Apply & Save** — ye REAL hai, /api/bot/config mein save hota hai (TP engine ka 1:1 rule khud set karta hai)
-  - **Open Positions ke saath CLOSE button** — koi bhi position market par turant band karo (real /api/close)
-  - **Wallet tab (naya, concept Wallet & Rewards)**: AVAILABLE BALANCE, shareable link + Copy, WhatsApp/Telegram share, commission structure (+$10 / +$50), Friends invited, Total earned — sab REAL referral API se
-  - **Home**: aurora hero + TOTAL EQUITY + **Active Coins list (live BUY/SELL/HOLD signals)** + START/STOP
-- **START verification** — START ke baad app engine ka ASLI trading state check karta hai (5s tak) aur honestly batata hai: "Bot is RUNNING — watching N coins". Chupchap fake kuch nahi hota
-- **Web bhi concept-exact**: landing page ab concept ke exact headings ("Automated futures trading with military-grade 1:1 risk discipline", "Everything a disciplined bot needs — nothing it doesn't", "Live in three steps, trading tonight", "One license. Every update included.", "Ready to hand the night shift to a bot?" + Launch Free Demo), login page ab split gold panel ("Log in. Let the bot do the watching.")
+## v3.5.0 — FULL BOT ON APP + "API error" ka ASLI SABAB ab app pe nazar aata hai
+- **SIGNALS TAB (naya)** — Trade tab mein ab 3 sections: **POSITIONS / SIGNALS / HISTORY**. Signals tab engine ka LIVE feed hai — har signal (EMA crossover BUY/SELL), har trade entry/exit, aur har error bilkul waise jaise web dashboard ke Activity Logs mein dikhte hain. Ab app pe bhi web jaisa poora bot nazara hai
+- **"API error" mystery solved** — wo message jo aap dekh rahe the wo ENGINE ka diagnostics message hai ("Klines fetch fail … Chart empty - API error") jo pehle SIRF web pe dikhta tha. Ab app ke SIGNALS tab + Home warn card mein ASLI WAJAH ke saath dikhta hai (konsa coin, kya error, kab)
+- **Balance error ka asli reason** — balance load na ho to ab app server ka exact error dikhata hai (invalid API keys / IP restriction / engine booting), khali $0.00 nahi
+- **License expired? App foran batayega** — agar plan inactive/expired hai to Home pe gold warn banner + START pe clear dialog ("License Required — activate on weexionic.duckdns.org Packages page"). Pehle ye chhupa hua 403 error tha
+- **Server hardening (git pull zaroori)** — login exchange errors ab 100% English + broken body par HTML 400 ki jagah clean JSON (app ka parser kabhi fail nahi hoga)
+- **Web dashboard 100% English** — engine ke 27 log/alert messages Roman Urdu se English kiye gaye (Close confirmations, Start/Stop, Force Reset, coin loading, Binance leverage rule …)
+- **App ke Settings screen ke baqi 4 strings bhi English** (testnet note, keys note, save note, WEEX passphrase hint)
 
-## v3.3.0 (included) — START fix + Bot Settings in-app
+## v3.4.0 (included) — server field KHATAM + 100% English UI + concept tabs
+## v3.3.0 (included) — Bot Settings in-app + honest RUNNING badge
 ## v3.2.0 (included) — Remember Me + Google login
 ## v3.0/v3.1 core (included) — 100% NATIVE, zero WebView, fonts/sounds/art pack
 
 ## Install (IMPORTANT)
-1. Purani Weexionic app UNINSTALL karein (nayi version — bina uninstall install nahi hogi)
+1. Purani Weexionic app UNINSTALL karein
 2. APK tap karein → "Install unknown apps" allow karein
-3. Login karo (email/password ya Google) — server POCHAY GA HI NAHI
-4. Pehli bar: Profile → **Bot Settings** → exchange + API keys + coins save karo (ya phir START dabao — app khud bata dega kya missing hai)
-5. **START BOT** dabao — "Bot is RUNNING — watching N coins" toast aayega, phir Trade tab pe live chart/signals/positions sab real
+3. Login karo (Google ya email) — server kabhi nahi poochta
+4. **SERVER UPDATE ZAROORI (naye features ke liye):** VPS par `git pull` karke app restart karein — bina iske Signals tab web ke purane code par khaali aayega
+5. Profile → **Bot Settings** → exchange + API keys + coins save karo
+6. **START** dabao → Trade tab → **SIGNALS** kholo — engine ka poora live feed, positions, history sab app pe
 
 ## Notes
-- Wallet ka payout request website se hota hai (Wallet page) — app mein balance + link + share sab available hai
-- Trade tab ke Quick Controls agle entries par apply hote hain (running positions par nahi)
-- Crash kabhi ho to file `crash_last.txt` app ki private storage mein save hoti hai — support se share karne par issue foran pakra jata hai
+- Data na aaye to: Home ka warn card ASLI WAJAH batayega (license / API keys / coins) — Signals tab mein engine ka exact error hoga
+- Wallet ka payout request website se hota hai — app mein balance + link + share sab available hai
+- Crash kabhi ho to `crash_last.txt` app ki private storage mein hoti hai

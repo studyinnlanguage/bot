@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
     private LinearLayout llChips, llTrades;
     private ChartView chart;
     private TextView tvTradePrice, tvTradeChg, tvEmaLegend, tvSignal,
-            tvTradeLevBadge, tvApplyMsg, tvUpdatedTrade, segPositions, segHistory;
+            tvTradeLevBadge, tvApplyMsg, tvUpdatedTrade, segPositions, segHistory, segSignals;
     private EditText etSize, etLev, etSl;
     private TextView segDirLong, segDirBoth, segDirShort;
     private Button btnApply;
@@ -104,8 +104,11 @@ public class MainActivity extends Activity {
     private JSONObject lastBotStatus = null;
     private JSONObject lastSnapshot = null;
     private JSONObject lastReferral = null;
+    private JSONArray lastLogs = null;
     private double lastBalance = 0;
     private boolean balOk = false;
+    private String balErrMsg = null;
+    private boolean licActive = true;
     private String activeSymbol = null;
 
     @Override
@@ -189,6 +192,7 @@ public class MainActivity extends Activity {
         tvApplyMsg = findViewById(R.id.tvApplyMsg);
         segPositions = findViewById(R.id.segPositions);
         segHistory = findViewById(R.id.segHistory);
+        segSignals = findViewById(R.id.segSignals);
         llTrades = findViewById(R.id.llTrades);
         tvUpdatedTrade = findViewById(R.id.tvUpdatedTrade);
 
@@ -289,6 +293,9 @@ public class MainActivity extends Activity {
         });
         segHistory.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { seg = 1; styleSeg(); renderTrades(); tickNow(); }
+        });
+        segSignals.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { seg = 2; styleSeg(); renderTrades(); tickNow(); }
         });
 
         btnStart.setOnClickListener(new View.OnClickListener() {
@@ -440,6 +447,7 @@ public class MainActivity extends Activity {
                     int coins = 0, trades = 0;
                     String lev = "—", tf = "—";
                     boolean running = botRunning;
+                    String balErr = null;
                     {
                         ApiClient.Result bs = ApiClient.get(base + "/api/bot/status", ck);
                         if (bs.ok()) {
@@ -453,8 +461,12 @@ public class MainActivity extends Activity {
                                 if (bbal != null && bbal.optBoolean("success", false)) {
                                     bal = bbal.optDouble("balance", 0);
                                     bok = true;
+                                    balErr = null;
                                     exchange = bbal.optString("exchange", "");
                                     mode = bbal.optBoolean("testnet", true) ? "TESTNET" : "LIVE";
+                                } else {
+                                    // surface the REAL reason (invalid keys, no position rights, engine not up …)
+                                    balErr = bbal == null ? "No balance data from engine" : bbal.optString("error", "No balance data from engine");
                                 }
                                 if (st != null) {
                                     // engine TRADING state (process-alive != trading)
@@ -485,7 +497,7 @@ public class MainActivity extends Activity {
                         }
                     }
 
-                    // 3) snapshot for home-spark / markets / trade tabs
+                    // 3) snapshot for home-spark / markets / trade tabs (+ engine logs on signals)
                     JSONObject snap = null;
                     JSONObject hist = null;
                     boolean wantSnap = running && ((curTab >= 0 && curTab <= 2)
@@ -495,7 +507,11 @@ public class MainActivity extends Activity {
                         if (sr.ok()) {
                             try {
                                 JSONObject js = new JSONObject(sr.body);
-                                if (js.has("chart") || js.has("positions")) snap = js;
+                                if (js.has("chart") || js.has("positions") || js.has("recent_logs")) {
+                                    snap = js;
+                                    JSONArray rl = js.optJSONArray("recent_logs");
+                                    if (rl != null) lastLogs = rl;   // keep feed warm on every tab
+                                }
                             } catch (Exception ignored) { }
                         }
                         if (snap != null) lastSnapshot = snap;
@@ -507,6 +523,33 @@ public class MainActivity extends Activity {
                                 JSONObject jt = new JSONObject(tr.body);
                                 if (jt.optBoolean("success", false)) hist = jt;
                             } catch (Exception ignored) { }
+                        }
+                    }
+                    // Signals feed — full engine log even when snapshot is empty
+                    if (curTab == 2 && curSeg == 2) {
+                        ApiClient.Result lr = ApiClient.get(base + "/api/bot/proxy?path=" + urlencode("/api/logs?limit=80"), ck);
+                        if (lr.ok()) {
+                            try {
+                                JSONObject jl = new JSONObject(lr.body);
+                                if (jl.optBoolean("success", false)) {
+                                    JSONArray la = jl.optJSONArray("logs");
+                                    if (la != null) lastLogs = la;
+                                }
+                            } catch (Exception ignored) { }
+                        }
+                        if (!running) {
+                            // stopped engine: proxy gives "Bot is not running" — keep any cached feed visible
+                            if (lastLogs == null) {
+                                JSONArray la = new JSONArray();
+                                try {
+                                    JSONObject o = new JSONObject();
+                                    o.put("ts", new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()));
+                                    o.put("level", "info");
+                                    o.put("msg", "Engine is stopped — press START to begin. Live signals appear here.");
+                                    la.put(o);
+                                } catch (Exception ignore) { }
+                                lastLogs = la;
+                            }
                         }
                     }
 
@@ -524,17 +567,18 @@ public class MainActivity extends Activity {
                     }
 
                     final double fBal = bal; final boolean fBok = bok;
-                    final String fEx = exchange, fMode = mode;
+                    final String fEx = exchange, fMode = mode, fBalErr = balErr;
                     final int fCoins = coins, fTrades = trades;
                     final String fLev = lev, fTf = tf;
                     final boolean fRun = running;
                     final JSONObject fUser = user, fSub = sub;
                     final JSONObject fSnap = snap, fHist = hist, fRef = (ref != null ? ref : lastReferral);
+                    final JSONArray fLogs = lastLogs;
                     runOnUiThread(new Runnable() {
                         public void run() {
                             try {
                                 ticking = false;
-                                renderCommon(fUser, fSub, fRun, fBal, fBok, fEx, fMode, fCoins, fTrades, fLev, fTf);
+                                renderCommon(fUser, fSub, fRun, fBal, fBok, fEx, fMode, fCoins, fTrades, fLev, fTf, fBalErr);
                                 if (fSnap != null) {
                                     if (tab == 0) renderHomeSpark(fSnap);
                                     if (tab == 0) renderHomeCoins(fSnap, fRun);
@@ -550,16 +594,15 @@ public class MainActivity extends Activity {
                                         tvTradeChg.setText("");
                                         tvEmaLegend.setText("EMA 8 —  •  EMA 13 —  •  EMA 21 —  •  EMA 55 —");
                                         llTrades.removeAllViews();
-                                        if (!fRun) llTrades.addView(emptyNote(
+                                        if (!fRun && seg == 0) llTrades.addView(emptyNote(
                                                 "Press START — live prices, signals and positions appear here"));
                                     }
                                 }
                                 if (tab == 2 && seg == 1) {
                                     if (fHist != null) renderHistory(fHist);
                                     else llTrades.removeAllViews();
-                                } else if (fHist != null && tab == 2 && seg == 1) {
-                                    renderHistory(fHist);
                                 }
+                                if (tab == 2 && seg == 2) renderSignals(fLogs);
                                 if (tab == 3 && fRef != null) renderWallet(fRef);
                                 scheduleTick();
                             } catch (Throwable t) {
@@ -586,7 +629,7 @@ public class MainActivity extends Activity {
 
     private void renderCommon(JSONObject user, JSONObject sub, boolean running,
                               double bal, boolean bok, String ex, String mode,
-                              int coins, int trades, String lev, String tf) {
+                              int coins, int trades, String lev, String tf, String balErr) {
         setPill(running ? 1 : 2);
         tvHomePill.setBackgroundResource(running ? R.drawable.bg_pill_green : R.drawable.bg_pill_gray);
         tvHomePill.setTextColor(running ? GREEN : TSEC);
@@ -594,6 +637,8 @@ public class MainActivity extends Activity {
         // honest control: while running only STOP, otherwise START
         btnStart.setVisibility(running ? View.GONE : View.VISIBLE);
         btnStop.setVisibility(running ? View.VISIBLE : View.GONE);
+        btnStart.setEnabled(licActive);
+        btnStart.setAlpha(licActive ? 1f : 0.5f);
         if (bok) {
             tvBalance.setText(String.format(Locale.US, "$%.2f", bal));
             tvBalanceSub.setText((ex.isEmpty() ? "" : ex.toUpperCase(Locale.US) + "  •  ") + mode);
@@ -605,13 +650,19 @@ public class MainActivity extends Activity {
                     + "  —  balance appears after START");
             balOk = false;
         }
-        // honest diagnostics: running but no data = exchange/connection issue
-        boolean warn = running && (!bok || coins == 0);
+        // honest diagnostics: license / running-but-no-data / balance error — each with its REAL reason
+        boolean licBad = !licActive;
+        boolean warn = licBad || (running && (!bok || coins == 0));
         if (cardWarn != null) {
             cardWarn.setVisibility(warn ? View.VISIBLE : View.GONE);
             if (warn) {
-                if (!bok) {
-                    tvWarn.setText("Can't reach the exchange — verify your API keys in Bot Settings");
+                if (licBad) {
+                    tvWarn.setText("License inactive — your plan is not active. Open "
+                            + ApiClient.hostOf(session.server()) + " in a browser and activate a plan to start the bot.");
+                } else if (!bok) {
+                    String why = balErr == null ? "" : balErr.trim();
+                    tvWarn.setText("Can't reach the exchange"
+                            + (why.isEmpty() ? " — verify your API keys in Bot Settings" : ": " + why));
                 } else {
                     tvWarn.setText("Engine is running but no coin is live — check coins in Bot Settings");
                 }
@@ -636,6 +687,7 @@ public class MainActivity extends Activity {
             if (!em.isEmpty()) tvEmail.setText(em);
         }
         if (sub != null) {
+            licActive = sub.optBoolean("active", true);
             String p = sub.optString("plan", "—");
             tvPlan.setText("•  " + (p.isEmpty() ? "—" : p.toUpperCase(Locale.US)));
             tvExpiry.setText(fmtExpiry(sub.optString("expires_at", "")));
@@ -1016,6 +1068,69 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Signals feed — engine messages (signals, API errors, trades) — same as web log panel. */
+    private void renderSignals(JSONArray logs) {
+        try {
+            llTrades.removeAllViews();
+            if (logs == null || logs.length() == 0) {
+                llTrades.addView(emptyNote("No signals yet — the engine posts every check, signal and trade here"));
+                return;
+            }
+            int n = logs.length();
+            int start = Math.max(0, n - 60);
+            for (int i = n - 1; i >= start; i--) {
+                JSONObject e = logs.getJSONObject(i);
+                String msg = e.optString("msg", "");
+                String lvl = e.optString("level", "info").toLowerCase(Locale.US);
+                String ts = e.optString("ts", "");
+                if (msg.isEmpty()) continue;
+
+                int dot = GOLD, txt = TPRI;
+                if (lvl.equals("error")) { dot = RED; txt = 0xFFFFD9DD; }
+                else if (lvl.equals("warn") || lvl.equals("warning")) { dot = 0xFFF0B90B; txt = TPRI; }
+                else if (lvl.equals("success")) { dot = GREEN; txt = 0xFFD9F7EA; }
+                else { dot = 0xFF5B6472; txt = TSEC; }
+
+                LinearLayout card = new LinearLayout(this);
+                card.setOrientation(LinearLayout.HORIZONTAL);
+                card.setGravity(Gravity.TOP);
+                card.setLayoutParams(lp(-1, -2, 0, 0, 0, 6));
+                card.setBackgroundResource(R.drawable.bg_card);
+                card.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+                View vDot = new View(this);
+                vDot.setBackgroundResource(R.drawable.bg_dot);
+                vDot.getBackground().setColorFilter(dot, android.graphics.PorterDuff.Mode.SRC_IN);
+                vDot.setLayoutParams(lp(dp(8), dp(8), 0, 0, dp(4), 0));
+                card.addView(vDot);
+
+                LinearLayout col = new LinearLayout(this);
+                col.setOrientation(LinearLayout.VERTICAL);
+                col.setLayoutParams(lp(0, -2, 1f, 0, dp(10), 0));
+
+                TextView tvM = tv(msg, 12, lvl.equals("error") || lvl.equals("success"), txt);
+                tvM.setLineSpacing(dp(2), 1f);
+                col.addView(tvM);
+
+                if (ts != null && !ts.isEmpty()) {
+                    TextView tvTs = tv(ts + "  •  " + lvl.toUpperCase(Locale.US), 10, false, TDIM);
+                    tvTs.setLayoutParams(lp(-1, -2, 0, 0, dp(3), 0));
+                    applyFont(tvTs, fNum);
+                    col.addView(tvTs);
+                }
+                card.addView(col);
+                llTrades.addView(card);
+            }
+            TextView head = tv("LIVE ENGINE FEED — newest first", 10, true, TDIM);
+            head.setAllCaps(true);
+            head.setLayoutParams(lp(-1, -2, 0, 0, 0, dp(10)));
+            llTrades.addView(head, 0);
+        } catch (Throwable t) {
+            try { CrashLog.save(t); } catch (Exception ignore) { }
+            llTrades.addView(emptyNote("Couldn't load signals"));
+        }
+    }
+
     /** Wallet tab — real referral data. */
     private void renderWallet(JSONObject ref) {
         try {
@@ -1053,6 +1168,8 @@ public class MainActivity extends Activity {
         segPositions.setTextColor(seg == 0 ? GOLD : TDIM);
         segHistory.setBackgroundResource(seg == 1 ? R.drawable.bg_seg_active : R.drawable.bg_seg);
         segHistory.setTextColor(seg == 1 ? GOLD : TDIM);
+        segSignals.setBackgroundResource(seg == 2 ? R.drawable.bg_seg_active : R.drawable.bg_seg);
+        segSignals.setTextColor(seg == 2 ? GOLD : TDIM);
     }
 
     private void renderTrades() {
@@ -1060,9 +1177,17 @@ public class MainActivity extends Activity {
             renderPositions(lastSnapshot);
         } else if (seg == 1) {
             // history refreshes on next tick
+        } else if (seg == 2) {
+            renderSignals(lastLogs);   // instant paint from cache, tick refreshes
         } else {
             llTrades.removeAllViews();
         }
+    }
+
+    /** URL-encode a query value (safe for path=/... params). */
+    private static String urlencode(String s) {
+        try { return java.net.URLEncoder.encode(s, "UTF-8"); }
+        catch (Exception e) { return s; }
     }
 
     // ---------- Quick controls (real /api/bot/config) ----------
@@ -1376,6 +1501,17 @@ public class MainActivity extends Activity {
         d.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(TSEC);
     }
 
+    /** START blocked by license — clear guidance instead of a mystery error. */
+    private void showLicenseNeeded(String why) {
+        AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle("License Required")
+            .setMessage(why + "\n\nActivate a plan on " + ApiClient.hostOf(session.server())
+                    + " (Packages page) in your phone browser — the app updates automatically after activation.")
+            .setPositiveButton("GOT IT", null)
+            .show();
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(GOLD);
+    }
+
     private void botAction(final boolean start) {
         busyAction = true;
         btnStart.setEnabled(false); btnStop.setEnabled(false);
@@ -1409,12 +1545,14 @@ public class MainActivity extends Activity {
                             Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
                             if (start) verifyStart();
                         } else {
-                            // config issue → offer Settings directly (never a silent no-op)
+                            // config issue → Settings; license issue → dedicated dialog (never a dead-end)
                             String low = msg == null ? "" : msg.toLowerCase();
+                            boolean licIssue = low.contains("license") || r.code == 403;
                             boolean cfgIssue = low.contains("api key") || low.contains("coin")
-                                    || low.contains("passphrase") || low.contains("settings")
-                                    || low.contains("license");
-                            if (cfgIssue) {
+                                    || low.contains("passphrase") || low.contains("settings");
+                            if (licIssue) {
+                                showLicenseNeeded(msg);
+                            } else if (cfgIssue) {
                                 showSettingsNeeded(msg);
                             } else {
                                 Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();

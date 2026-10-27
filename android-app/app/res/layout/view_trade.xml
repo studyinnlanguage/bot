@@ -331,7 +331,7 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- Positions / History -->
+        <!-- Positions / Signals / History -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -345,11 +345,25 @@
                 android:layout_width="0dp"
                 android:layout_height="40dp"
                 android:layout_weight="1"
-                android:layout_marginRight="5dp"
+                android:layout_marginRight="4dp"
                 android:background="@drawable/bg_seg_active"
                 android:gravity="center"
-                android:text="OPEN POSITIONS"
+                android:text="POSITIONS"
                 android:textColor="@color/gold"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/segSignals"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:layout_marginLeft="4dp"
+                android:layout_marginRight="4dp"
+                android:background="@drawable/bg_seg"
+                android:gravity="center"
+                android:text="SIGNALS"
+                android:textColor="@color/text_dim"
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
@@ -358,7 +372,7 @@
                 android:layout_width="0dp"
                 android:layout_height="40dp"
                 android:layout_weight="1"
-                android:layout_marginLeft="5dp"
+                android:layout_marginLeft="4dp"
                 android:background="@drawable/bg_seg"
                 android:gravity="center"
                 android:text="HISTORY"
