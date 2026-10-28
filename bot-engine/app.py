@@ -14,6 +14,7 @@ import os
 import secrets
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -944,9 +945,17 @@ def get_balance():
 
 # ---------- SocketIO ----------
 
+_last_ui_connect_log = [0.0]
+
+
 @socketio.on("connect")
 def on_connect():
-    socketio.emit("log", {"level": "info", "msg": "UI connected to bot"})
+    # Throttle: a reconnect/polling loop used to flood the log with "UI connected to bot"
+    # on every socket reconnect. Log at most once per 60 seconds per server run.
+    now = time.time()
+    if now - _last_ui_connect_log[0] > 60:
+        _last_ui_connect_log[0] = now
+        socketio.emit("log", {"level": "info", "msg": "UI connected to bot"})
     socketio.emit("status", ENGINE.status())
     # FIX: push a FULL snapshot on every (re)connect so a refreshed page
     # immediately gets chart + indicators + positions without waiting for
