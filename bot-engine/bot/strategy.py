@@ -48,7 +48,7 @@ class StrategyResult:
 class EMAQuadStrategy:
     """Quad-EMA crossover strategy with sequential alignment & anti-chop spread guard."""
 
-    def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55, min_spread_pct=0.40):
+    def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55, min_spread_pct=0.15):
         self.indicators = IndicatorSet(ema_short, ema_mid1, ema_mid2, ema_long)
         self.ema_short = ema_short
         self.ema_mid1 = ema_mid1
@@ -58,6 +58,7 @@ class EMAQuadStrategy:
         self._prev_signal: Signal = Signal.HOLD
         self._last_trend_side: Optional[Signal] = None
         self._trade_entered_for_signal: bool = False
+        self._just_seeded_trend: bool = False  # Option B: one in-trend entry allowed right after startup
 
     def _calc_signal(self, row) -> Signal:
         e8 = float(row["ema_8"]) if not pd.isna(row["ema_8"]) else None
@@ -100,12 +101,27 @@ class EMAQuadStrategy:
         return float(e8) <= float(e13) and float(e13) <= float(e21) and float(e21) < float(e55)
 
     def seed_startup_state(self, signal: Signal):
-        """Seed startup state so bot NEVER enters on startup without a fresh crossover."""
+        """Seed startup state.
+
+        Option B (in-trend startup entry): if the EMA fan is ALREADY aligned
+        at startup (signal BUY/SELL), allow ONE immediate entry instead of
+        waiting indefinitely for a brand-new cross. Duplicate protection is
+        unchanged: mark_trade_entered + engine open-position + candle guard.
+        """
         self._prev_signal = signal
         if signal in (Signal.BUY, Signal.SELL):
             self._last_trend_side = signal
-        self._trade_entered_for_signal = True
-        logger.info("Strategy seeded on startup with signal=%s (waiting for fresh cross)", signal.value)
+            # Fan already aligned at startup -> allow one in-trend entry now.
+            self._trade_entered_for_signal = False
+            self._just_seeded_trend = True
+        else:
+            # No trend at startup -> behave as before (wait for a fresh cross).
+            self._trade_entered_for_signal = True
+        logger.info(
+            "Strategy seeded on startup with signal=%s (in-trend entry %s)",
+            signal.value,
+            "ALLOWED" if self._just_seeded_trend else "waiting for fresh cross",
+        )
 
     def analyze(self, df: pd.DataFrame) -> Optional[StrategyResult]:
         """Analyze candles and return signal."""
@@ -173,10 +189,20 @@ class EMAQuadStrategy:
         else:
             self._prev_signal = Signal.HOLD
 
-        # STRICT RULE: Only enter on a genuine FRESH crossover!
+        # ENTRY TRIGGER (Option C):
+        # (a) genuine FRESH crossover (as before), OR
+        # (b) ONE in-trend entry right after startup when the fan was already
+        #     aligned at seed time (restart no longer misses an ongoing trend).
+        # Duplicate protection unchanged: _trade_entered_for_signal blocks
+        # re-entry on the same trend side; engine-side open-position check,
+        # max-concurrent cap, 30s cooldown and candle-id guard all still apply.
         just_crossed = False
-        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal and is_fresh_cross:
-            just_crossed = True
+        if signal in (Signal.BUY, Signal.SELL) and not self._trade_entered_for_signal:
+            if is_fresh_cross:
+                just_crossed = True
+            elif self._just_seeded_trend:
+                self._just_seeded_trend = False
+                just_crossed = True
 
         return StrategyResult(
             signal=signal,
