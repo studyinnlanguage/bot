@@ -102,8 +102,8 @@ class SymbolWorker(threading.Thread):
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
-        # Adaptive spread filter: 0.50% for high-beta meme coins, 0.40% for majors/alts
-        default_spread = 0.50 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.40
+        # Adaptive spread filter (Option C tuning): 0.20% for high-beta meme coins, 0.15% for majors/alts
+        default_spread = 0.20 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.15
         min_spread = float(self.config.get("min_ema_spread", default_spread))
         self.strategy = EMAQuadStrategy(min_spread_pct=min_spread)
         # Leverage readiness event — workers wait on this before trading
