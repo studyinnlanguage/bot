@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Eye, EyeOff, Check, ArrowRight, Send, Globe, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Check, ArrowRight, Loader2 } from "lucide-react";
 import { YELLOW } from "./types";
 
 const CHECKS = [
@@ -40,6 +40,8 @@ export function AuthScreen({ onAuthed }: Props) {
   const [error, setError] = useState("");
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [refApplied, setRefApplied] = useState("");
+  const [googleFailed, setGoogleFailed] = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
   /* referral landing page (/r/CODE) saved the code — auto-apply it */
   useEffect(() => {
@@ -71,33 +73,41 @@ export function AuthScreen({ onAuthed }: Props) {
     }
   }
 
-  async function googleFlow() {
-    setError("");
-    if (!googleClientId) {
-      setError("Google login server par abhi configure nahi hui — email se signup karein");
-      return;
-    }
-    try {
-      if (!(window as any).google?.accounts?.id) {
-        await new Promise<void>((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = "https://accounts.google.com/gsi/client";
-          s.async = true; s.defer = true;
-          s.onload = () => resolve();
-          s.onerror = () => reject(new Error("gsi"));
-          document.head.appendChild(s);
-        });
+  /* Real Google Sign-In button (GIS renderButton — reliable popup).
+     Renders once the client id arrives; the popup handles account choice. */
+  useEffect(() => {
+    if (!googleClientId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!(window as any).google?.accounts?.id) {
+          await new Promise<void>((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = "https://accounts.google.com/gsi/client";
+            s.async = true; s.defer = true;
+            s.onload = () => resolve();
+            s.onerror = () => reject(new Error("gsi"));
+            document.head.appendChild(s);
+          });
+        }
+        if (cancelled) return;
+        const gsi = (window as any).google?.accounts?.id;
+        if (!gsi) throw new Error("gsi");
+        gsi.initialize({ client_id: googleClientId, callback: (resp: { credential?: string }) => {
+          if (resp?.credential) void googleCredential(resp.credential);
+        } });
+        if (googleBtnRef.current) {
+          gsi.renderButton(googleBtnRef.current, {
+            theme: "filled_black", size: "large", shape: "pill",
+            width: 300, text: "continue_with", locale: "en",
+          });
+        }
+      } catch {
+        if (!cancelled) setGoogleFailed(true);
       }
-      const gsi = (window as any).google?.accounts?.id;
-      if (!gsi) throw new Error("gsi");
-      gsi.initialize({ client_id: googleClientId, callback: (resp: { credential?: string }) => {
-        if (resp?.credential) googleCredential(resp.credential);
-      } });
-      gsi.prompt();
-    } catch {
-      setError("Google login load nahi hui — dobara try karein");
-    }
-  }
+    })();
+    return () => { cancelled = true; };
+  }, [googleClientId]);
 
   async function submit() {
     setError("");
@@ -236,16 +246,21 @@ export function AuthScreen({ onAuthed }: Props) {
           <span className="text-[10px] text-[#4A5265]">or continue with</span>
           <div className="h-px flex-1 bg-white/[0.07]" />
         </div>
-        <div className="grid grid-cols-2 gap-2.5">
-          <Button variant="outline" className="h-10 rounded-lg border-white/[0.09] bg-transparent text-[12px] text-[#C7CEDE] hover:bg-white/[0.04] hover:text-white"
-            onClick={() => setError("")}>
-            <Send className="mr-1.5 h-3.5 w-3.5" /> Telegram
+        {googleClientId ? (
+          <div className="flex justify-center [&_div]:!w-full [&_iframe]:!w-full">
+            <div ref={googleBtnRef} className={busy ? "pointer-events-none opacity-50" : ""} />
+          </div>
+        ) : (
+          <Button variant="outline" disabled
+            className="h-10 w-full rounded-lg border-white/[0.09] bg-transparent text-[12px] text-[#6B7488]">
+            Google login load ho raha hai…
           </Button>
-          <Button variant="outline" disabled={busy} className="h-10 rounded-lg border-white/[0.09] bg-transparent text-[12px] text-[#C7CEDE] hover:bg-white/[0.04] hover:text-white"
-            onClick={googleFlow}>
-            <Globe className="mr-1.5 h-3.5 w-3.5" /> Google
-          </Button>
-        </div>
+        )}
+        {googleFailed && (
+          <p className="mt-2 text-center text-[10.5px] text-[#FF4D5E]">
+            Google button load nahi hua — internet check karein ya email se login karein.
+          </p>
+        )}
 
         <p className="mt-4 text-center text-[11.5px] text-[#6B7488]">
           {mode === "login" ? "New to WEEXIONIC?" : "Already have a terminal?"}{" "}
@@ -257,8 +272,8 @@ export function AuthScreen({ onAuthed }: Props) {
       </div>
 
       <p className="mt-4 text-center text-[9.5px] leading-relaxed text-[#3E4658]">
-        Demo build — data is simulated paper-trading on live-shaped market feeds.<br />
-        Your exchange keys never leave this server in plain text.
+        Quad-Trend practice engine — live market data, simulated fills, $10,000 demo balance.<br />
+        Exchange keys encrypted at rest — plain text me kabhi save nahi hoti.
       </p>
       {refApplied && (
         <p className="mt-1 text-center text-[9.5px] text-[#22C55E]">Invite link se aaye ho — signup par referral ({refApplied}) automatically lagega.</p>
