@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Home, LayoutGrid, Zap, Wallet, User, Wifi, BatteryFull, Signal } from "lucide-react";
+import { Home, LayoutGrid, Zap, Wallet, User, Wifi, BatteryFull, Signal, LogOut } from "lucide-react";
 import { AuthScreen, ConnectingScreen } from "@/components/wx/auth";
 import { HomeTab, MarketsTab } from "@/components/wx/home-markets";
 import { BotTab } from "@/components/wx/bot-tab";
@@ -19,6 +19,14 @@ const NAV: { id: Tab; icon: typeof Home; label: string; center?: boolean }[] = [
   { id: "wallet", icon: Wallet, label: "Wallet" },
   { id: "profile", icon: User, label: "Profile" },
 ];
+
+const TAB_TITLE: Record<Tab, string> = {
+  home: "Dashboard",
+  markets: "Markets",
+  bot: "Bot Terminal",
+  wallet: "Wallet & Referrals",
+  profile: "Profile & Settings",
+};
 
 export default function Page() {
   const { toast } = useToast();
@@ -88,7 +96,7 @@ export default function Page() {
     return () => { alive = false; clearInterval(id); };
   }, [phase, token]);
 
-  /* status bar clock */
+  /* clock */
   useEffect(() => {
     const upd = () => setClock(new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toUpperCase());
     upd();
@@ -172,11 +180,57 @@ export default function Page() {
 
   function selectMarket(sym: string) { setSymbol(sym); setTab("bot"); }
 
-  /* ─────────── render ─────────── */
+  /* ─────────── shared tab content ─────────── */
 
-  const screen = (
-    <div className="relative flex h-full flex-col overflow-hidden bg-[#05070B] text-white">
-      {/* status bar */}
+  const appContent = phase === "app" && user && engine ? (
+    <>
+      {tab === "home" && (
+        <HomeTab user={user} engine={engine} keysCount={keys.length} goto={t => setTab(t as Tab)}
+          onStart={() => void engineAction({ action: "start" }, "Quad-Trend Engine started")}
+          onStop={() => void engineAction({ action: "stop" }, "Engine stopped")}
+          onReset={() => void engineAction({ action: "reset" }, "Demo account reset — $10,000 restored")} />
+      )}
+      {tab === "markets" && <MarketsTab market={market} onSelect={selectMarket} />}
+      {tab === "bot" && (
+        <BotTab engine={engine} market={market} symbol={symbol} setSymbol={setSymbol} busy={busy}
+          onConfig={cfg => { void engineAction({ action: "config", config: cfg }); }}
+          onManual={async side => {
+            setBusy(side);
+            await engineAction({ action: "manual", symbol, side });
+            setBusy(null);
+          }}
+          onClose={id => void engineAction({ action: "close", id })}
+          onCloseAll={() => void engineAction({ action: "closeAll" }, "All positions closed")} />
+      )}
+      {tab === "wallet" && <WalletTab user={user} txns={txns} onToast={notify} onPayout={requestPayout} />}
+      {tab === "profile" && (
+        <ProfileTab user={user} keys={keys} network={{
+          cluster: "WEEXIONIC CLOUD", host: "cloud.weexionic.app",
+          region: "auto-assigned on login", client: "Weexionic Web v5.2.0", engine: "Quad-Trend Engine (EMA 8/13/21/55)",
+        }} onLogout={logout} onToast={notify} onAddKey={addKey} onDeleteKey={deleteKey} />
+      )}
+    </>
+  ) : null;
+
+  const centeredGate = (
+    <div className="mx-auto w-full max-w-md px-4 py-10">
+      {phase === "splash" && (
+        <div className="flex h-[60vh] items-center justify-center">
+          <div className="flex items-center gap-3">
+            <div className="flex h-14 w-14 animate-pulse items-center justify-center rounded-2xl text-2xl font-black text-black" style={{ background: YELLOW }}>W</div>
+            <div className="text-2xl font-extrabold"><span style={{ color: YELLOW }}>WEEX</span><span className="text-white">IONIC</span></div>
+          </div>
+        </div>
+      )}
+      {phase === "auth" && <AuthScreen onAuthed={handleAuthed} />}
+      {phase === "connecting" && <ConnectingScreen name={connectName || "trader"} />}
+    </div>
+  );
+
+  /* ─────────── MOBILE shell (phone app layout, < lg) ─────────── */
+
+  const mobileScreen = (
+    <div className="relative flex h-[100dvh] flex-col overflow-hidden bg-[#05070B] text-white lg:hidden">
       {phase === "app" && (
         <div className="flex items-center justify-between bg-[#05070B] px-5 pb-1 pt-2">
           <span className="font-mono text-[11px] font-bold text-white">{clock}</span>
@@ -188,7 +242,6 @@ export default function Page() {
         </div>
       )}
 
-      {/* app header */}
       {phase === "app" && (
         <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
           <div className="flex items-center gap-2.5">
@@ -209,7 +262,6 @@ export default function Page() {
         </div>
       )}
 
-      {/* body */}
       <div className="flex-1 overflow-y-auto [scrollbar-width:thin]">
         {phase === "splash" && (
           <div className="flex h-full items-center justify-center">
@@ -221,38 +273,9 @@ export default function Page() {
         )}
         {phase === "auth" && <AuthScreen onAuthed={handleAuthed} />}
         {phase === "connecting" && <ConnectingScreen name={connectName || "trader"} />}
-        {phase === "app" && user && engine && (
-          <>
-            {tab === "home" && (
-              <HomeTab user={user} engine={engine} keysCount={keys.length} goto={t => setTab(t as Tab)}
-                onStart={() => void engineAction({ action: "start" }, "Quad-Trend Engine started")}
-                onStop={() => void engineAction({ action: "stop" }, "Engine stopped")}
-                onReset={() => void engineAction({ action: "reset" }, "Demo account reset — $10,000 restored")} />
-            )}
-            {tab === "markets" && <MarketsTab market={market} onSelect={selectMarket} />}
-            {tab === "bot" && (
-              <BotTab engine={engine} market={market} symbol={symbol} setSymbol={setSymbol} busy={busy}
-                onConfig={cfg => { void engineAction({ action: "config", config: cfg }); }}
-                onManual={async side => {
-                  setBusy(side);
-                  await engineAction({ action: "manual", symbol, side });
-                  setBusy(null);
-                }}
-                onClose={id => void engineAction({ action: "close", id })}
-                onCloseAll={() => void engineAction({ action: "closeAll" }, "All positions closed")} />
-            )}
-            {tab === "wallet" && <WalletTab user={user} txns={txns} onToast={notify} onPayout={requestPayout} />}
-            {tab === "profile" && (
-              <ProfileTab user={user} keys={keys} network={{
-                cluster: "WEEXIONIC CLOUD", host: "cloud.weexionic.app",
-                region: "auto-assigned on login", client: "Weexionic App v3.0.0", engine: "Native Engine Client",
-              }} onLogout={logout} onToast={notify} onAddKey={addKey} onDeleteKey={deleteKey} />
-            )}
-          </>
-        )}
+        {appContent}
       </div>
 
-      {/* bottom nav */}
       {phase === "app" && (
         <nav className="flex items-end justify-around border-t border-white/[0.07] bg-[#07090D] pb-2 pt-1.5" aria-label="Main navigation">
           {NAV.map(({ id, icon: Icon, label, center }) =>
@@ -276,31 +299,99 @@ export default function Page() {
     </div>
   );
 
+  /* ─────────── DESKTOP shell (proper web app, lg+) ─────────── */
+
+  const desktopScreen = (
+    <div className="hidden h-screen w-full overflow-hidden bg-[#05070B] text-white lg:flex">
+      {/* sidebar */}
+      <aside className="flex w-[228px] shrink-0 flex-col border-r border-white/[0.06] bg-[#07090D] px-4 py-5">
+        <div className="flex items-center gap-2.5 px-1">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl text-lg font-black text-black" style={{ background: YELLOW }}>W</div>
+          <div className="font-extrabold tracking-tight text-lg">
+            <span style={{ color: YELLOW }}>WEEX</span><span className="text-white">IONIC</span>
+          </div>
+        </div>
+        <p className="mt-1 px-1 text-[8.5px] font-semibold tracking-[0.2em] text-[#5A6378]">CLOUD TRADING TERMINAL</p>
+
+        <nav className="mt-7 flex-1 space-y-1" aria-label="Main navigation">
+          {NAV.map(({ id, icon: Icon, label }) => (
+            <button key={id} onClick={() => setTab(id)}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-semibold transition-colors"
+              style={tab === id
+                ? { background: `${YELLOW}14`, color: YELLOW, boxShadow: `inset 2px 0 0 ${YELLOW}` }
+                : { color: "#8A93A6" }}>
+              <Icon className="h-[17px] w-[17px]" strokeWidth={tab === id ? 2.4 : 2} />
+              {label}
+              {id === "bot" && engine?.running && (
+                <span className="ml-auto h-2 w-2 rounded-full" style={{ background: GREEN, boxShadow: `0 0 8px ${GREEN}` }} />
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <div className="space-y-2.5 border-t border-white/[0.06] pt-4">
+          <div className="flex items-center gap-2.5 px-1">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-black"
+              style={{ background: `${YELLOW}22`, color: YELLOW }}>
+              {(user?.name || "W").slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[11.5px] font-bold text-white">{user?.name ?? "—"}</p>
+              <p className="truncate text-[9.5px] text-[#6B7488]">{user?.email ?? ""}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 px-1">
+            <span className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[8.5px] font-bold tracking-wider"
+              style={{ borderColor: `${GREEN}55`, background: `${GREEN}12`, color: GREEN }}>
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: GREEN }} /> CLOUD
+            </span>
+            <span className="rounded-full border px-2 py-0.5 text-[8.5px] font-bold tracking-wider"
+              style={{ borderColor: `${YELLOW}44`, background: `${YELLOW}10`, color: YELLOW }}>{user?.plan ?? "PRO"}</span>
+          </div>
+          {phase === "app" && (
+            <button onClick={logout} aria-label="Log out"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[12px] font-semibold text-[#8A93A6] transition-colors hover:bg-[#FF4D5E]/10 hover:text-[#FF4D5E]">
+              <LogOut className="h-4 w-4" /> Log out
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* main column */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-7 py-3.5">
+          <h1 className="text-[15px] font-extrabold text-white">{TAB_TITLE[tab]}</h1>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-[11px] font-bold text-[#6B7488]">{clock}</span>
+            <span className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-bold tracking-wider"
+              style={{ borderColor: `${GREEN}55`, background: `${GREEN}12`, color: GREEN }}>
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: GREEN, boxShadow: `0 0 6px ${GREEN}` }} />
+              {engine?.running ? "ENGINE LIVE" : "CLOUD ONLINE"}
+            </span>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto [scrollbar-width:thin]">
+          {phase === "splash" || phase === "auth" || phase === "connecting" ? (
+            centeredGate
+          ) : (
+            <div className="mx-auto w-full max-w-6xl px-7 py-6">{appContent}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#030405] p-0 sm:p-6">
+    <main className="bg-[#05070B]">
       {/* desktop ambience */}
-      <div className="pointer-events-none fixed inset-0 hidden sm:block">
-        <div className="absolute left-1/2 top-1/3 h-[480px] w-[720px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.07]"
+      <div className="pointer-events-none fixed inset-0 hidden lg:block">
+        <div className="absolute left-1/2 top-1/3 h-[480px] w-[720px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.06]"
           style={{ background: "radial-gradient(circle, #F5C518 0%, transparent 65%)" }} />
       </div>
 
-      {/* phone frame on desktop, full-bleed on mobile */}
-      <div className="relative w-full sm:w-[400px]">
-        <div className="hidden sm:mb-4 sm:block">
-          <p className="text-center text-[11px] font-semibold tracking-[0.22em] text-[#4A5265]">
-            WEEXIONIC — QUAD-TREND ENGINE · CLOUD TRADING APP PREVIEW
-          </p>
-        </div>
-        <div className="relative h-[100dvh] w-full overflow-hidden bg-[#05070B] sm:h-[780px] sm:rounded-[42px] sm:border-[7px] sm:border-[#151920] sm:shadow-[0_30px_80px_rgba(0,0,0,0.7),0_0_40px_rgba(245,197,24,0.06)]">
-          {/* notch */}
-          <div className="absolute left-1/2 top-0 z-50 hidden h-6 w-32 -translate-x-1/2 rounded-b-2xl bg-[#151920] sm:block" />
-          {screen}
-        </div>
-        <p className="mt-4 hidden text-center text-[10px] leading-relaxed text-[#3E4658] sm:block">
-          Demo PIN-free login — register any email &amp; password, ya pehle se banaye account se log in karein.
-          <br />Data aapki ID se save hota hai — login par wahi terminal, wahi positions.
-        </p>
-      </div>
+      {mobileScreen}
+      {desktopScreen}
     </main>
   );
 }
