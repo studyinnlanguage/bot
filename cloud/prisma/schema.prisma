@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String      @id @default(cuid())
+  email          String      @unique
+  passwordHash   String
+  name           String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  plan           String      @default("PRO")
+  planValidUntil DateTime?
+  referralCode   String      @unique
+  referredBy     String?
+  walletBalance  Float       @default(0)
+  lifetimeEarn   Float       @default(0)
+  friendsInvited Int         @default(0)
+  sessions       Session[]
+  engine         EngineState?
+  apiKeys        ApiKey[]
+  walletTxns     WalletTxn[]
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model EngineState {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  running   Boolean  @default(false)
+  balance   Float    @default(10000)
+  startBal  Float    @default(10000)
+  leverage  Int      @default(20)
+  timeframe String   @default("5m")
+  tradeSize Float    @default(180)
+  stopLossPct Float  @default(2.0)
+  mode      String   @default("both")
+  symbols   String   @default("[\"BTCUSDT\",\"ETHUSDT\",\"SOLUSDT\"]")
+  positions String   @default("[]")
+  history   String   @default("[]")
+  logs      String   @default("[]")
+  config    String   @default("{}")
+  updatedAt DateTime @updatedAt
+}
+
+model ApiKey {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exchange     String   @default("BINANCE")
+  label        String   @default("Main")
+  keyMasked    String
+  secretMasked String
+  createdAt    DateTime @default(now())
+}
+
+model WalletTxn {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  amount    Float
+  note      String   @default("")
+  status    String   @default("PAID")
+  createdAt DateTime @default(now())
+}
