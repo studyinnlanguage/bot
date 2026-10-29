@@ -118,7 +118,7 @@ function minSpread(symbol: string, timeframe: string): number {
 
 interface StratState {
   tradeEnteredForSignal: boolean;
-  lastTrendSide: "LONG" | "SHORT" | null;
+  lastTrendSide: "BUY" | "SELL" | null;   // stored as SIGNAL (exactly like Python _last_trend_side)
   lastEntryCandleTs: number | null;
   seeded: boolean;
 }
@@ -388,7 +388,7 @@ export async function tickEngine(rt: EngineRuntime): Promise<void> {
         if (!candles) continue;
         if (!state.seeded) {
           const probe = evalSignal(candles, pos.symbol, rt.timeframe, state);
-          state.lastTrendSide = probe && probe.signal !== "HOLD" ? (probe.signal === "BUY" ? "LONG" : "SHORT") : null;
+          state.lastTrendSide = probe && probe.signal !== "HOLD" ? probe.signal : null;
           state.tradeEnteredForSignal = true;
           state.seeded = true;
           continue;
@@ -438,7 +438,7 @@ export async function tickEngine(rt: EngineRuntime): Promise<void> {
         // visible signal so the engine never chases a pre-existing trend on start.
         if (!state.seeded) {
           const probe = evalSignal(candles, symbol, rt.timeframe, state);
-          state.lastTrendSide = probe && probe.signal !== "HOLD" ? (probe.signal === "BUY" ? "LONG" : "SHORT") : null;
+          state.lastTrendSide = probe && probe.signal !== "HOLD" ? probe.signal : null;
           state.tradeEnteredForSignal = true;
           state.seeded = true;
           log(rt, "info", `Strategy seeded on ${symbol} — waiting for a fresh cross`);
@@ -500,7 +500,7 @@ export async function tickEngine(rt: EngineRuntime): Promise<void> {
 
     rt._reversalJustClosed = null;
     rt.lastTickAt = now;
-    if (rt.dirty) void persist(rt);
+    if (rt.dirty) await persist(rt);   // awaited: floating promises die after response in Next.js
   } finally {
     rt.ticking = false;
   }
@@ -518,14 +518,14 @@ export function actionStart(rt: EngineRuntime): void {
   }
   log(rt, "success",
     `Quad-Trend Engine STARTED — EMA 8/13/21/55 · TF ${rt.timeframe} · ${rt.symbols.join(", ")} · strict 1:1 ${rt.stopLossPct.toFixed(1)}% (${rt.leverage}x) · mode ${rt.mode}`);
-  void persist(rt);
+  rt.dirty = true;
 }
 
 export function actionStop(rt: EngineRuntime): void {
   if (!rt.running) return;
   rt.running = false;
   log(rt, "warn", "Engine stopped by user — open positions keep their 1:1 TP/SL brackets");
-  void persist(rt);
+  rt.dirty = true;
 }
 
 export function actionConfig(rt: EngineRuntime, cfg: Partial<{
@@ -544,7 +544,6 @@ export function actionConfig(rt: EngineRuntime, cfg: Partial<{
     if (valid.length > 0) rt.symbols = valid;
   }
   rt.dirty = true;
-  void persist(rt);
 }
 
 /** Manual entry at live market price. */
@@ -556,30 +555,26 @@ export async function actionManual(rt: EngineRuntime, symbol: string, side: "LON
   if (!price) return { ok: false, error: "Live price unavailable — try again" };
   openPosition(rt, symbol, side, price, "manual override from terminal");
   entryPace.set(stratKey(rt.userId, symbol), Date.now());
-  void persist(rt);
+  rt.dirty = true;
   return { ok: true };
 }
 
-export function actionClose(rt: EngineRuntime, id: string): void {
+export async function actionClose(rt: EngineRuntime, id: string): Promise<void> {
   const pos = rt.positions.find(p => p.id === id);
   if (!pos) return;
-  void (async () => {
-    const price = await getPrice(pos.symbol);
-    if (!price) return;
-    closePositionAt(rt, pos, price, "MANUAL");
-    void persist(rt);
-  })();
+  const price = await getPrice(pos.symbol);
+  if (!price) return;
+  closePositionAt(rt, pos, price, "MANUAL");
+  await persist(rt);
 }
 
-export function actionCloseAll(rt: EngineRuntime): void {
-  void (async () => {
-    for (const pos of [...rt.positions]) {
-      const price = await getPrice(pos.symbol);
-      if (!price) continue;
-      closePositionAt(rt, pos, price, "MANUAL");
-    }
-    void persist(rt);
-  })();
+export async function actionCloseAll(rt: EngineRuntime): Promise<void> {
+  for (const pos of [...rt.positions]) {
+    const price = await getPrice(pos.symbol);
+    if (!price) continue;
+    closePositionAt(rt, pos, price, "MANUAL");
+  }
+  await persist(rt);
 }
 
 export function resetAccount(rt: EngineRuntime): void {
@@ -590,7 +585,20 @@ export function resetAccount(rt: EngineRuntime): void {
     stratStates.set(stratKey(rt.userId, sym), st);
   }
   log(rt, "info", "Account reset to $10,000.00 paper balance — strategy state re-seeded");
-  void persist(rt);
+  rt.dirty = true;
+}
+
+/* ─────────────────────── Awaitable persistence (route layer) ───────────────────────
+ * Next.js route handlers kill floating promises once the response is sent — so the
+ * route MUST await these, otherwise user config (symbols/leverage/…) never reaches
+ * the DB and silently resets on the next server restart. */
+
+export async function persistRuntime(rt: EngineRuntime): Promise<void> {
+  await persist(rt);
+}
+
+export async function persistIfDirty(rt: EngineRuntime): Promise<void> {
+  if (rt.dirty) await persist(rt);
 }
 
 /* ─────────────────────── Snapshot for client ─────────────────────── */

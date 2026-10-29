@@ -3,6 +3,7 @@ import { authUser, jsonError } from "@/lib/wx-auth";
 import {
   loadRuntime, tickEngine, snapshotState, marketSnapshot,
   actionStart, actionStop, actionConfig, actionManual, actionClose, actionCloseAll, resetAccount,
+  persistRuntime, persistIfDirty,
 } from "@/lib/wx-engine";
 
 export async function GET(req: NextRequest) {
@@ -11,6 +12,7 @@ export async function GET(req: NextRequest) {
 
   const rt = await loadRuntime(user.id);
   await tickEngine(rt);
+  await persistIfDirty(rt);   // awaited — floating promises are killed after response
 
   return Response.json({
     ok: true,
@@ -44,11 +46,13 @@ export async function POST(req: NextRequest) {
       if (!res.ok) return Response.json({ ok: false, error: res.error }, { status: 400 });
       break;
     }
-    case "close": actionClose(rt, String(body.id)); break;
-    case "closeAll": actionCloseAll(rt); break;
+    case "close": await actionClose(rt, String(body.id)); break;
+    case "closeAll": await actionCloseAll(rt); break;
     case "reset": resetAccount(rt); break;
     default: return jsonError("Unknown action", 400);
   }
+
+  await persistRuntime(rt);   // awaited — config/positions must reach the DB before responding
 
   return Response.json({ ok: true, engine: snapshotState(rt), market: await marketSnapshot(rt.timeframe) });
 }

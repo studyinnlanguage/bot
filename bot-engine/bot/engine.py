@@ -25,6 +25,46 @@ from .history import TradeHistoryManager
 logger = logging.getLogger(__name__)
 
 
+def _index_epoch(ts) -> int:
+    """Robustly convert a DataFrame index label to epoch SECONDS (int).
+
+    FIX: XAU/USD (and some WEEX symbols) can yield candle DataFrames whose
+    index holds raw int/float epoch values (or numeric strings) instead of
+    pandas Timestamps -> worker crashed every tick with
+    "'int' object has no attribute 'timestamp'".
+    This helper accepts Timestamps, datetimes, int/float epochs (ms or s)
+    and numeric strings, and never raises.
+    """
+    # Fast path: pandas Timestamp / datetime
+    try:
+        return int(ts.timestamp())
+    except (AttributeError, ValueError, OverflowError, OSError):
+        pass
+    except TypeError:
+        pass
+    # Numeric epoch (int/float/str) — detect ms vs s
+    try:
+        v = float(ts)
+        if not (v == v):  # NaN
+            return 0
+        if v > 1e12:      # milliseconds
+            v /= 1000.0
+        elif v <= 0:
+            return 0
+        return int(v)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    # Last resort: let pandas parse (e.g. date strings)
+    try:
+        import pandas as pd
+        t = pd.Timestamp(ts)
+        if pd.isna(t):
+            return 0
+        return int(t.timestamp())
+    except Exception:
+        return 0
+
+
 def get_trader(config: dict):
     """Factory: return the correct trader based on config['exchange']."""
     exchange = (config.get("exchange") or "binance").lower()
@@ -1328,7 +1368,7 @@ class SymbolWorker(threading.Thread):
         out = []
         for ts, row in tail.iterrows():
             out.append({
-                "time": int(ts.timestamp()),
+                "time": _index_epoch(ts),
                 "open": float(row["open"]),
                 "high": float(row["high"]),
                 "low": float(row["low"]),
@@ -1344,7 +1384,7 @@ class SymbolWorker(threading.Thread):
         for col, key in [("ema_8", "ema8"), ("ema_13", "ema13"),
                          ("ema_21", "ema21"), ("ema_55", "ema55")]:
             out[key] = [
-                {"time": int(ts.timestamp()), "value": float(v)}
+                {"time": _index_epoch(ts), "value": float(v)}
                 for ts, v in zip(tail.index, tail[col])
                 if not (v != v)  # filter NaN
             ]
@@ -1527,7 +1567,7 @@ class MonitorThread(threading.Thread):
         out = []
         for ts, row in tail.iterrows():
             out.append({
-                "time": int(ts.timestamp()),
+                "time": _index_epoch(ts),
                 "open": float(row["open"]),
                 "high": float(row["high"]),
                 "low": float(row["low"]),
@@ -1545,7 +1585,7 @@ class MonitorThread(threading.Thread):
         for col, key in [("ema_8", "ema8"), ("ema_13", "ema13"),
                          ("ema_21", "ema21"), ("ema_55", "ema55")]:
             out[key] = [
-                {"time": int(ts.timestamp()), "value": float(v)}
+                {"time": _index_epoch(ts), "value": float(v)}
                 for ts, v in zip(tail.index, tail[col])
                 if not (v != v)  # filter NaN
             ]
