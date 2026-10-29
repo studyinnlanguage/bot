@@ -1,49 +1,65 @@
-# Use official Python image
-FROM python:3.11-slim
+# ═══════════════════════════════════════════════════════════════════
+# Weexionic Cloud dashboard — production image
+#
+# Builds the Next.js app in cloud/ (register/login, Google auth,
+# referral system, Quad-Trend engine, wallet).
+#
+# NOTE: the old Flask trading bot Dockerfile is preserved as
+#       Dockerfile.flaskbot (point Coolify at it to roll back).
+#
+# Port stays 5000 (same as the old bot) so existing Coolify domain /
+# port mappings keep working without any changes.
+# ═══════════════════════════════════════════════════════════════════
 
-# Set working directory
+# ── Stage 1: build ──────────────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+RUN apk add --no-cache libc6-compat openssl
+
+WORKDIR /build
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# 1) Install pinned dependencies first (cached layer)
+COPY cloud/package.json cloud/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+# 2) Copy the app source, generate the Prisma client, build
+COPY cloud/ ./
+RUN npx prisma generate && npm run build
+
+# ── Stage 2: slim runtime ───────────────────────────────────────────
+FROM node:22-alpine AS runner
+
+# openssl/libc6-compat for Prisma engines; global prisma CLI so the
+# entrypoint can sync the SQLite schema on every boot (idempotent)
+RUN apk add --no-cache openssl libc6-compat \
+ && npm install -g prisma@6.19.2 --no-audit --no-fund
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=5000 \
+    HOSTNAME=0.0.0.0 \
+    DATABASE_URL=file:/app/data/prod.db \
+    GOOGLE_CLIENT_IDS=250359861566-clo6fnhv3nunfjpchs1hfulj96jp72kv.apps.googleusercontent.com \
+    APP_SHA256=A9E2C70C583657EDBAA0E9CCEFA73D1BBACC112A452669175C85E2C415E9EF74
 
-# Copy requirements first (for better caching)
-COPY requirements.txt .
+COPY --from=builder /build/.next/standalone ./
+COPY --from=builder /build/.next/static ./.next/static
+COPY --from=builder /build/public ./public
+COPY --from=builder /build/prisma ./prisma
+COPY cloud/docker-entrypoint.sh ./entrypoint.sh
 
-# Install Python dependencies
-# Use --no-deps for binance-futures-connector to avoid its old requests pin
-RUN pip install --no-cache-dir \
-    "Flask>=3.0.3,<4.0" \
-    "Flask-SocketIO>=5.3.6,<6.0" \
-    "gunicorn>=21.2.0" \
-    "python-engineio>=4.9.1,<5.0" \
-    "python-socketio>=5.11.4,<6.0" \
-    "simple-websocket>=1.0.0,<2.0" \
-    "requests>=2.25.1" \
-    "python-binance>=1.0.19" \
-    "pandas>=2.0.0" \
-    "numpy>=1.24.0" \
-    "pyarrow>=15.0.0" \
-    "python-dotenv>=1.0.1" \
-    "cryptography>=41.0.0" \
-    && pip install --no-cache-dir --no-deps "binance-futures-connector>=1.5.0"
+RUN chmod +x ./entrypoint.sh && mkdir -p /app/data
 
-# Copy application code
-COPY . .
+# Mount a Coolify persistent volume on /app/data to survive redeploys
+VOLUME /app/data
 
-# Create necessary directories
-RUN mkdir -p logs user_configs bot-engine/logs
-
-# Expose port
 EXPOSE 5000
 
-# Set environment variables
-ENV PORT=5000
-ENV HOST=0.0.0.0
-ENV PYTHONUNBUFFERED=1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+  CMD wget -qO- "http://127.0.0.1:${PORT:-5000}/api/health" >/dev/null 2>&1 || exit 1
 
-# Run the application with production WSGI server (threaded for Socket.IO stickiness)
-CMD ["gunicorn", "-w", "1", "--threads", "16", "--worker-class", "gthread", "--worker-connections", "1000", "--timeout", "120", "-b", "0.0.0.0:5000", "app:app"]
+ENTRYPOINT ["./entrypoint.sh"]

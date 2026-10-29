@@ -1,5 +1,18 @@
 # TradeBot Cloud SaaS
 
+## 🚀 Deployment (Coolify — updated)
+
+**Root `Dockerfile` ab Weexionic Cloud dashboard build karta hai** (`cloud/` — Next.js, port **5000**).
+Coolify me sirf **Redeploy** dabao — bas. Google Client ID, APK fingerprint aur database path sab
+image ke andar pre-configured hain.
+
+- Purana Flask bot: `Dockerfile.flaskbot` (rollback ke liye preserved — Coolify me Dockerfile location
+  `/Dockerfile.flaskbot` set kar ke wapas deploy ho sakta hai)
+- Database: `/app/data/prod.db` — Coolify app → **Storage → + Add Volume → path `/app/data`**
+  (ek dafa kar lo ta-ke redeploy par users ka data na ude)
+- Health check: `/api/health` (Coolify me green dikhega)
+
+
 ## 🎯 Kya Hai Yeh?
 
 Yeh **CLOUD SaaS** hai — tumhare **SERVER** pe chalega. Users apne PC pe kuch nahi rakhte. Sirf browser khol ke login karte hain, aur unka bot 24/7 tumhare server pe chalta hai.
