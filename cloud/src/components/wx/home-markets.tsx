@@ -290,4 +290,3 @@ export function MiniStat({ label, value, color = "#EDEFF5", sub }: { label: stri
 export const TrendIcon = ({ up, className }: { up: boolean; className?: string }) =>
   up ? <ArrowUpRight className={className} style={{ color: GREEN }} /> : <ArrowDownRight className={className} style={{ color: RED }} />;
 
-export { LineChart };

@@ -19,13 +19,18 @@ mkdir -p db
 if [ ! -f .env ]; then
   cat > .env <<EOF
 DATABASE_URL=file:$ROOT/db/weexionic.db
-# Google login (GOOGLE-SETUP.md dekhein) — client ID milne par # hata do:
-# GOOGLE_CLIENT_IDS=your-web-client-id.apps.googleusercontent.com
+# Google login — client ID pre-configured (TradeBot Cloud project):
+GOOGLE_CLIENT_IDS=250359861566-clo6fnhv3nunfjpchs1hfulj96jp72kv.apps.googleusercontent.com
 # Android App Links verification:
 APP_SHA256=A9E2C70C583657EDBAA0E9CCEFA73D1BBACC112A452669175C85E2C415E9EF74
 EOF
-  echo "✔ .env ban gayi (DB path auto-set)"
+  echo "✔ .env ban gayi (DB path + Google client ID auto-set)"
 else
+  # Google client ID agar missing ho to inject kar do (purani .env support)
+  if ! grep -q "^GOOGLE_CLIENT_IDS=" .env 2>/dev/null; then
+    echo "GOOGLE_CLIENT_IDS=250359861566-clo6fnhv3nunfjpchs1hfulj96jp72kv.apps.googleusercontent.com" >> .env
+    echo "✔ .env mein GOOGLE_CLIENT_IDS add kar diya"
+  fi
   echo "• .env pehle se hai — as-is use kar raha hoon"
 fi
 
