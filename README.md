@@ -197,3 +197,31 @@ nohup cloudflared tunnel --url http://localhost:5000 > tunnel.log 2>&1 &
 **Made with ❤️ — Cloud SaaS for trading bot.**
 
 Strategy UNCHANGED: EMA 8,13,21,55 + 1:3 RR + fresh cross only.
+
+---
+
+# 🆕 WEEXIONIC CLOUD DASHBOARD (`cloud/` folder)
+
+Naya dashboard — accounts (email + **Google login/signup**), **referral system** (`/r/CODE`
+links + inviter ko $10 auto-credit), wallet, API keys, engine controls.
+Android app v5.1 isi se baat karta hai (register endpoint + Google auth + deep links).
+
+## VPS par deploy (purana Flask bot tab tak chalta rahega jab tak aap khud switch na karo)
+
+```bash
+cd ~/bot
+git pull
+cd cloud
+bash deploy.sh
+```
+
+Phir nginx/Caddy ko `weexionic.duckdns.org` → `127.0.0.1:3000` point karao
+(detail: `cloud/DEPLOY-GUIDE.md`) aur verify karo:
+
+```bash
+curl http://localhost:3000/api/health
+# {"ok":true,"name":"weexionic-cloud","api":2}
+```
+
+Google login on karne ke liye: `cloud/GOOGLE-SETUP.md` (10 min, free).
+Purana Flask bot ka code root mein waise hi mehfooz hai — kuch delete nahi hua.
