@@ -5,6 +5,7 @@ import '../core/bot_provider.dart';
 import '../core/theme.dart';
 import '../models/position.dart';
 import '../widgets/status_chip.dart';
+import '../widgets/premium.dart';
 import '../widgets/common.dart';
 
 class PositionsScreen extends StatelessWidget {
@@ -19,7 +20,7 @@ class PositionsScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            _buildAppBar(context),
+            _buildAppBar(context, p),
             _buildPairSelector(context, p),
             Expanded(
               child: RefreshIndicator(
@@ -43,7 +44,7 @@ class PositionsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAppBar(BuildContext context) {
+  Widget _buildAppBar(BuildContext context, BotProvider p) {
     return Container(
       height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -58,9 +59,34 @@ class PositionsScreen extends StatelessWidget {
           const Expanded(
             child: Text('Open Positions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 22),
-            onPressed: () => context.read<BotProvider>().fetchPositions(),
+          // Live indicator (no manual refresh — auto-polls every 5s)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: p.socketConnected
+                  ? WeexionicTheme.green.withOpacity(0.12)
+                  : WeexionicTheme.brandGold.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PulsingGlowDot(
+                  color: p.socketConnected ? WeexionicTheme.green : WeexionicTheme.brandGold,
+                  size: 5,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  p.socketConnected ? 'LIVE' : 'AUTO',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: p.socketConnected ? WeexionicTheme.green : WeexionicTheme.brandGold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -351,15 +377,6 @@ class _ActionButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(
-          child: _Btn(
-            label: 'Refresh',
-            icon: Icons.refresh,
-            primary: false,
-            onPressed: () => p.fetchPositions(),
-          ),
-        ),
-        const SizedBox(width: 8),
         Expanded(
           child: _Btn(
             label: 'Close ${p.activeSymbol.substring(0, 3)}',

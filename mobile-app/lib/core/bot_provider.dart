@@ -40,6 +40,12 @@ class BotProvider extends ChangeNotifier {
   // Per-symbol chart data cache for multi-coin view
   final Map<String, ChartData> _chartCache = {};
 
+  // Auto-polling timer — fallback when Socket.IO is not connected
+  // Polls every 5s when socket down, 30s when socket up
+  Timer? _pollTimer;
+  Timer? _chartPollTimer;
+  DateTime? _lastPollTime;
+
   // Getters
   BotConfig get config => _config;
   BotStatus get status => _status;
@@ -92,6 +98,8 @@ class BotProvider extends ChangeNotifier {
 
   /// Called on logout — disconnect socket, clear state
   Future<void> stop() async {
+    _pollTimer?.cancel();
+    _chartPollTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -118,8 +126,13 @@ class BotProvider extends ChangeNotifier {
       _socketConnected = connected;
       notifyListeners();
       if (connected) {
+        // Socket up — slow down polling (only as backup)
+        _restartPolling(intervalSeconds: 30);
         // On connect, fetch initial state
         refreshAll();
+      } else {
+        // Socket down — speed up polling for real-time feel
+        _restartPolling(intervalSeconds: 5);
       }
     }));
 
@@ -183,6 +196,100 @@ class BotProvider extends ChangeNotifier {
 
     // Initial fetch
     refreshAll();
+
+    // Start auto-polling (5s initially since socket not yet connected)
+    _restartPolling(intervalSeconds: 5);
+
+    // Start chart polling for active symbol (fetches from /api/test_chart)
+    _startChartPolling();
+  }
+
+  /// Restart polling with new interval
+  void _restartPolling({required int intervalSeconds}) {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(Duration(seconds: intervalSeconds), (_) {
+      _pollLoop();
+    });
+  }
+
+  /// Polling loop — fetches status, positions, balance, trades
+  /// Called automatically every 5s (socket down) or 30s (socket up)
+  void _pollLoop() {
+    if (_loading) return;  // skip if a manual refresh is in progress
+    _lastPollTime = DateTime.now();
+    // Fetch in parallel — don't block UI
+    fetchStatus();
+    fetchPositions();
+    fetchBalance();
+    // Trades less frequently (only if socket hasn't updated them)
+    if (_trades.isEmpty || !_socketConnected) {
+      fetchTrades();
+    }
+  }
+
+  /// Start chart polling — fetches candlestick data for active symbol via REST
+  /// Used as fallback when Socket.IO chart_data events aren't arriving
+  void _startChartPolling() {
+    _chartPollTimer?.cancel();
+    _chartPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _fetchChartForSymbol(_activeSymbol);
+    });
+  }
+
+  /// Fetch chart data for a symbol via REST (/api/test_chart)
+  /// Used as fallback when socket chart_data isn't working
+  Future<void> _fetchChartForSymbol(String symbol) async {
+    if (symbol.isEmpty) return;
+    try {
+      final r = await _api.getTestChart(symbol);
+      final candles = r['candles'];
+      if (candles is List && candles.isNotEmpty) {
+        // Build ChartData from REST response
+        final candleList = candles
+            .map((e) => Candle.fromJson(e as Map<String, dynamic>))
+            .toList();
+        // Calculate EMAs from candle closes (simple SMA fallback if not in response)
+        final cd = ChartData(
+          symbol: symbol,
+          candles: candleList,
+          ema8: _calcEma(candleList, 8),
+          ema13: _calcEma(candleList, 13),
+          ema21: _calcEma(candleList, 21),
+          ema55: _calcEma(candleList, 55),
+        );
+        _chartCache[symbol] = cd;
+        if (symbol == _activeSymbol) {
+          _chart = cd;
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      debugPrint('chart fetch error for $symbol: $e');
+    }
+  }
+
+  /// Calculate EMA series from candle list
+  EmaSeries _calcEma(List<Candle> candles, int period) {
+    if (candles.length < period) return const EmaSeries([]);
+    final points = <EmaPoint>[];
+    double multiplier = 2 / (period + 1);
+    double? ema;
+    for (var i = 0; i < candles.length; i++) {
+      final close = candles[i].close;
+      if (i < period - 1) continue;
+      if (ema == null) {
+        // SMA for first EMA value
+        double sum = 0;
+        for (var j = i - period + 1; j <= i; j++) {
+          sum += candles[j].close;
+        }
+        ema = sum / period;
+      } else {
+        ema = (close - ema) * multiplier + ema;
+      }
+      points.add(EmaPoint(time: candles[i].time, value: ema));
+    }
+    return EmaSeries(points);
   }
 
   // === Actions ===
@@ -361,6 +468,8 @@ class BotProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _api.setActiveSymbol(symbol);
+      // Immediately fetch chart for new symbol (don't wait for next poll)
+      _fetchChartForSymbol(symbol);
     } catch (e) {
       debugPrint('setActiveSymbol error: $e');
     }
@@ -413,6 +522,8 @@ class BotProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
+    _chartPollTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
