@@ -71,6 +71,31 @@ class BotProvider extends ChangeNotifier {
   /// Per-symbol chart cache for multi-coin view
   ChartData? getChartFor(String symbol) => _chartCache[symbol];
 
+  /// Get mark price for a symbol — falls back to chart cache if position.markPrice is 0
+  /// This ensures prices always show even when bot returns 0 for FLAT positions
+  double getMarkPriceFor(String symbol) {
+    // 1. Try position mark_price
+    final pos = _positions[symbol];
+    if (pos != null && pos.markPrice > 0) return pos.markPrice;
+    // 2. Try chart cache (last candle close)
+    final cd = _chartCache[symbol];
+    if (cd != null && cd.candles.isNotEmpty) {
+      return cd.candles.last.close;
+    }
+    // 3. Try indicators
+    if (_indicators.symbol == symbol && _indicators.markPrice > 0) {
+      return _indicators.markPrice;
+    }
+    return 0;
+  }
+
+  /// Get leverage for a symbol — falls back to config when position is FLAT
+  int getLeverageFor(String symbol) {
+    final pos = _positions[symbol];
+    if (pos != null && !pos.isFlat) return pos.leverage;
+    return _config.leverage;
+  }
+
   Position get activePosition => _positions[_activeSymbol] ?? Position.empty;
 
   List<BotLog> filteredLogs({LogLevel? level, String? symbol}) {
@@ -227,12 +252,23 @@ class BotProvider extends ChangeNotifier {
     }
   }
 
-  /// Start chart polling — fetches candlestick data for active symbol via REST
-  /// Used as fallback when Socket.IO chart_data events aren't arriving
+  /// Start chart polling — fetches candlestick data for ALL monitored symbols via REST
+  /// Active symbol polled every 15s, all others every 60s
   void _startChartPolling() {
     _chartPollTimer?.cancel();
+    int tick = 0;
     _chartPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      // Active symbol — fetch every tick (15s)
       _fetchChartForSymbol(_activeSymbol);
+      // All monitored coins — fetch every 4th tick (60s)
+      tick++;
+      if (tick % 4 == 0) {
+        for (final sym in _config.symbolsList) {
+          if (sym != _activeSymbol && sym.isNotEmpty) {
+            _fetchChartForSymbol(sym);
+          }
+        }
+      }
     });
   }
 

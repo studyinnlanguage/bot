@@ -431,25 +431,25 @@ class _AnimatedEmptyTerminalState extends State<_AnimatedEmptyTerminal>
                   size: 28,
                   color: widget.connected
                       ? WeexionicTheme.green
-                      : WeexionicTheme.textFaint,
+                      : WeexionicTheme.textMuted,
                 ),
               );
             },
           ),
           const SizedBox(height: 16),
           Text(
-            widget.connected ? "Waiting for logs..." : "Socket disconnected",
+            widget.connected ? "Waiting for logs..." : "Live stream offline",
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: widget.connected ? WeexionicTheme.textPrimary : WeexionicTheme.red,
+              color: widget.connected ? WeexionicTheme.textPrimary : WeexionicTheme.textMuted,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             widget.connected
                 ? "Tap START on the home screen to begin streaming bot activity."
-                : "Check your internet connection. Reconnecting automatically...",
+                : "Bot data is still updating via auto-polling.\nLive logs require socket connection — reconnecting...",
             style: const TextStyle(fontSize: 11, color: WeexionicTheme.textMuted, height: 1.5),
             textAlign: TextAlign.center,
           ),
