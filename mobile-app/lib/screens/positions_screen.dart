@@ -129,7 +129,7 @@ class PositionsScreen extends StatelessWidget {
             children: [
               const Text('Mark Price', style: TextStyle(fontSize: 11, color: WeexionicTheme.textMuted)),
               Text(
-                '\$${_fmt(p.activePosition.markPrice)}',
+                '\$${_fmt(p.getMarkPriceFor(p.activeSymbol))}',
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, fontFamily: 'RobotoMono'),
               ),
             ],
@@ -176,6 +176,17 @@ class PositionsScreen extends StatelessWidget {
     if (v >= 1000) return v.toStringAsFixed(2);
     if (v >= 1) return v.toStringAsFixed(2);
     return v.toStringAsFixed(4);
+  }
+
+  String _fmtMarkPrice(double v) {
+    return _fmtMarkPriceStatic(v);
+  }
+
+  static String _fmtMarkPriceStatic(double v) {
+    if (v == 0) return '—';
+    if (v >= 1000) return '\$${v.toStringAsFixed(2)}';
+    if (v >= 1) return '\$${v.toStringAsFixed(2)}';
+    return '\$${v.toStringAsFixed(4)}';
   }
 }
 
@@ -234,7 +245,7 @@ class _PositionCard extends StatelessWidget {
                   border: Border.all(color: WeexionicTheme.brandGold.withOpacity(0.3)),
                 ),
                 child: Text(
-                  '${pos.leverage}X LEVERAGE',
+                  '${p.getLeverageFor(p.activeSymbol)}X LEVERAGE',
                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: WeexionicTheme.brandGold),
                 ),
               ),
@@ -281,7 +292,11 @@ class _PositionCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _GridItem(label: 'MARK PRICE', value: pos.markPrice > 0 ? '\$${pos.markPrice.toStringAsFixed(2)}' : '—')),
+              Expanded(child: _GridItem(
+                label: 'MARK PRICE',
+                value: PositionsScreen._fmtMarkPriceStatic(p.getMarkPriceFor(p.activeSymbol)),
+                valueColor: WeexionicTheme.textPrimary,
+              )),
               const SizedBox(width: 14),
               Expanded(child: _GridItem(label: 'LIQ. PRICE', value: '—', muted: true)),
             ],
@@ -291,7 +306,11 @@ class _PositionCard extends StatelessWidget {
             children: [
               Expanded(child: _GridItem(label: 'MARGIN', value: '—', muted: true)),
               const SizedBox(width: 14),
-              Expanded(child: _GridItem(label: 'CONFIG. LEVERAGE', value: '${pos.leverage}x', valueColor: WeexionicTheme.brandGold)),
+              Expanded(child: _GridItem(
+                label: 'CONFIG. LEVERAGE',
+                value: '${p.getLeverageFor(p.activeSymbol)}x',
+                valueColor: WeexionicTheme.brandGold,
+              )),
             ],
           ),
           const SizedBox(height: 14),
@@ -546,7 +565,7 @@ class _MonitorTable extends StatelessWidget {
           // Rows
           ...symbols.map((s) {
             final pos = p.positions[s];
-            return _MonitorRow(symbol: s, position: pos);
+            return _MonitorRow(symbol: s, position: pos, markPrice: p.getMarkPriceFor(s));
           }),
         ],
       ),
@@ -557,12 +576,12 @@ class _MonitorTable extends StatelessWidget {
 class _MonitorRow extends StatelessWidget {
   final String symbol;
   final Position? position;
-  const _MonitorRow({required this.symbol, required this.position});
+  final double markPrice;
+  const _MonitorRow({required this.symbol, required this.position, required this.markPrice});
 
   @override
   Widget build(BuildContext context) {
     final isFlat = position == null || position!.isFlat;
-    final markPrice = position?.markPrice ?? 0;
     final code = symbol.replaceAll('USDT', '').replaceAll('SUSDT', '');
 
     return InkWell(
