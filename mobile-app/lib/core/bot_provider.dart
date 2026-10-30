@@ -227,6 +227,18 @@ class BotProvider extends ChangeNotifier {
 
     // Start chart polling for active symbol (fetches from /api/test_chart)
     _startChartPolling();
+
+    // Immediately fetch charts for ALL monitored coins (don't wait for first poll)
+    _fetchAllCharts();
+  }
+
+  /// Fetch charts for all monitored coins immediately (called on startup)
+  Future<void> _fetchAllCharts() async {
+    for (final sym in _config.symbolsList) {
+      if (sym.isNotEmpty) {
+        _fetchChartForSymbol(sym);
+      }
+    }
   }
 
   /// Restart polling with new interval

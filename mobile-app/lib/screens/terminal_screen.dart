@@ -6,6 +6,7 @@ import '../core/bot_provider.dart';
 import '../core/config.dart';
 import '../core/theme.dart';
 import '../models/bot_log.dart';
+import '../models/trade.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/common.dart';
 
@@ -87,12 +88,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 const Text('Live Terminal', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 Row(
                   children: [
-                    StatusChip.live(),
-                    const SizedBox(width: 8),
                     if (p.socketConnected)
-                      const Text('● Connected', style: TextStyle(fontSize: 10, color: WeexionicTheme.green))
+                      const Text('● LIVE', style: TextStyle(fontSize: 10, color: WeexionicTheme.green, fontWeight: FontWeight.w700))
                     else
-                      const Text('● Disconnected', style: TextStyle(fontSize: 10, color: WeexionicTheme.red)),
+                      const Text('● POLLING', style: TextStyle(fontSize: 10, color: WeexionicTheme.brandGold, fontWeight: FontWeight.w700)),
                   ],
                 ),
               ],
@@ -170,7 +169,29 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   Widget _buildTerminal(List<BotLog> logs, BotProvider p) {
-    if (logs.isEmpty) {
+    // If we have socket logs, show them
+    if (logs.isNotEmpty) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 14),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF06080C),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: WeexionicTheme.border),
+        ),
+        child: ListView.builder(
+          controller: _scrollCtrl,
+          itemCount: logs.length,
+          itemBuilder: (_, i) {
+            final log = logs[i];
+            return _LogLine(log: log);
+          },
+        ),
+      );
+    }
+
+    // No socket logs — show recent trade activity as fallback (from REST polling)
+    if (p.trades.isNotEmpty) {
       return Container(
         margin: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -178,26 +199,19 @@ class _TerminalScreenState extends State<TerminalScreen> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: WeexionicTheme.border),
         ),
-        child: _AnimatedEmptyTerminal(connected: p.socketConnected),
+        child: _RecentActivityView(trades: p.trades),
       );
     }
 
+    // No logs AND no trades — show empty state
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFF06080C),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: WeexionicTheme.border),
       ),
-      child: ListView.builder(
-        controller: _scrollCtrl,
-        itemCount: logs.length,
-        itemBuilder: (_, i) {
-          final log = logs[i];
-          return _LogLine(log: log);
-        },
-      ),
+      child: _AnimatedEmptyTerminal(connected: p.socketConnected),
     );
   }
 
@@ -486,3 +500,172 @@ class _AnimatedEmptyTerminalState extends State<_AnimatedEmptyTerminal>
   }
 }
 
+
+/// Recent activity view — shown in Terminal when socket is down
+/// Displays recent trades (opened/closed) from REST polling
+class _RecentActivityView extends StatelessWidget {
+  final List<Trade> trades;
+  const _RecentActivityView({required this.trades});
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = List<Trade>.from(trades)
+      ..sort((a, b) => b.openedTs.compareTo(a.openedTs));
+    final recent = sorted.take(50).toList();
+
+    return Column(
+      children: [
+        // Header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: WeexionicTheme.border)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.history, size: 14, color: WeexionicTheme.brandGold),
+              const SizedBox(width: 6),
+              const Text(
+                'RECENT ACTIVITY',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: WeexionicTheme.brandGold,
+                  letterSpacing: 1,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${trades.length} trades',
+                style: const TextStyle(fontSize: 9, color: WeexionicTheme.textMuted),
+              ),
+            ],
+          ),
+        ),
+        // Trade list
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(8),
+            itemCount: recent.length,
+            itemBuilder: (_, i) {
+              final t = recent[i];
+              return _TradeActivityRow(trade: t);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TradeActivityRow extends StatelessWidget {
+  final Trade trade;
+  const _TradeActivityRow({required this.trade});
+
+  @override
+  Widget build(BuildContext context) {
+    final isOpen = trade.isOpen;
+    final isLong = trade.isLong;
+    final isWin = trade.pnl > 0;
+    final dirColor = isLong ? WeexionicTheme.green : WeexionicTheme.red;
+    final pnlColor = trade.isClosed
+        ? (isWin ? WeexionicTheme.green : WeexionicTheme.red)
+        : WeexionicTheme.brandGold;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Time
+          Text(
+            trade.openedTimeStr,
+            style: const TextStyle(
+              color: WeexionicTheme.textFaint,
+              fontSize: 10,
+              fontFamily: 'RobotoMono',
+            ),
+          ),
+          const SizedBox(width: 6),
+          // Direction tag
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: dirColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: Text(
+              isLong ? 'LONG' : 'SHORT',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: dirColor,
+                fontFamily: 'RobotoMono',
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          // Symbol
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  trade.symbol,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: WeexionicTheme.textSecondary,
+                  ),
+                ),
+                Text(
+                  isOpen
+                      ? 'OPEN @ \$${_fmt(trade.entryPrice)} · ${trade.leverage}x'
+                      : '${trade.closeReason ?? "Closed"} @ \$${trade.exitPrice != null ? _fmt(trade.exitPrice!) : "?"}',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    color: WeexionicTheme.textFaint,
+                    fontFamily: 'RobotoMono',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // PnL
+          if (trade.isClosed)
+            Text(
+              '${trade.pnl >= 0 ? "+" : ""}\$${trade.pnl.toStringAsFixed(2)}',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: pnlColor,
+                fontFamily: 'RobotoMono',
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: WeexionicTheme.brandGold.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: const Text(
+                'OPEN',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: WeexionicTheme.brandGold,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _fmt(double v) {
+    if (v >= 1000) return v.toStringAsFixed(1);
+    if (v >= 1) return v.toStringAsFixed(2);
+    return v.toStringAsFixed(4);
+  }
+}
