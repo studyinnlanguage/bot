@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash background — solid dark charcoal (matches WEEXIONIC bgBase #0A0E14) -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black"/>
+    <item>
+        <color android:color="#0A0E14"/>
+    </item>
+</layer-list>

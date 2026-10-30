@@ -1,0 +1,3 @@
+{
+    "info": "This is a minimal Flutter project scaffold. To get the full Android/iOS native files (build.gradle, Info.plist, etc.), run `flutter create .` in this directory — it will generate the missing native project files without overwriting your lib/ source code."
+}
