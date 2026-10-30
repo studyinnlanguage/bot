@@ -106,7 +106,7 @@ class CandlestickChart extends StatelessWidget {
                 horizontalLines: [
                   HorizontalLine(
                     y: candles.last.close,
-                    color: WeexionicTheme.brandGold.withValues(alpha: 0.5),
+                    color: WeexionicTheme.brandGold.withOpacity(0.5),
                     strokeWidth: 0.5,
                     dashArray: [3, 3],
                     label: HorizontalLineLabel(
@@ -153,7 +153,7 @@ class CandlestickChart extends StatelessWidget {
           .map((e) => FlSpot(e.key.toDouble(), e.value.value))
           .toList(),
       isCurved: true,
-      color: color.withValues(alpha: 0.85),
+      color: color.withOpacity(0.85),
       barWidth: width,
       isStrokeCapRound: true,
       dotData: const FlDotData(show: false),

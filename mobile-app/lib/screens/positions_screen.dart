@@ -185,7 +185,7 @@ class _PositionCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: WeexionicTheme.textMuted.withValues(alpha: 0.15),
+                  color: WeexionicTheme.textMuted.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
@@ -203,9 +203,9 @@ class _PositionCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: WeexionicTheme.brandGold.withValues(alpha: 0.15),
+                  color: WeexionicTheme.brandGold.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: WeexionicTheme.brandGold.withValues(alpha: 0.3)),
+                  border: Border.all(color: WeexionicTheme.brandGold.withOpacity(0.3)),
                 ),
                 child: Text(
                   '${pos.leverage}X LEVERAGE',
@@ -421,7 +421,7 @@ class _Btn extends StatelessWidget {
     if (primary) {
       final c = color ?? WeexionicTheme.brandGold;
       return Material(
-        color: disabled ? c.withValues(alpha: 0.3) : c,
+        color: disabled ? c.withOpacity(0.3) : c,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           onTap: onPressed,
@@ -500,7 +500,7 @@ class _MonitorTable extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: WeexionicTheme.blue.withValues(alpha: 0.12),
+                    color: WeexionicTheme.blue.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
@@ -576,8 +576,8 @@ class _MonitorRow extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: isFlat
-                      ? WeexionicTheme.textMuted.withValues(alpha: 0.15)
-                      : (position!.isLong ? WeexionicTheme.green.withValues(alpha: 0.12) : WeexionicTheme.red.withValues(alpha: 0.12)),
+                      ? WeexionicTheme.textMuted.withOpacity(0.15)
+                      : (position!.isLong ? WeexionicTheme.green.withOpacity(0.12) : WeexionicTheme.red.withOpacity(0.12)),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(

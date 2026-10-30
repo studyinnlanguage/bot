@@ -543,9 +543,9 @@ class _TestButtons extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 9),
             decoration: BoxDecoration(
-              color: WeexionicTheme.green.withValues(alpha: 0.15),
+              color: WeexionicTheme.green.withOpacity(0.15),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: WeexionicTheme.green.withValues(alpha: 0.3)),
+              border: Border.all(color: WeexionicTheme.green.withOpacity(0.3)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,

@@ -79,7 +79,7 @@ class CompactStat extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
-        color: WeexionicTheme.bgSurface.withValues(alpha: 0.5),
+        color: WeexionicTheme.bgSurface.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(

@@ -108,7 +108,7 @@ class WeexionicFab extends StatelessWidget {
         gradient: WeexionicTheme.brandGradient,
         boxShadow: [
           BoxShadow(
-            color: WeexionicTheme.brandGold.withValues(alpha: 0.4),
+            color: WeexionicTheme.brandGold.withOpacity(0.4),
             blurRadius: 20,
             offset: const Offset(0, 6),
           ),

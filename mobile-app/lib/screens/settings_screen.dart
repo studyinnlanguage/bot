@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/auth_provider.dart';
 import '../core/bot_provider.dart';
 import '../core/theme.dart';
 import '../models/bot_config.dart';
 import '../widgets/common.dart';
+import 'alerts_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -60,6 +62,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
                 children: [
+                  // Account info card
+                  _AccountCard(),
+                  const SizedBox(height: 12),
                   // Alerts shortcut
                   _AlertsShortcut(),
                   const SizedBox(height: 12),
@@ -114,6 +119,151 @@ class _SettingsScreenState extends State<SettingsScreen> {
           IconButton(
             icon: const Icon(Icons.save, color: WeexionicTheme.brandGold, size: 22),
             onPressed: _save,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Account info card — shows user email, plan, days left, logout button
+class _AccountCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    if (user == null) return const SizedBox.shrink();
+    final sub = user.subscription;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: WeexionicTheme.border),
+        gradient: WeexionicTheme.brandGradientSoft,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44, height: 44,
+                decoration: const BoxDecoration(
+                  gradient: WeexionicTheme.brandGradient,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    (user.name.isNotEmpty ? user.name[0] : '?').toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: WeexionicTheme.bgBase,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.name,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      user.email,
+                      style: const TextStyle(fontSize: 11, color: WeexionicTheme.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+              if (user.isAdmin)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: WeexionicTheme.brandGold.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'ADMIN',
+                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: WeexionicTheme.brandGold),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: WeexionicTheme.bgBase.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('PLAN', style: TextStyle(fontSize: 9, color: WeexionicTheme.textMuted, letterSpacing: 0.5)),
+                    const SizedBox(height: 2),
+                    Text(
+                      sub.displayPlan,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: WeexionicTheme.brandGold),
+                    ),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text('REMAINING', style: TextStyle(fontSize: 9, color: WeexionicTheme.textMuted, letterSpacing: 0.5)),
+                    const SizedBox(height: 2),
+                    Text(
+                      sub.displayDaysLeft,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: sub.isLifetime
+                            ? WeexionicTheme.brandGold
+                            : (sub.daysLeft < 7 ? WeexionicTheme.red : WeexionicTheme.green),
+                      ),
+                    ),
+                  ],
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        backgroundColor: WeexionicTheme.bgSurface,
+                        title: const Text('Sign Out?'),
+                        content: const Text('You\'ll need to sign in again to access the bot.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: WeexionicTheme.red),
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Sign Out'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) {
+                      await context.read<BotProvider>().stop();
+                      await auth.logout();
+                    }
+                  },
+                  icon: const Icon(Icons.logout, size: 14, color: WeexionicTheme.red),
+                  label: const Text('Sign Out', style: TextStyle(fontSize: 11, color: WeexionicTheme.red, fontWeight: FontWeight.w600)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -308,7 +458,7 @@ class _ExchangeCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
           decoration: BoxDecoration(
-            color: active ? WeexionicTheme.brandGold.withValues(alpha: 0.12) : WeexionicTheme.bgElevated,
+            color: active ? WeexionicTheme.brandGold.withOpacity(0.12) : WeexionicTheme.bgElevated,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: active ? WeexionicTheme.brandGold : WeexionicTheme.border),
           ),
@@ -377,7 +527,7 @@ class _CoinsSection extends StatelessWidget {
               trailing: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: WeexionicTheme.brandGold.withValues(alpha: 0.15),
+                  color: WeexionicTheme.brandGold.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -527,7 +677,7 @@ class _StrategySection extends StatelessWidget {
                           t.$2,
                           style: TextStyle(
                             fontSize: 8,
-                            color: active ? WeexionicTheme.bgBase.withValues(alpha: 0.7) : WeexionicTheme.textMuted,
+                            color: active ? WeexionicTheme.bgBase.withOpacity(0.7) : WeexionicTheme.textMuted,
                           ),
                         ),
                       ],
@@ -545,7 +695,7 @@ class _StrategySection extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: WeexionicTheme.brandGradientSoft,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: WeexionicTheme.brandGold.withValues(alpha: 0.3)),
+                border: Border.all(color: WeexionicTheme.brandGold.withOpacity(0.3)),
               ),
               child: Column(
                 children: [

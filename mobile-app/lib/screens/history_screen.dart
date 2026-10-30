@@ -285,7 +285,7 @@ class _TradeRow extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: trade.isLong ? WeexionicTheme.green.withValues(alpha: 0.12) : WeexionicTheme.red.withValues(alpha: 0.12),
+                color: trade.isLong ? WeexionicTheme.green.withOpacity(0.12) : WeexionicTheme.red.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(

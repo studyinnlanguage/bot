@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/bot_provider.dart';
+import '../core/config.dart';
 import '../core/theme.dart';
 import '../models/bot_log.dart';
 import '../widgets/status_chip.dart';
@@ -26,7 +27,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _prov ??= context.read<BotProvider>();
-    _logSub ??= _prov!.logs.listen((_) {
+    _logSub ??= _prov!.logStream.listen((_) {
       if (_autoScroll && _scrollCtrl.hasClients) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _scrollCtrl.animateTo(
@@ -155,7 +156,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                       '${t.$3}',
                       style: TextStyle(
                         fontSize: 10,
-                        color: active ? WeexionicTheme.bgBase.withValues(alpha: 0.7) : WeexionicTheme.textFaint,
+                        color: active ? WeexionicTheme.bgBase.withOpacity(0.7) : WeexionicTheme.textFaint,
                       ),
                     ),
                   ],
@@ -299,6 +300,7 @@ class _LogLine extends StatelessWidget {
       case LogLevel.warn:
         return (WeexionicTheme.brandGold, '⚠');
       case LogLevel.info:
+      default:
         return (WeexionicTheme.textSecondary, 'ℹ');
     }
   }

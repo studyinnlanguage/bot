@@ -113,7 +113,7 @@ class _BalanceHero extends StatelessWidget {
         border: Border.all(color: WeexionicTheme.border),
         boxShadow: [
           BoxShadow(
-            color: WeexionicTheme.brandGold.withValues(alpha: 0.08),
+            color: WeexionicTheme.brandGold.withOpacity(0.08),
             blurRadius: 30,
             spreadRadius: -10,
             offset: const Offset(0, 4),
@@ -257,7 +257,7 @@ class _ActionBtn extends StatelessWidget {
   Widget build(BuildContext context) {
     final disabled = onPressed == null;
     return Material(
-      color: disabled ? color.withValues(alpha: 0.3) : color,
+      color: disabled ? color.withOpacity(0.3) : color,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onPressed,
@@ -379,9 +379,9 @@ class _TimeframeRow extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 2),
             padding: const EdgeInsets.symmetric(vertical: 6),
             decoration: BoxDecoration(
-              color: a ? WeexionicTheme.brandGold.withValues(alpha: 0.15) : Colors.transparent,
+              color: a ? WeexionicTheme.brandGold.withOpacity(0.15) : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
-              border: a ? Border.all(color: WeexionicTheme.brandGold.withValues(alpha: 0.3)) : null,
+              border: a ? Border.all(color: WeexionicTheme.brandGold.withOpacity(0.3)) : null,
             ),
             child: Text(
               tf,
@@ -449,9 +449,9 @@ class _PositionCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: WeexionicTheme.brandGold.withValues(alpha: 0.15),
+                    color: WeexionicTheme.brandGold.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: WeexionicTheme.brandGold.withValues(alpha: 0.3)),
+                    border: Border.all(color: WeexionicTheme.brandGold.withOpacity(0.3)),
                   ),
                   child: Text(
                     '${pos.leverage}X',
@@ -488,7 +488,7 @@ class _PositionCard extends StatelessWidget {
               trailing: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: WeexionicTheme.blue.withValues(alpha: 0.12),
+                  color: WeexionicTheme.blue.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -514,7 +514,7 @@ class _Badge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withOpacity(0.15),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
