@@ -23,6 +23,9 @@ export interface EngineSnapshot {
   history: ClosedTrade[];
   logs: LogEntry[];
   stats: { totalTrades: number; wins: number; losses: number; winRate: number; pnlToday: number; totalPnl: number };
+  /** REAL bot fields (from the Python engine / Flask SaaS) */
+  exchange?: string; testnet?: boolean; hasApiKey?: boolean;
+  licenseActive?: boolean; daysLeft?: number;
 }
 
 export interface WxUser {

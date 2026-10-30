@@ -186,19 +186,13 @@ export default function Page() {
     <>
       {tab === "home" && (
         <HomeTab user={user} engine={engine} keysCount={keys.length} goto={t => setTab(t as Tab)}
-          onStart={() => void engineAction({ action: "start" }, "Quad-Trend Engine started")}
-          onStop={() => void engineAction({ action: "stop" }, "Engine stopped")}
-          onReset={() => void engineAction({ action: "reset" }, "Demo account reset — $10,000 restored")} />
+          onStart={() => void engineAction({ action: "start" }, "Quad-Trend Engine started — real EMA 8/13/21/55")}
+          onStop={() => void engineAction({ action: "stop" }, "Engine stopped")} />
       )}
       {tab === "markets" && <MarketsTab market={market} onSelect={selectMarket} />}
       {tab === "bot" && (
         <BotTab engine={engine} market={market} symbol={symbol} setSymbol={setSymbol} busy={busy}
           onConfig={cfg => { void engineAction({ action: "config", config: cfg }); }}
-          onManual={async side => {
-            setBusy(side);
-            await engineAction({ action: "manual", symbol, side });
-            setBusy(null);
-          }}
           onClose={id => void engineAction({ action: "close", id })}
           onCloseAll={() => void engineAction({ action: "closeAll" }, "All positions closed")} />
       )}
@@ -206,7 +200,7 @@ export default function Page() {
       {tab === "profile" && (
         <ProfileTab user={user} keys={keys} network={{
           cluster: "WEEXIONIC CLOUD", host: "cloud.weexionic.app",
-          region: "auto-assigned on login", client: "Weexionic Web v5.2.0", engine: "Quad-Trend Engine (EMA 8/13/21/55)",
+          region: "auto-assigned on login", client: "Weexionic Web v5.3.0", engine: "Quad-Trend Engine (EMA 8/13/21/55)",
         }} onLogout={logout} onToast={notify} onAddKey={addKey} onDeleteKey={deleteKey} />
       )}
     </>

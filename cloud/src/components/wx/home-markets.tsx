@@ -31,12 +31,12 @@ interface HomeProps {
   keysCount: number;
   onStart: () => void; onStop: () => void;
   goto: (tab: string) => void;
-  onReset: () => void;
 }
 
-export function HomeTab({ user, engine, keysCount, onStart, onStop, goto, onReset }: HomeProps) {
+export function HomeTab({ user, engine, keysCount, onStart, onStop, goto }: HomeProps) {
   const equity = engine.equity;
   const pnlToday = engine.stats.pnlToday + engine.unrealized;
+  const licensed = engine.licenseActive;
 
   return (
     <div className="space-y-3.5 px-4 pb-6 pt-3">
@@ -52,7 +52,9 @@ export function HomeTab({ user, engine, keysCount, onStart, onStop, goto, onRese
           style={{ background: "radial-gradient(circle, rgba(245,197,24,0.5) 0%, transparent 70%)" }} />
         <div className="flex items-center justify-between">
           <span className="text-[9.5px] font-bold tracking-[0.14em]" style={{ color: YELLOW }}>TOTAL EQUITY · USDT</span>
-          <span className="rounded-md border border-white/[0.08] bg-black/30 px-1.5 py-0.5 font-mono text-[8.5px] text-[#8A93A6]">PAPER · DEMO</span>
+          <span className="rounded-md border border-white/[0.08] bg-black/30 px-1.5 py-0.5 font-mono text-[8.5px] text-[#8A93A6]">
+            {engine.testnet ? "TESTNET" : "LIVE · REAL"} · {String(engine.exchange || "binance").toUpperCase()}
+          </span>
         </div>
         <div className="mt-1.5 flex items-end gap-2.5">
           <span className="font-mono text-[32px] font-bold leading-none text-white">${fmtUsd(equity)}</span>
@@ -70,14 +72,24 @@ export function HomeTab({ user, engine, keysCount, onStart, onStop, goto, onRese
         <div className="flex items-start gap-2.5 rounded-xl border px-3.5 py-3" style={{ borderColor: `${RED}44`, background: `${RED}0E` }}>
           <span className="mt-0.5 text-sm font-black" style={{ color: RED }}>!</span>
           <p className="text-[11.5px] leading-relaxed" style={{ color: "#FFB4BB" }}>
-            Exchange se connect nahi ho raha — <button className="font-bold underline underline-offset-2" onClick={() => goto("profile")}>Profile → API Keys</button> mein key add karein. Paper trading abhi demo balance par chalega.
+            Exchange key linked nahi hai — <button className="font-bold underline underline-offset-2" onClick={() => goto("profile")}>Profile → API Keys</button> mein apni exchange key add karein. Bot aapke exchange par hi REAL trades karega.
           </p>
         </div>
       ) : (
         <div className="flex items-start gap-2.5 rounded-xl border px-3.5 py-3" style={{ borderColor: `${GREEN}44`, background: `${GREEN}0E` }}>
           <span className="mt-0.5 text-sm font-black" style={{ color: GREEN }}>✓</span>
           <p className="text-[11.5px] leading-relaxed" style={{ color: "#9FE8C8" }}>
-            {keysCount === 1 ? "1 exchange key" : `${keysCount} exchange keys`} linked — engine orders will route to your exchange (demo routes paper).
+            Exchange key linked — engine orders seedha aapke exchange par execute honge ({engine.testnet ? "TESTNET abhi" : "LIVE account"}).
+          </p>
+        </div>
+      )}
+
+      {/* License gate warning */}
+      {!licensed && (
+        <div className="flex items-start gap-2.5 rounded-xl border px-3.5 py-3" style={{ borderColor: "#FF8A3D44", background: "#FF8A3D0E" }}>
+          <span className="mt-0.5 text-sm font-black" style={{ color: "#FF8A3D" }}>i</span>
+          <p className="text-[11.5px] leading-relaxed" style={{ color: "#FFC69E" }}>
+            License inactive hai — bot start karne ke liye license activate karein. <a className="font-bold underline underline-offset-2" href="/license">License page kholein ›</a>
           </p>
         </div>
       )}
@@ -174,7 +186,7 @@ export function HomeTab({ user, engine, keysCount, onStart, onStop, goto, onRese
           BINANCE <span style={{ color: YELLOW }}>·</span> EMA 8/13/21/55 <span style={{ color: YELLOW }}>·</span> strict 1:1 RR
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2.5">
-          <Button onClick={onStart} disabled={engine.running}
+          <Button onClick={onStart} disabled={engine.running || !licensed}
             className="h-10 rounded-lg text-[12px] font-bold text-black hover:opacity-90 disabled:opacity-35"
             style={{ background: YELLOW }}>
             <Play className="mr-1 h-3.5 w-3.5" /> START BOT
@@ -185,9 +197,11 @@ export function HomeTab({ user, engine, keysCount, onStart, onStop, goto, onRese
             <Square className="mr-1 h-3.5 w-3.5" /> STOP BOT
           </Button>
         </div>
-        <button onClick={onReset} className="mt-2.5 w-full text-center text-[9.5px] text-[#4A5265] hover:text-[#8A93A6]">
-          reset demo account to $10,000
-        </button>
+        {!licensed && (
+          <p className="mt-2 text-center text-[9.5px]" style={{ color: "#FF8A3D" }}>
+            Start ke liye pehle license activate karein — <a href="/license" className="font-bold underline">License ›</a>
+          </p>
+        )}
       </SectionCard>
 
       {/* Live activity */}

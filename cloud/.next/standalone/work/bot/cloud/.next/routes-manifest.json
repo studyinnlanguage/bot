@@ -1,0 +1,284 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "app",
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [
+      {
+        "source": "/home",
+        "destination": "http://127.0.0.1:5001/home",
+        "regex": "^/home(?:/)?$"
+      },
+      {
+        "source": "/login",
+        "destination": "http://127.0.0.1:5001/login",
+        "regex": "^/login(?:/)?$"
+      },
+      {
+        "source": "/license",
+        "destination": "http://127.0.0.1:5001/license",
+        "regex": "^/license(?:/)?$"
+      },
+      {
+        "source": "/packages",
+        "destination": "http://127.0.0.1:5001/packages",
+        "regex": "^/packages(?:/)?$"
+      },
+      {
+        "source": "/payment/:path*",
+        "destination": "http://127.0.0.1:5001/payment/:path*",
+        "regex": "^/payment(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/admin",
+        "destination": "http://127.0.0.1:5001/admin",
+        "regex": "^/admin(?:/)?$"
+      },
+      {
+        "source": "/legal",
+        "destination": "http://127.0.0.1:5001/legal",
+        "regex": "^/legal(?:/)?$"
+      },
+      {
+        "source": "/privacy",
+        "destination": "http://127.0.0.1:5001/privacy",
+        "regex": "^/privacy(?:/)?$"
+      },
+      {
+        "source": "/terms",
+        "destination": "http://127.0.0.1:5001/terms",
+        "regex": "^/terms(?:/)?$"
+      },
+      {
+        "source": "/security",
+        "destination": "http://127.0.0.1:5001/security",
+        "regex": "^/security(?:/)?$"
+      },
+      {
+        "source": "/disclaimer",
+        "destination": "http://127.0.0.1:5001/disclaimer",
+        "regex": "^/disclaimer(?:/)?$"
+      },
+      {
+        "source": "/risk-disclaimer",
+        "destination": "http://127.0.0.1:5001/risk-disclaimer",
+        "regex": "^/risk-disclaimer(?:/)?$"
+      },
+      {
+        "source": "/static/:path*",
+        "destination": "http://127.0.0.1:5001/static/:path*",
+        "regex": "^/static(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/auth/google",
+        "destination": "http://127.0.0.1:5001/auth/google",
+        "regex": "^/auth/google(?:/)?$"
+      },
+      {
+        "source": "/auth/google/callback",
+        "destination": "http://127.0.0.1:5001/auth/google/callback",
+        "regex": "^/auth/google/callback(?:/)?$"
+      },
+      {
+        "source": "/favicon-old.ico",
+        "destination": "http://127.0.0.1:5001/favicon-old.ico",
+        "regex": "^/favicon-old\\.ico(?:/)?$"
+      },
+      {
+        "source": "/bot/:path*",
+        "destination": "http://127.0.0.1:5001/bot/:path*",
+        "regex": "^/bot(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/bot",
+        "destination": "http://127.0.0.1:5001/bot",
+        "regex": "^/bot(?:/)?$"
+      },
+      {
+        "source": "/api/packages",
+        "destination": "http://127.0.0.1:5001/api/packages",
+        "regex": "^/api/packages(?:/)?$"
+      },
+      {
+        "source": "/api/orders/:path*",
+        "destination": "http://127.0.0.1:5001/api/orders/:path*",
+        "regex": "^/api/orders(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/api/license/:path*",
+        "destination": "http://127.0.0.1:5001/api/license/:path*",
+        "regex": "^/api/license(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/api/admin/:path*",
+        "destination": "http://127.0.0.1:5001/api/admin/:path*",
+        "regex": "^/api/admin(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/api/user/referral",
+        "destination": "http://127.0.0.1:5001/api/user/referral",
+        "regex": "^/api/user/referral(?:/)?$"
+      },
+      {
+        "source": "/api/user/payout-wallet",
+        "destination": "http://127.0.0.1:5001/api/user/payout-wallet",
+        "regex": "^/api/user/payout-wallet(?:/)?$"
+      },
+      {
+        "source": "/api/user/request-payout",
+        "destination": "http://127.0.0.1:5001/api/user/request-payout",
+        "regex": "^/api/user/request-payout(?:/)?$"
+      },
+      {
+        "source": "/api/debug/:path*",
+        "destination": "http://127.0.0.1:5001/api/debug/:path*",
+        "regex": "^/api/debug(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/x7k2-admin",
+        "destination": "http://127.0.0.1:5001/x7k2-admin",
+        "regex": "^/x7k2-admin(?:/)?$"
+      },
+      {
+        "source": "/x7k2-admin/:path*",
+        "destination": "http://127.0.0.1:5001/x7k2-admin/:path*",
+        "regex": "^/x7k2-admin(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      }
+    ],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/r/[code]",
+      "regex": "^/r/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPcode": "nxtPcode"
+      },
+      "namedRegex": "^/r/(?<nxtPcode>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/.well-known/assetlinks.json",
+      "regex": "^/\\.well\\-known/assetlinks\\.json(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/\\.well\\-known/assetlinks\\.json(?:/)?$"
+    },
+    {
+      "page": "/api",
+      "regex": "^/api(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api(?:/)?$"
+    },
+    {
+      "page": "/api/auth/config",
+      "regex": "^/api/auth/config(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/config(?:/)?$"
+    },
+    {
+      "page": "/api/auth/google",
+      "regex": "^/api/auth/google(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/google(?:/)?$"
+    },
+    {
+      "page": "/api/auth/login",
+      "regex": "^/api/auth/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/login(?:/)?$"
+    },
+    {
+      "page": "/api/auth/logout",
+      "regex": "^/api/auth/logout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/logout(?:/)?$"
+    },
+    {
+      "page": "/api/auth/register",
+      "regex": "^/api/auth/register(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/register(?:/)?$"
+    },
+    {
+      "page": "/api/engine",
+      "regex": "^/api/engine(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/engine(?:/)?$"
+    },
+    {
+      "page": "/api/health",
+      "regex": "^/api/health(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/health(?:/)?$"
+    },
+    {
+      "page": "/api/keys",
+      "regex": "^/api/keys(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/keys(?:/)?$"
+    },
+    {
+      "page": "/api/me",
+      "regex": "^/api/me(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/me(?:/)?$"
+    },
+    {
+      "page": "/api/wallet",
+      "regex": "^/api/wallet(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/wallet(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

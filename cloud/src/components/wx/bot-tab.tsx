@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { X, TrendingUp, TrendingDown, Lock, Loader2, Layers } from "lucide-react";
+import { X, Lock, Layers } from "lucide-react";
 import { WxChart, EmaLegend } from "./chart";
 import { SectionCard, RunningPill, MiniStat } from "./home-markets";
 import { fmtUsd, fmtPrice, fmtPct, fmtTime, fmtDate, YELLOW, GREEN, RED } from "./types";
@@ -20,12 +20,11 @@ interface BotProps {
   setSymbol: (s: string) => void;
   busy: string | null;
   onConfig: (cfg: { leverage?: number; timeframe?: string; tradeSize?: number; stopLossPct?: number }) => void;
-  onManual: (side: "LONG" | "SHORT") => void;
   onClose: (id: string) => void;
   onCloseAll: () => void;
 }
 
-export function BotTab({ engine, market, symbol, setSymbol, busy, onConfig, onManual, onClose, onCloseAll }: BotProps) {
+export function BotTab({ engine, market, symbol, setSymbol, onConfig, onClose, onCloseAll }: BotProps) {
   const m = market[symbol];
   const [tf, setTf] = useState(engine.timeframe);
   const [size, setSize] = useState(String(engine.tradeSize));
@@ -90,7 +89,7 @@ export function BotTab({ engine, market, symbol, setSymbol, busy, onConfig, onMa
       {/* Order panel */}
       <SectionCard className="p-3.5">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-bold tracking-wide text-white">ORDER PANEL</p>
+          <p className="text-[11px] font-bold tracking-wide text-white">ORDER SETTINGS</p>
           <span className="flex items-center gap-1 rounded-md px-2 py-1 text-[8.5px] font-black tracking-wider" style={{ background: `${YELLOW}16`, color: YELLOW }}>
             <Lock className="h-2.5 w-2.5" /> 1:1 RISK LOCK
           </span>
@@ -137,17 +136,28 @@ export function BotTab({ engine, market, symbol, setSymbol, busy, onConfig, onMa
         </div>
 
         <p className="mt-2 text-center font-mono text-[9px] text-[#4A5265]">notional ${fmtUsd(notional, 0)} · margin ${fmtUsd(parseFloat(size) || 0, 0)}</p>
+      </SectionCard>
 
-        <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-          <Button disabled={busy !== null} onClick={() => onManual("LONG")}
-            className="h-11 rounded-lg text-[13px] font-black text-white hover:opacity-90" style={{ background: GREEN }}>
-            {busy === "LONG" ? <Loader2 className="h-4 w-4 animate-spin" /> : <><TrendingUp className="mr-1 h-4 w-4" /> ▲ LONG</>}
-          </Button>
-          <Button disabled={busy !== null} onClick={() => onManual("SHORT")}
-            className="h-11 rounded-lg text-[13px] font-black text-white hover:opacity-90" style={{ background: RED }}>
-            {busy === "SHORT" ? <Loader2 className="h-4 w-4 animate-spin" /> : <><TrendingDown className="mr-1 h-4 w-4" /> ▼ SHORT</>}
-          </Button>
+      {/* Signal info — the engine trades automatically on EMA 8/13/21/55 crosses */}
+      <SectionCard className="p-3.5">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-bold tracking-wide text-white">AUTO-TRADE ENGINE</p>
+          <span className="flex items-center gap-1 rounded-md px-2 py-1 text-[8.5px] font-black tracking-wider" style={{ background: `${YELLOW}16`, color: YELLOW }}>
+            <Lock className="h-2.5 w-2.5" /> 1:1 RISK LOCK
+          </span>
         </div>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-[#8A93A6]">
+          Bot khud scan karta hai — jahan fresh EMA 8/13/21/55 cross milega wahan entry khud lega, TP/SL ke saath. Koi manual trade ki zaroorat nahi.
+        </p>
+        {m?.indicators && (
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+            <span className="text-[10px] font-bold text-[#B7BECF]">{symbol.replace("USDT", "")} live signal</span>
+            <span className="rounded px-1.5 py-0.5 font-mono text-[9.5px] font-black"
+              style={{ background: m.indicators.signal === "BUY" ? `${GREEN}1A` : m.indicators.signal === "SELL" ? `${RED}1A` : "rgba(138,147,166,0.12)", color: m.indicators.signal === "BUY" ? GREEN : m.indicators.signal === "SELL" ? RED : "#8A93A6" }}>
+              {m.indicators.signal}
+            </span>
+          </div>
+        )}
       </SectionCard>
 
       {/* Open positions */}

@@ -415,7 +415,7 @@ def get_positions():
     if not trader:
         return jsonify({"success": False, "error": "Bot trader not connected", "positions": []})
     req_sym = request.args.get("symbol", "").strip().upper()
-    symbols = [req_sym] if req_sym else (ENGINE.symbols or [CONFIG.get("symbol", "BTCUSDT")])
+    symbols = [req_sym] if req_sym else (getattr(ENGINE, "symbols", None) or [CONFIG.get("symbol", "BTCUSDT")])
     if not symbols:
         symbols = ["BTCUSDT"]
 
