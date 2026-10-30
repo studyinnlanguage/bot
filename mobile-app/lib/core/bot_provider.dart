@@ -34,6 +34,12 @@ class BotProvider extends ChangeNotifier {
   bool _loading = false;
   String? _error;
 
+  // All available symbols from exchange (fetched from /api/symbols)
+  List<String> _availableSymbols = [];
+  bool _symbolsLoaded = false;
+  // Per-symbol chart data cache for multi-coin view
+  final Map<String, ChartData> _chartCache = {};
+
   // Getters
   BotConfig get config => _config;
   BotStatus get status => _status;
@@ -51,6 +57,13 @@ class BotProvider extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
   bool get isRunning => _status.running;
+
+  /// All available symbols from the exchange (fetched from /api/symbols)
+  List<String> get availableSymbols => _availableSymbols;
+  bool get symbolsLoaded => _symbolsLoaded;
+
+  /// Per-symbol chart cache for multi-coin view
+  ChartData? getChartFor(String symbol) => _chartCache[symbol];
 
   Position get activePosition => _positions[_activeSymbol] ?? Position.empty;
 
@@ -132,6 +145,10 @@ class BotProvider extends ChangeNotifier {
 
     _subs.add(_socket.chartData.listen((data) {
       final cd = ChartData.fromJson(data);
+      // Cache per-symbol for multi-coin view
+      if (cd.symbol.isNotEmpty) {
+        _chartCache[cd.symbol] = cd;
+      }
       if (cd.symbol == _activeSymbol || cd.symbol.isNotEmpty) {
         _chart = cd;
         notifyListeners();
@@ -161,7 +178,7 @@ class BotProvider extends ChangeNotifier {
       notifyListeners();
     }));
 
-    // Connect socket immediately
+    // Connect socket (async — fetches session cookie first)
     _socket.connect();
 
     // Initial fetch
@@ -181,12 +198,35 @@ class BotProvider extends ChangeNotifier {
         fetchPositions(),
         fetchTrades(),
         fetchBalance(),
+        fetchSymbols(),
       ]);
     } catch (e) {
       _error = e.toString();
     } finally {
       _loading = false;
       notifyListeners();
+    }
+  }
+
+  /// Fetch all available symbols from exchange (replaces hardcoded list)
+  /// Calls GET /api/symbols — returns 200+ coins for Binance, etc.
+  Future<void> fetchSymbols() async {
+    try {
+      final r = await _api.getSymbols();
+      final list = r['symbols'];
+      if (list is List) {
+        _availableSymbols = list.map((e) => e.toString()).toList();
+        _symbolsLoaded = true;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('fetchSymbols error: $e');
+      // Fallback to default popular coins
+      if (_availableSymbols.isEmpty) {
+        _availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'SUIUSDT'];
+        _symbolsLoaded = true;
+        notifyListeners();
+      }
     }
   }
 

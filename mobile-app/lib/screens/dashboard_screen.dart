@@ -7,6 +7,7 @@ import '../widgets/candlestick_chart.dart';
 import '../widgets/premium.dart';
 import '../widgets/stat_card.dart';
 import '../widgets/status_chip.dart';
+import 'alerts_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -138,7 +139,11 @@ class DashboardScreen extends StatelessWidget {
             children: [
               IconButton(
                 icon: const Icon(Icons.notifications_outlined, size: 22, color: WeexionicTheme.textSecondary),
-                onPressed: () {},
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AlertsScreen()),
+                  );
+                },
               ),
               Positioned(
                 top: 10, right: 10,
