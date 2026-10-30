@@ -5,14 +5,14 @@ import '../core/auth_provider.dart';
 import '../core/bot_provider.dart';
 import '../core/theme.dart';
 import 'login_screen.dart';
-import 'license_screen.dart';
+import 'buy_package_screen.dart';
 import 'main_screen.dart';
 
 /// Auth gate — decides which screen to show based on auth state
-/// initializing → splash
-/// unauthenticated → login screen
-/// authenticatedNoLicense → license activation screen
-/// authenticated → main bot app
+/// initializing       → splash
+/// unauthenticated    → login screen
+/// authenticatedNoLicense → buy package screen (new signups / expired licenses)
+/// authenticated      → main bot app (has active license)
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -28,10 +28,9 @@ class AuthGate extends StatelessWidget {
         return const LoginScreen();
 
       case AuthState.authenticatedNoLicense:
-        return const LicenseScreen();
+        return const BuyPackageScreen();
 
       case AuthState.authenticated:
-        // Start the bot provider (connects socket + fetches initial data)
         return _AuthenticatedShell();
     }
   }
@@ -41,7 +40,6 @@ class _AuthenticatedShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bot = context.read<BotProvider>();
-    // Start the bot provider once — fire and forget
     WidgetsBinding.instance.addPostFrameCallback((_) {
       bot.start();
     });
@@ -60,19 +58,21 @@ class _SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Logo
-            ShaderMask(
-              shaderCallback: (bounds) => WeexionicTheme.brandGradient.createShader(bounds),
-              child: const Text(
-                'WEEXIONIC',
-                style: TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
-                  color: Colors.white,
-                ),
+            Container(
+              width: 80, height: 80,
+              decoration: BoxDecoration(
+                gradient: WeexionicTheme.brandGradient,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: WeexionicTheme.goldGlow,
+              ),
+              child: const Icon(
+                Icons.show_chart_rounded,
+                size: 44,
+                color: WeexionicTheme.bgBase,
               ),
             ),
+            const SizedBox(height: 20),
+            const WeexionicLogo(size: 28),
             const SizedBox(height: 8),
             const Text(
               'FUTURES BOT',
@@ -85,16 +85,11 @@ class _SplashScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             const SizedBox(
-              width: 32, height: 32,
+              width: 28, height: 28,
               child: CircularProgressIndicator(
                 color: WeexionicTheme.brandGold,
                 strokeWidth: 2.5,
               ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Connecting...',
-              style: TextStyle(fontSize: 11, color: WeexionicTheme.textMuted),
             ),
           ],
         ),
