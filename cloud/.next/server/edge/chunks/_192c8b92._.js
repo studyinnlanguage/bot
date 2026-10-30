@@ -1,0 +1,3 @@
+(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push(["chunks/_192c8b92._.js",86744,e=>{"use strict";async function t(){}e.s(["register",()=>t])},89277,(e,t,n)=>{self._ENTRIES||={};let s=Promise.resolve().then(()=>e.i(86744));s.catch(()=>{}),self._ENTRIES.middleware_instrumentation=new Proxy(s,{get(e,t){if("then"===t)return(t,n)=>e.then(t,n);let n=(...n)=>e.then(e=>(0,e[t])(...n));return n.then=(n,s)=>e.then(e=>e[t]).then(n,s),n}})}]);
+
+//# sourceMappingURL=_192c8b92._.js.map

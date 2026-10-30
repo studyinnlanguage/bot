@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Copy, Send, Share2, Users, Wallet as WalletIcon, BadgeCheck, KeyRound, Trash2, LogOut, Cloud, ChevronRight, Bell, Globe, Loader2, Check } from "lucide-react";
+import { Copy, Send, Share2, Users, Wallet as WalletIcon, BadgeCheck, KeyRound, Trash2, LogOut, Cloud, ChevronRight, Bell, Globe, Loader2, Check, ShieldCheck } from "lucide-react";
 import { SectionCard } from "./home-markets";
 import { fmtUsd, fmtDate, YELLOW, GREEN, RED } from "./types";
 import type { WxUser, ApiKeyRow, Txn } from "./types";
@@ -20,6 +20,7 @@ interface WalletProps {
 
 export function WalletTab({ user, txns, onToast, onPayout }: WalletProps) {
   const [tab, setTab] = useState<"referral" | "payouts" | "history">("referral");
+  const [walletAddr, setWalletAddr] = useState("");
   const link = `weexionic.app/r/${user.referralCode}`;
 
   const payouts = txns.filter(t => t.type === "PAYOUT");
@@ -77,11 +78,12 @@ export function WalletTab({ user, txns, onToast, onPayout }: WalletProps) {
             </div>
             <div className="mt-2.5 grid grid-cols-2 gap-2.5">
               <Button variant="outline" className="h-10 rounded-lg border-[1.5px] text-[11.5px] font-bold hover:bg-[#16C784]/10"
-                style={{ borderColor: GREEN, color: GREEN }} onClick={() => onToast("Opening WhatsApp share (demo)")}>
+                style={{ borderColor: GREEN, color: GREEN }}
+                onClick={() => { onToast("WhatsApp par share khul raha hai"); try { window.open(`https://wa.me/?text=${encodeURIComponent("Weexionic trading bot try karein — real EMA 8/13/21/55 engine: https://" + link)}`, "_blank"); } catch { /* blocked */ } }}>
                 <Send className="mr-1.5 h-3.5 w-3.5" /> WhatsApp
               </Button>
               <Button variant="outline" className="h-10 rounded-lg border-white/[0.12] text-[11.5px] font-bold text-[#C7CEDE] hover:bg-white/[0.04]"
-                onClick={() => onToast("Opening Telegram share (demo)")}>
+                onClick={() => { onToast("Telegram par share khul raha hai"); try { window.open(`https://t.me/share/url?url=${encodeURIComponent("https://" + link)}&text=${encodeURIComponent("Weexionic — real EMA trading bot")}`, "_blank"); } catch { /* blocked */ } }}>
                 <Share2 className="mr-1.5 h-3.5 w-3.5" /> Telegram
               </Button>
             </div>
@@ -118,8 +120,25 @@ export function WalletTab({ user, txns, onToast, onPayout }: WalletProps) {
 
       {tab === "payouts" && (
         <>
+          <SectionCard className="p-3.5">
+            <p className="text-[9px] font-bold tracking-[0.14em] text-[#6B7488]">USDT PAYOUT WALLET (TRC20/BEP20)</p>
+            <div className="mt-2 flex items-center gap-2">
+              <Input value={walletAddr} onChange={e => setWalletAddr(e.target.value)} placeholder="TX1a2B3c…"
+                className="h-9 rounded-lg border-white/[0.08] bg-[#0A0E15] font-mono text-[11px] text-white" aria-label="USDT payout wallet address" />
+              <Button variant="outline" className="h-9 shrink-0 rounded-lg border-white/[0.12] px-3 text-[10.5px] font-bold text-[#C7CEDE]"
+                onClick={async () => {
+                  if (!walletAddr || walletAddr.length < 10) { onToast("Valid USDT wallet address likhein"); return; }
+                  try {
+                    const res = await fetch("/api/wallet", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("wx_token") || sessionStorage.getItem("wx_token") || ""}` }, body: JSON.stringify({ action: "payout-wallet", wallet: walletAddr }) });
+                    const d = await res.json();
+                    onToast(d.ok ? "Payout wallet save ho gaya" : (d.error || "Save failed"));
+                  } catch { onToast("Network error"); }
+                }}>Save</Button>
+            </div>
+            <p className="mt-1.5 text-[9px] text-[#6B7488]">Payout isi wallet par admin approve karke bhejta hai (1-3 business days).</p>
+          </SectionCard>
           <Button onClick={onPayout} className="h-11 w-full rounded-lg text-[12.5px] font-bold text-black hover:opacity-90" style={{ background: YELLOW }}>
-            <WalletIcon className="mr-1.5 h-4 w-4" /> Request Payout (min $20)
+            <WalletIcon className="mr-1.5 h-4 w-4" /> Request Payout
           </Button>
           <SectionCard className="overflow-hidden">
             {payouts.length === 0 && <p className="px-3.5 py-6 text-center text-[10.5px] text-[#4A5265]">No payouts yet — commissions yahan aayengi</p>}
@@ -186,11 +205,20 @@ export function ProfileTab({ user, keys, network, onLogout, onToast, onAddKey, o
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="rounded-md px-2.5 py-1 text-[10px] font-black tracking-wider text-black" style={{ background: YELLOW }}>{user.plan}</span>
-            <span className="text-[11px] text-[#B7BECF]">valid until {fmtDate(user.planValidUntil)}</span>
+            <span className="text-[11px] text-[#B7BECF]">{user.planValidUntil ? `valid until ${fmtDate(user.planValidUntil)}` : "no active license"}</span>
           </div>
           <ChevronRight className="h-4 w-4 text-[#4A5265]" />
         </div>
-        <p className="mt-1.5 text-[9.5px] text-[#6B7488]">Every update included · all 3 exchanges · 24/7 autopilot · 1:1 risk lock</p>
+        <div className="mt-2.5 grid grid-cols-2 gap-2">
+          <a href="/license" className="flex h-9 items-center justify-center gap-1.5 rounded-lg border-[1.5px] text-[10.5px] font-bold"
+            style={{ borderColor: GREEN, color: GREEN }}>
+            <ShieldCheck className="h-3.5 w-3.5" /> Activate License
+          </a>
+          <a href="/packages" className="flex h-9 items-center justify-center gap-1.5 rounded-lg text-[10.5px] font-bold text-black" style={{ background: YELLOW }}>
+            <WalletIcon className="h-3.5 w-3.5" /> Buy Package
+          </a>
+        </div>
+        <p className="mt-1.5 text-[9.5px] text-[#6B7488]">Every update included · all exchanges · 24/7 autopilot · 1:1 risk lock</p>
       </SectionCard>
 
       {/* Network — auto server assignment */}
@@ -237,7 +265,7 @@ export function ProfileTab({ user, keys, network, onLogout, onToast, onAddKey, o
         </div>
         {keys.length === 0 && (
           <p className="px-3.5 py-4 text-[10.5px] leading-relaxed text-[#6B7488]">
-            Koi key linked nahi — Binance API key add karein to engine live exchange par trade karega. Tab tak paper trading chalega.
+            Koi key linked nahi — exchange API key add karein to engine aapke account par REAL trades karega. Keys encrypted store hoti hain.
           </p>
         )}
         {keys.map(k => (
@@ -258,14 +286,13 @@ export function ProfileTab({ user, keys, network, onLogout, onToast, onAddKey, o
         ))}
       </SectionCard>
 
-      {/* Settings rows */}
+      {/* Settings rows — real bot pages */}
       <SectionCard className="overflow-hidden">
         {[
-          { icon: Bell, label: "Trade & signal alerts", sub: "Telegram + WhatsApp + push", toast: "Alert settings (demo)" },
-          { icon: Globe, label: "Language", sub: "English", toast: "Language picker (demo)" },
-        ].map(({ icon: Icon, label, sub, toast }) => (
-          <button key={label} onClick={() => onToast(toast)}
-            className="flex w-full items-center justify-between border-b border-white/[0.04] px-3.5 py-3 text-left last:border-0 hover:bg-white/[0.02]">
+          { icon: Bell, label: "Trade & signal alerts", sub: "Telegram / Email / WhatsApp — engine settings", href: "/home" },
+          { icon: Globe, label: "Language", sub: "English", href: "/legal" },
+        ].map(({ icon: Icon, label, sub, href }) => (
+          <a key={label} href={href} className="flex w-full items-center justify-between border-b border-white/[0.04] px-3.5 py-3 text-left last:border-0 hover:bg-white/[0.02]">
             <div className="flex items-center gap-2.5">
               <Icon className="h-4 w-4 text-[#8A93A6]" />
               <div>
@@ -274,7 +301,7 @@ export function ProfileTab({ user, keys, network, onLogout, onToast, onAddKey, o
               </div>
             </div>
             <ChevronRight className="h-4 w-4 text-[#4A5265]" />
-          </button>
+          </a>
         ))}
       </SectionCard>
 
@@ -285,20 +312,20 @@ export function ProfileTab({ user, keys, network, onLogout, onToast, onAddKey, o
         <LogOut className="mr-1.5 h-4 w-4" /> LOG OUT
       </Button>
 
-      <p className="pb-1 text-center text-[9px] text-[#3E4658]">Weexionic App v3.0.0 · Native Engine Client</p>
+      <p className="pb-1 text-center text-[9px] text-[#3E4658]">Weexionic v5.3.0 · Real Engine Client</p>
 
       {/* Add key dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-[330px] rounded-2xl border-white/[0.1] bg-[#0C1017] p-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-[14px] font-bold text-white">Add Exchange API Key</DialogTitle>
-            <p className="text-[10px] leading-relaxed text-[#6B7488]">Keys masked ho kar store hoti hain. Withdrawal permission kabhi mat dein.</p>
+            <p className="text-[10px] leading-relaxed text-[#6B7488]">Key encrypted store hoti hai aur engine aapke account par REAL trades karega. Withdrawal permission kabhi mat dein.</p>
           </DialogHeader>
           <div className="mt-2 space-y-3">
             <div>
               <label className="mb-1 block text-[9px] font-bold tracking-wider text-[#6B7488]">EXCHANGE</label>
               <div className="flex gap-1.5">
-                {["BINANCE", "BYBIT", "OKX"].map(x => (
+                {["BINANCE", "WEEX"].map(x => (
                   <button key={x} onClick={() => setExchange(x)}
                     className="flex-1 rounded-md border px-1 py-1.5 text-[9.5px] font-bold"
                     style={x === exchange ? { borderColor: YELLOW, color: YELLOW, background: `${YELLOW}12` } : { borderColor: "rgba(255,255,255,0.08)", color: "#6B7488" }}>

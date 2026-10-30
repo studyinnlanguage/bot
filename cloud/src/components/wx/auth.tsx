@@ -272,8 +272,8 @@ export function AuthScreen({ onAuthed }: Props) {
       </div>
 
       <p className="mt-4 text-center text-[9.5px] leading-relaxed text-[#3E4658]">
-        Quad-Trend practice engine — live market data, simulated fills, $10,000 demo balance.<br />
-        Exchange keys encrypted at rest — plain text me kabhi save nahi hoti.
+        Quad-Trend engine — EMA 8/13/21/55, REAL exchange trading via your own API keys.<br />
+        Keys encrypted at rest — plain text me kabhi save nahi hoti.
       </p>
       {refApplied && (
         <p className="mt-1 text-center text-[9.5px] text-[#22C55E]">Invite link se aaye ho — signup par referral ({refApplied}) automatically lagega.</p>

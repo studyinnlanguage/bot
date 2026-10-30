@@ -1,0 +1,18 @@
+{
+  "/.well-known/assetlinks.json/route": "app/.well-known/assetlinks.json/route.js",
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/auth/config/route": "app/api/auth/config/route.js",
+  "/api/auth/google/route": "app/api/auth/google/route.js",
+  "/api/auth/login/route": "app/api/auth/login/route.js",
+  "/api/auth/logout/route": "app/api/auth/logout/route.js",
+  "/api/auth/register/route": "app/api/auth/register/route.js",
+  "/api/engine/route": "app/api/engine/route.js",
+  "/api/health/route": "app/api/health/route.js",
+  "/api/keys/route": "app/api/keys/route.js",
+  "/api/me/route": "app/api/me/route.js",
+  "/api/route": "app/api/route.js",
+  "/api/wallet/route": "app/api/wallet/route.js",
+  "/page": "app/page.js",
+  "/r/[code]/page": "app/r/[code]/page.js"
+}

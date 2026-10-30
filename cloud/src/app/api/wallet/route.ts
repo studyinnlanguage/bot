@@ -1,41 +1,60 @@
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
-import { authUser, jsonError } from "@/lib/wx-auth";
+import { flaskUser, referralInfo, txnsFromReferral, flask } from "@/lib/wx-backend";
 
+/**
+ * GET /api/wallet → REAL referral wallet from the bot SaaS
+ * (commissions are earned when referred users buy license packages).
+ */
 export async function GET(req: NextRequest) {
-  const user = await authUser(req);
-  if (!user) return jsonError("Session expired — please log in again", 401);
+  const header = req.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return Response.json({ ok: false, error: "Session expired" }, { status: 401 });
 
-  const txns = await db.walletTxn.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 50 });
+  const ctx = await flaskUser(token);
+  if (!ctx) return Response.json({ ok: false, error: "Session expired" }, { status: 401 });
 
+  const ref = await referralInfo(token);
   return Response.json({
     ok: true,
     wallet: {
-      balance: user.walletBalance,
-      lifetimeEarnings: user.lifetimeEarn,
-      friendsInvited: user.friendsInvited,
-      activeReferrals: Math.max(0, user.friendsInvited),
-      referralCode: user.referralCode,
+      balance: Number(ref.available_balance ?? 0),
+      lifetimeEarnings: Number(ref.referral_earnings ?? 0),
+      friendsInvited: Number(ref.referral_count ?? 0),
+      activeReferrals: Number(ref.referral_count ?? 0),
+      referralCode: ref.referral_code || ctx.referral_code || "",
+      payoutWallet: ref.payout_wallet || "",
+      pendingPayout: Number(ref.pending_payout ?? 0),
+      totalWithdrawn: Number(ref.total_withdrawn ?? 0),
+      bonusRates: { yearly: 10, lifetime: 50 },
     },
-    txns,
+    txns: txnsFromReferral(ref),
   });
 }
 
+/** POST /api/wallet → { action: "payout" | "payout-wallet" } (real payout system). */
 export async function POST(req: NextRequest) {
-  const user = await authUser(req);
-  if (!user) return jsonError("Session expired — please log in again", 401);
+  const header = req.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return Response.json({ ok: false, error: "Session expired" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-
   if (body.action === "payout") {
-    if (user.walletBalance < 20) return jsonError("Minimum payout is $20.00", 400);
-    const amount = Math.min(user.walletBalance, Number(body.amount) || user.walletBalance);
-    await db.$transaction([
-      db.user.update({ where: { id: user.id }, data: { walletBalance: { decrement: amount } } }),
-      db.walletTxn.create({ data: { userId: user.id, type: "PAYOUT", amount: -amount, note: "Payout to linked USDT wallet", status: "PENDING" } }),
-    ]);
+    const r = await flask("/api/user/request-payout", {
+      method: "POST", token, body: { wallet_address: String(body.wallet || "") },
+    });
+    if (r.status !== 200 || r.data.success === false) {
+      return Response.json({ ok: false, error: String(r.data.error || "Payout request failed") }, { status: 400 });
+    }
+    return Response.json({ ok: true, message: r.data.message });
+  }
+  if (body.action === "payout-wallet" && body.wallet) {
+    const r = await flask("/api/user/payout-wallet", {
+      method: "POST", token, body: { wallet_address: String(body.wallet) },
+    });
+    if (r.status !== 200 || r.data.success === false) {
+      return Response.json({ ok: false, error: String(r.data.error || "Could not save wallet") }, { status: 400 });
+    }
     return Response.json({ ok: true });
   }
-
-  return jsonError("Unknown action", 400);
+  return Response.json({ ok: false, error: "Unknown action" }, { status: 400 });
 }

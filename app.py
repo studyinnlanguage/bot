@@ -67,8 +67,10 @@ try:
     load_dotenv()
 except Exception:
     pass
-BOT_ENGINE_DIR = BASE_DIR / "bot-engine"
-DB_FILE = BASE_DIR / "database.json"
+# Merged-cloud deployment: paths can be relocated via env so everything
+# (DB, logs, per-user engine instances) persists on the /app/data volume.
+BOT_ENGINE_DIR = Path(os.environ.get("BOT_ENGINE_DIR", "") or (BASE_DIR / "bot-engine"))
+DB_FILE = Path(os.environ.get("SAAS_DB_FILE", "") or (BASE_DIR / "database.json"))
 
 # PostgreSQL is the PRIMARY database when DATABASE_URL is set
 # (recommended on Railway / VPS). Without it, the app transparently
@@ -82,14 +84,16 @@ try:
 except ImportError:
     psycopg2 = None
     _Json = None
-PG_ENABLED = bool(DATABASE_URL) and psycopg2 is not None
-LOG_DIR = BASE_DIR / "logs"
-USER_CONFIGS_DIR = BASE_DIR / "user_configs"
-USER_INSTANCES_DIR = BASE_DIR / "user_instances"
-LOG_DIR.mkdir(exist_ok=True)
-USER_CONFIGS_DIR.mkdir(exist_ok=True)
-USER_INSTANCES_DIR.mkdir(exist_ok=True)
-BOT_PROCESSES_FILE = BASE_DIR / ".bot_processes.json"
+# Only treat DATABASE_URL as PostgreSQL when it is actually a postgres URL
+# (the merged deployment uses DATABASE_URL=file:... for Prisma/Next.js).
+PG_ENABLED = bool(DATABASE_URL) and DATABASE_URL.startswith(("postgres://", "postgresql://")) and psycopg2 is not None
+LOG_DIR = Path(os.environ.get("SAAS_LOG_DIR", "") or (BASE_DIR / "logs"))
+USER_CONFIGS_DIR = Path(os.environ.get("SAAS_USER_CONFIGS_DIR", "") or (BASE_DIR / "user_configs"))
+USER_INSTANCES_DIR = Path(os.environ.get("SAAS_INSTANCES_DIR", "") or (BASE_DIR / "user_instances"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+USER_CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+USER_INSTANCES_DIR.mkdir(parents=True, exist_ok=True)
+BOT_PROCESSES_FILE = Path(os.environ.get("SAAS_BOT_PROCESSES_FILE", "") or (BASE_DIR / ".bot_processes.json"))
 
 def _load_bot_processes() -> dict:
     try:
@@ -351,12 +355,26 @@ def hash_password(password: str) -> str:
     return generate_password_hash(password, method="pbkdf2:sha256:260000")
 
 def verify_password(password: str, stored: str) -> bool:
-    """Verify password — supports new PBKDF2 and legacy SHA256 hashes (backward compat)."""
+    """Verify password — supports new PBKDF2, legacy SHA256 and Cloud-era
+    Node-scrypt hashes (salt:hex128) so accounts migrated from the old
+    Weexionic Cloud dashboard can log in without re-registering."""
     if not stored:
         return False
     # New format: werkzeug PBKDF2 hash
     if stored.startswith("pbkdf2:") or stored.startswith("scrypt:"):
         return check_password_hash(stored, password)
+    # Weexionic Cloud format: "salt:hex128" (Node crypto.scryptSync, N=16384,r=8,p=1, dklen=64)
+    try:
+        import re as _re
+        import hmac as _hmac
+        if _re.fullmatch(r"[0-9a-f]{16,32}:[0-9a-f]{96,128}", stored or ""):
+            salt_c, hashed_c = stored.split(":", 1)
+            cand = hashlib.scrypt(password.encode(), salt=salt_c.encode(),
+                                  n=16384, r=8, p=1, dklen=64).hex()
+            if _hmac.compare_digest(cand, hashed_c):
+                return True
+    except (ValueError, TypeError, AttributeError):
+        pass
     # Legacy format: "salt$sha256hash" — allows old accounts to still log in
     try:
         salt, hashed = stored.split("$", 1)
@@ -508,12 +526,12 @@ def _pg_init():
         logger.error("PostgreSQL init failed: %s", e)
 
 def _load_json_db() -> dict:
-    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}}
+    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "tokens": {}}
     if DB_FILE.exists():
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            for section in ("users", "licenses", "orders"):
+            for section in ("users", "licenses", "orders", "tokens"):
                 db[section] = data.get(section, {})
             logger.info("Loaded database.json (%d users)", len(db["users"]))
         except (json.JSONDecodeError, OSError) as e:
@@ -869,18 +887,61 @@ def _check_rate_limit(client_key: str, max_requests: int = 30, window_seconds: i
 # Auth helpers
 # ============================================================
 
+# ---- Bearer-token auth (added for Weexionic App + Cloud frontend) ----
+# Tokens are stored in DB["tokens"] so they survive restarts. The SaaS
+# session-cookie auth (used by the classic bot pages) keeps working as-is.
+
+def _issue_token(user_id: str) -> str:
+    """Create and persist an API token for the user."""
+    token = secrets.token_hex(24)
+    tokens = DB.setdefault("tokens", {})
+    # Simple hygiene: drop tokens older than 120 days when list grows big
+    if len(tokens) > 4000:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat().replace("+00:00", "Z")
+        for tk in list(tokens.keys()):
+            info = tokens[tk] or {}
+            if str(info.get("created_at", "")) < cutoff:
+                tokens.pop(tk, None)
+    tokens[token] = {
+        "user_id": user_id,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    save_db(DB)
+    return token
+
+def _token_user_id() -> Optional[str]:
+    """Resolve Bearer token to user_id (None when absent/unknown)."""
+    try:
+        auth = request.headers.get("Authorization", "") or ""
+    except Exception:
+        return None
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth[7:].strip()
+    if len(token) < 16:
+        return None
+    info = (DB.get("tokens") or {}).get(token)
+    if not info:
+        return None
+    return info.get("user_id")
+
+def _resolve_user_id() -> Optional[str]:
+    return session.get("user_id") or _token_user_id()
+
 def is_logged_in() -> bool:
-    return "user_id" in session
+    if "user_id" in session:
+        return True
+    return _token_user_id() is not None
 
 def is_admin() -> bool:
-    user_id = session.get("user_id")
+    user_id = _resolve_user_id()
     if not user_id:
         return False
     user = DB["users"].get(user_id, {})
     return user.get("role") == "admin"
 
 def current_user() -> Optional[dict]:
-    user_id = session.get("user_id")
+    user_id = _resolve_user_id()
     if not user_id:
         return None
     return DB["users"].get(user_id)
@@ -1549,6 +1610,11 @@ def favicon():
 # Auth API
 # ============================================================
 
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    """Health probe for the merged deployment (Next.js frontend + Docker)."""
+    return jsonify({"success": True, "service": "weexionic-bot-backend", "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")})
+
 @app.route("/api/auth/signup", methods=["POST"])
 def api_signup():
     # Fix 3: Rate limit signup to 3 attempts per 10 minutes per IP
@@ -1614,7 +1680,7 @@ def api_signup():
         "bot_config": {
             "exchange": "binance",
             "testnet": True,
-            "symbols_list": [],
+            "symbols_list": ["BTCUSDT"],
             "timeframe": "5m",
             "leverage": 10,
             "amount_mode": "fixed",
@@ -1640,6 +1706,7 @@ def api_signup():
 
     return jsonify({
         "success": True,
+        "token": _issue_token(user_id),
         "user": {"id": user_id, "email": email, "name": user["name"], "role": role},
         "subscription": user["subscription"],
         "message": "Account created! Please activate your license key to get started.",
@@ -1729,6 +1796,7 @@ def api_login():
 
     return jsonify({
         "success": True,
+        "token": _issue_token(user["id"]),
         "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]} if user.get('role') == 'admin' else {"id": user["id"], "email": user["email"], "name": user["name"]},
         "subscription": user.get("subscription", {}),
     })
@@ -1765,14 +1833,7 @@ def api_me():
         "license_key": user.get("license_key"),
         "referral_code": user.get("referral_code", ""),
         "referred_by": user.get("referred_by"),
-        "bot_config": {
-            **user.get("bot_config", {}),
-            "api_key_enc": None,
-            "api_secret_enc": None,
-            "api_passphrase_enc": None,
-            "has_api_key": bool(user.get("bot_config", {}).get("api_key_enc")),
-            "has_passphrase": bool(user.get("bot_config", {}).get("api_passphrase_enc")),
-        },
+        "bot_config": _public_bot_config(user.get("bot_config", {})),
         "bot_running": bot_status.get("running", False),
         "bot_port": bot_status.get("port"),
     }
@@ -2034,6 +2095,30 @@ def api_license_activate():
 # Bot Config API
 # ============================================================
 
+def _mask_key(v: str) -> str:
+    v = (v or "").strip()
+    if len(v) <= 8:
+        return (v[:2] + "***") if v else ""
+    return v[:4] + "***" + v[-4:]
+
+def _public_bot_config(config: dict) -> dict:
+    """bot_config copy safe for the client (no secrets, masked previews)."""
+    api_key_plain = decrypt(config.get("api_key_enc", "")) if config.get("api_key_enc") else ""
+    api_secret_plain = decrypt(config.get("api_secret_enc", "")) if config.get("api_secret_enc") else ""
+    return {
+        **config,
+        "api_key_enc": None,
+        "api_secret_enc": None,
+        "api_passphrase_enc": None,
+        "has_api_key": bool(config.get("api_key_enc")),
+        "has_passphrase": bool(config.get("api_passphrase_enc")),
+        "api_key_masked": _mask_key(api_key_plain),
+        "api_secret_masked": "***" if api_secret_plain else "",
+        "telegram_bot_token": None,
+        "email_password": None,
+        "whatsapp_apikey": None,
+    }
+
 @app.route("/api/bot/config", methods=["GET", "POST"])
 def api_bot_config():
     if not is_logged_in():
@@ -2047,18 +2132,17 @@ def api_bot_config():
         config = user.get("bot_config", {})
         return jsonify({
             "success": True,
-            "config": {
-                **config,
-                "api_key_enc": None,
-                "api_secret_enc": None,
-                "api_passphrase_enc": None,
-                "has_api_key": bool(config.get("api_key_enc")),
-                "has_passphrase": bool(config.get("api_passphrase_enc")),
-            }
+            "config": _public_bot_config(config),
         })
 
     data = request.get_json(force=True)
     config = user.setdefault("bot_config", {})
+
+    # Allow the Cloud frontend / app to clear stored exchange keys
+    if data.get("clear_keys"):
+        config["api_key_enc"] = ""
+        config["api_secret_enc"] = ""
+        config["api_passphrase_enc"] = ""
 
     if "exchange" in data:
         config["exchange"] = "weex" if data["exchange"] == "weex" else "binance"
@@ -2106,17 +2190,235 @@ def api_bot_config():
             config["max_concurrent_trades"] = 3
 
     save_db(DB)
+
+    # If the engine is already running, push credentials/config live so the
+    # user does not have to stop/start the bot after linking an exchange.
+    try:
+        bot_status = get_bot_status(user["id"])
+        if bot_status.get("running"):
+            live = {k: config.get(k) for k in (
+                "exchange", "testnet", "symbols_list", "timeframe", "leverage",
+                "amount_mode", "amount", "amount_pct", "stop_loss_pct", "tp_mode",
+                "mode", "max_concurrent_trades") if config.get(k) is not None}
+            live["api_key"] = decrypt(config.get("api_key_enc", "")).strip() if config.get("api_key_enc") else ""
+            live["api_secret"] = decrypt(config.get("api_secret_enc", "")).strip() if config.get("api_secret_enc") else ""
+            _engine_api(user["id"], "POST", "api/config", live, ensure=False, timeout=20)
+    except Exception as e:
+        logger.warning("Live engine config sync failed: %s", e)
+
     return jsonify({
         "success": True,
-        "config": {
-            **config,
-            "api_key_enc": None,
-            "api_secret_enc": None,
-            "api_passphrase_enc": None,
-            "has_api_key": bool(config.get("api_key_enc")),
-            "has_passphrase": bool(config.get("api_passphrase_enc")),
-        }
+        "config": _public_bot_config(config),
     })
+
+# ============================================================
+# Google Sign-In (id_token) — used by Weexionic App + Cloud frontend
+# ============================================================
+
+@app.route("/api/auth/google", methods=["POST"])
+def api_auth_google():
+    """Verify a Google Identity Services id_token and sign the user in.
+
+    Returns the same payload shape as /api/auth/login (token + user), so the
+    app and the Cloud frontend can treat both flows identically.
+    """
+    data = request.get_json(force=True)
+    id_token = (data.get("id_token") or data.get("credential") or "").strip()
+    if not id_token:
+        return jsonify({"success": False, "error": "id_token is required"}), 400
+    if not GOOGLE_CLIENT_ID:
+        return jsonify({"success": False, "error": "Google Sign-In is not configured on this server"}), 500
+
+    try:
+        r = req_lib.get("https://oauth2.googleapis.com/tokeninfo",
+                        params={"id_token": id_token}, timeout=10)
+        if r.status_code != 200:
+            return jsonify({"success": False, "error": "Invalid Google token"}), 401
+        info = r.json()
+    except Exception as e:
+        logger.error("Google tokeninfo failed: %s", e)
+        return jsonify({"success": False, "error": "Could not verify Google token"}), 502
+
+    if info.get("aud") != GOOGLE_CLIENT_ID:
+        return jsonify({"success": False, "error": "Google token was issued for another app"}), 401
+    if str(info.get("email_verified", "")).lower() not in ("true", "1"):
+        return jsonify({"success": False, "error": "Google email not verified"}), 401
+
+    email = (info.get("email") or "").strip().lower()
+    name = (info.get("name") or email.split("@")[0]).strip()
+    if not email:
+        return jsonify({"success": False, "error": "Google account has no email"}), 401
+
+    user = None
+    for u in DB["users"].values():
+        if (u.get("email") or "").lower() == email:
+            user = u
+            break
+
+    if user is None:
+        user_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        user = {
+            "id": user_id,
+            "email": email,
+            "name": name,
+            "password_hash": None,           # Google accounts sign in via Google
+            "role": "user",
+            "banned": False,
+            "created_at": now,
+            "subscription": {"plan": "none", "status": "inactive",
+                             "started_at": now, "expires_at": None},
+            "license_key": None,
+            "referral_code": user_id[:8].upper(),
+            "referred_by": None,
+            "referral_earnings": 0.0,
+            "referral_history": [],
+            "bot_config": {
+                "exchange": "binance", "testnet": True, "symbols_list": ["BTCUSDT"],
+                "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
+                "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
+                "take_profit_pct": 6, "tp_mode": "both", "mode": "both",
+                "max_concurrent_trades": 3,
+                "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
+            },
+        }
+        DB["users"][user_id] = user
+        save_db(DB)
+        logger.info("New Google signup: %s", email)
+
+    if user.get("banned"):
+        return jsonify({"success": False, "error": "Account suspended. Please contact admin."}), 403
+
+    _dedupe_users_by_email(user["id"])
+    session["user_id"] = user["id"]
+    session.permanent = True
+
+    return jsonify({
+        "success": True,
+        "token": _issue_token(user["id"]),
+        "user": {"id": user["id"], "email": user["email"], "name": user["name"]},
+        "subscription": user.get("subscription", {}),
+    })
+
+# ============================================================
+# Bot engine data API (JSON) — used by Weexionic App + Cloud frontend.
+# These endpoints proxy the logged-in user's own bot-engine process, which
+# holds the REAL strategy (EMA 8/13/21/55) and executes REAL exchange orders.
+# ============================================================
+
+def _engine_api(user_id: str, method: str, path: str, body=None, timeout: int = 15, ensure: bool = False):
+    """Forward a request to the user's bot-engine.
+
+    ensure=False (default): never spawns the engine — read-only data calls
+    return a clean error when the bot is stopped. ensure=True is used only
+    by explicit user actions that should wake the engine up.
+    """
+    status = get_bot_status(user_id)
+    if not status.get("running"):
+        if not ensure:
+            return {"success": False, "error": "Bot is not running"}, 503
+        result = ensure_bot_engine_running(user_id)
+        if not result.get("success"):
+            return {"success": False, "error": result.get("error", "Bot engine is not running")}, 503
+        status = get_bot_status(user_id)
+    port = status.get("port")
+    if not port:
+        return {"success": False, "error": "Bot engine port unknown"}, 503
+    url = f"http://127.0.0.1:{int(port)}/{path.lstrip('/')}"
+    headers = {"X-Bot-Token": BOT_ENGINE_TOKEN}
+    try:
+        if method.upper() in ("POST", "PUT", "PATCH"):
+            r = req_lib.request(method.upper(), url, json=body or {}, headers=headers, timeout=timeout)
+        else:
+            r = req_lib.request(method.upper(), url, headers=headers, timeout=timeout)
+        try:
+            return r.json(), r.status_code
+        except Exception:
+            return {"success": False, "error": f"Engine returned non-JSON response ({r.status_code})"}, r.status_code
+    except req_lib.exceptions.ConnectionError:
+        DB.get("bot_processes", {}).pop(user_id, None)
+        save_db(DB)
+        return {"success": False, "error": "Bot engine is starting — try again in a few seconds"}, 503
+    except Exception as e:
+        return {"success": False, "error": str(e)}, 500
+
+def _api_user_or_error():
+    user = current_user()
+    if not is_logged_in():
+        return None, (jsonify({"success": False, "error": "Not logged in"}), 401)
+    if not user:
+        return None, (jsonify({"success": False, "error": "User not found"}), 404)
+    return user, None
+
+@app.route("/api/bot/positions", methods=["GET"])
+def api_bot_positions():
+    user, err = _api_user_or_error()
+    if err:
+        return err
+    payload, code = _engine_api(user["id"], "GET", "api/positions")
+    return jsonify(payload), code
+
+@app.route("/api/bot/trades", methods=["GET"])
+def api_bot_trades():
+    user, err = _api_user_or_error()
+    if err:
+        return err
+    payload, code = _engine_api(user["id"], "GET", "api/trades")
+    return jsonify(payload), code
+
+@app.route("/api/bot/balance", methods=["GET"])
+def api_bot_balance():
+    user, err = _api_user_or_error()
+    if err:
+        return err
+    payload, code = _engine_api(user["id"], "GET", "api/balance")
+    return jsonify(payload), code
+
+@app.route("/api/bot/logs", methods=["GET"])
+def api_bot_logs():
+    """Tail of the user's real bot-engine log (last 200 lines)."""
+    user, err = _api_user_or_error()
+    if err:
+        return err
+    log_file = LOG_DIR / f"bot_{user['id']}.log"
+    if not log_file.exists():
+        return jsonify({"success": True, "logs": []})
+    try:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        return jsonify({"success": True, "logs": [l.rstrip() for l in lines[-200:]]})
+    except OSError as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/bot/close", methods=["POST"])
+def api_bot_close():
+    user, err = _api_user_or_error()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    symbol = str(data.get("symbol") or data.get("id") or "").strip().upper()
+    if not symbol:
+        return jsonify({"success": False, "error": "symbol is required"}), 400
+    payload, code = _engine_api(user["id"], "POST", "api/close", {"symbol": symbol}, ensure=True)
+    return jsonify(payload), code
+
+@app.route("/api/bot/close_all", methods=["POST"])
+def api_bot_close_all():
+    user, err = _api_user_or_error()
+    if err:
+        return err
+    payload, code = _engine_api(user["id"], "POST", "api/close_all", {}, ensure=True)
+    return jsonify(payload), code
+
+@app.route("/api/bot/active_symbol", methods=["POST"])
+def api_bot_active_symbol():
+    user, err = _api_user_or_error()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    payload, code = _engine_api(user["id"], "POST", "api/active_symbol",
+                                {"symbol": data.get("symbol") or ""})
+    return jsonify(payload), code
 
 # ============================================================
 # Bot Control API
@@ -2137,6 +2439,17 @@ def api_bot_start():
                         "error": "License inactive/expired. Please contact admin for a license."}), 403
 
     result = start_user_bot(user["id"])
+    # Kick the engine's trading loop so one button really means "bot chalu".
+    # (start_user_bot only spawns the engine process — the trading start lives
+    #  inside the engine at /api/start, exactly like the classic dashboard.)
+    if result.get("success"):
+        payload, code = _engine_api(user["id"], "POST", "api/start", {}, ensure=False, timeout=45)
+        if isinstance(payload, dict) and payload.get("success") is False:
+            # Engine process is up but refused to start trading — surface why
+            result["error"] = str(payload.get("error") or "Engine refused to start trading")
+            result["success"] = False
+        else:
+            result.setdefault("message", "Bot started — EMA 8/13/21/55 engine is live")
     return jsonify(result)
 
 @app.route("/api/bot/stop", methods=["POST"])
@@ -2796,7 +3109,7 @@ def google_callback():
                 "referral_earnings": 0.0,
                 "referral_history": [],
                 "bot_config": {
-                    "exchange": "binance", "testnet": True, "symbols_list": [],
+                    "exchange": "binance", "testnet": True, "symbols_list": ["BTCUSDT"],
                     "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
                     "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
                     "take_profit_pct": 6, "tp_mode": "both", "mode": "both",
