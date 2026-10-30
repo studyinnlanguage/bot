@@ -45,17 +45,6 @@ class DashboardScreen extends StatelessWidget {
           ],
         ),
       ),
-      floatingActionButton: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: WeexionicTheme.goldGlow,
-        ),
-        child: FloatingActionButton(
-          onPressed: () => p.refreshAll(),
-          backgroundColor: WeexionicTheme.brandGold,
-          child: const Icon(Icons.refresh_rounded, color: WeexionicTheme.bgBase),
-        ),
-      ),
     );
   }
 
