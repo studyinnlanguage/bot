@@ -600,12 +600,14 @@ class _CoinsSection extends StatelessWidget {
   final ValueChanged<BotConfig> onChanged;
   const _CoinsSection({required this.cfg, required this.onChanged});
 
-  static const _allCoins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'SUI'];
+  /// Server allows max 10 monitoring coins
+  static const int _maxCoins = 10;
 
   @override
   Widget build(BuildContext context) {
-    final selected = cfg.symbolsList.map((s) => s.replaceAll('USDT', '').replaceAll('SUSDT', '')).toList();
-
+    final p = context.watch<BotProvider>();
+    final selected = cfg.symbolsList;
+    // Show selected coins as chips (with remove buttons)
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -617,90 +619,370 @@ class _CoinsSection extends StatelessWidget {
               trailing: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: WeexionicTheme.brandGold.withOpacity(0.15),
+                  color: selected.length >= _maxCoins
+                      ? WeexionicTheme.green.withOpacity(0.15)
+                      : WeexionicTheme.brandGold.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  '${selected.length} SELECTED',
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: WeexionicTheme.brandGold),
+                  '${selected.length} / $_maxCoins',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: selected.length >= _maxCoins ? WeexionicTheme.green : WeexionicTheme.brandGold,
+                  ),
                 ),
               ),
             ),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _allCoins.map((c) {
-                final isOn = selected.contains(c);
-                return GestureDetector(
-                  onTap: () {
-                    final newList = List<String>.from(cfg.symbolsList);
-                    final symbol = '$c${cfg.exchange == 'weex' ? 'SUSDT' : 'USDT'}';
-                    if (isOn) {
-                      newList.remove(symbol);
-                    } else {
-                      if (newList.length >= 3) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Max 3 coins allowed'),
-                            backgroundColor: WeexionicTheme.brandGold,
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                        return;
-                      }
-                      newList.add(symbol);
-                    }
-                    onChanged(cfg
-                      ..symbolsList = newList
-                      ..symbol = newList.isNotEmpty ? newList.first : 'BTCUSDT');
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: isOn ? WeexionicTheme.brandGold : WeexionicTheme.bgElevated,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: WeexionicTheme.border),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          c,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: isOn ? WeexionicTheme.bgBase : WeexionicTheme.textMuted,
-                          ),
-                        ),
-                        if (isOn) ...[
-                          const SizedBox(width: 4),
-                          Icon(Icons.check, size: 10, color: WeexionicTheme.bgBase),
-                        ],
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
+            const SizedBox(height: 4),
+            Text(
+              'Tap + to browse all ${p.symbolsLoaded ? p.availableSymbols.length : "200+"} coins on ${cfg.exchange.toUpperCase()}',
+              style: const TextStyle(fontSize: 10, color: WeexionicTheme.textMuted),
             ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: WeexionicTheme.bgElevated,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: WeexionicTheme.border, style: BorderStyle.solid),
+            const SizedBox(height: 10),
+            // Selected coins as removable chips
+            if (selected.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: WeexionicTheme.bgElevated,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: WeexionicTheme.border, style: BorderStyle.solid),
+                ),
+                child: const Center(
+                  child: Text(
+                    'No coins selected — tap below to add',
+                    style: TextStyle(fontSize: 11, color: WeexionicTheme.textMuted),
+                  ),
+                ),
+              )
+            else
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: selected.map((symbol) {
+                  final code = symbol.replaceAll('USDT', '').replaceAll('SUSDT', '');
+                  return GestureDetector(
+                    onTap: () {
+                      final newList = List<String>.from(cfg.symbolsList)..remove(symbol);
+                      onChanged(cfg
+                        ..symbolsList = newList
+                        ..symbol = newList.isNotEmpty ? newList.first : 'BTCUSDT');
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        gradient: WeexionicTheme.brandGradient,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: WeexionicTheme.goldGlow,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            code,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: WeexionicTheme.bgBase,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.close, size: 12, color: WeexionicTheme.bgBase),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.add, size: 12, color: WeexionicTheme.textMuted),
-                  SizedBox(width: 4),
-                  Text('Add', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: WeexionicTheme.textMuted)),
-                ],
+            const SizedBox(height: 10),
+            // "Add Coins" button — opens searchable picker
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: selected.length >= _maxCoins
+                    ? null
+                    : () => _showCoinPicker(context, p),
+                icon: selected.length >= _maxCoins
+                    ? const Icon(Icons.check_circle, size: 16, color: WeexionicTheme.green)
+                    : const Icon(Icons.add_circle_outline, size: 16, color: WeexionicTheme.brandGold),
+                label: Text(
+                  selected.length >= _maxCoins
+                      ? 'MAX REACHED ($_maxCoins coins)'
+                      : 'ADD COINS FROM EXCHANGE',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: WeexionicTheme.textSecondary,
+                  side: BorderSide(
+                    color: selected.length >= _maxCoins
+                        ? WeexionicTheme.green.withOpacity(0.3)
+                        : WeexionicTheme.brandGold.withOpacity(0.3),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showCoinPicker(BuildContext context, BotProvider p) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: WeexionicTheme.bgSurface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => _CoinPickerSheet(
+        available: p.availableSymbols,
+        selected: cfg.symbolsList,
+        maxCoins: _maxCoins,
+        onToggle: (symbol, isSelected) {
+          final newList = List<String>.from(cfg.symbolsList);
+          if (isSelected) {
+            newList.remove(symbol);
+          } else {
+            if (newList.length >= _maxCoins) return false;
+            newList.add(symbol);
+          }
+          onChanged(cfg
+            ..symbolsList = newList
+            ..symbol = newList.isNotEmpty ? newList.first : 'BTCUSDT');
+          return true;
+        },
+      ),
+    );
+  }
+}
+
+/// Searchable coin picker bottom sheet — shows all available exchange coins
+class _CoinPickerSheet extends StatefulWidget {
+  final List<String> available;
+  final List<String> selected;
+  final int maxCoins;
+  /// Returns true if toggle succeeded (false if max reached)
+  final bool Function(String symbol, bool isSelected) onToggle;
+
+  const _CoinPickerSheet({
+    required this.available,
+    required this.selected,
+    required this.maxCoins,
+    required this.onToggle,
+  });
+
+  @override
+  State<_CoinPickerSheet> createState() => _CoinPickerSheetState();
+}
+
+class _CoinPickerSheetState extends State<_CoinPickerSheet> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<String> get _filtered {
+    if (_query.isEmpty) return widget.available;
+    final q = _query.toUpperCase();
+    return widget.available.where((s) => s.contains(q)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+    final height = MediaQuery.of(context).size.height * 0.85;
+
+    return SizedBox(
+      height: height,
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            decoration: const BoxDecoration(
+              color: WeexionicTheme.bgSurface,
+              border: Border(bottom: BorderSide(color: WeexionicTheme.border)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(
+                      color: WeexionicTheme.borderLight,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Select Coins',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: WeexionicTheme.brandGold.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${widget.selected.length} / ${widget.maxCoins}',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: WeexionicTheme.brandGold),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Search field
+                TextField(
+                  controller: _searchCtrl,
+                  style: const TextStyle(fontSize: 13, color: WeexionicTheme.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: 'Search BTC, ETH, SOL...',
+                    hintStyle: const TextStyle(color: WeexionicTheme.textMuted, fontSize: 12),
+                    prefixIcon: const Icon(Icons.search, size: 18, color: WeexionicTheme.textMuted),
+                    suffixIcon: _query.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 16, color: WeexionicTheme.textMuted),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _query = '');
+                            },
+                          )
+                        : null,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onChanged: (v) => setState(() => _query = v),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${widget.available.length} coins available · ${filtered.length} shown',
+                  style: const TextStyle(fontSize: 10, color: WeexionicTheme.textMuted),
+                ),
+              ],
+            ),
+          ),
+          // List
+          Expanded(
+            child: filtered.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.search_off, size: 36, color: WeexionicTheme.textFaint),
+                        const SizedBox(height: 8),
+                        Text(
+                          'No coins match "$_query"',
+                          style: const TextStyle(fontSize: 12, color: WeexionicTheme.textMuted),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: filtered.length,
+                    itemBuilder: (_, i) {
+                      final symbol = filtered[i];
+                      final isSelected = widget.selected.contains(symbol);
+                      final code = symbol.replaceAll('USDT', '').replaceAll('SUSDT', '');
+                      final maxReached = widget.selected.length >= widget.maxCoins && !isSelected;
+
+                      return ListTile(
+                        onTap: maxReached
+                            ? null
+                            : () {
+                                final ok = widget.onToggle(symbol, isSelected);
+                                if (!ok && mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Max ${widget.maxCoins} coins reached'),
+                                      backgroundColor: WeexionicTheme.brandGold,
+                                      duration: const Duration(seconds: 1),
+                                    ),
+                                  );
+                                }
+                                setState(() {});
+                              },
+                        enabled: !maxReached,
+                        dense: true,
+                        leading: Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? WeexionicTheme.brandGold
+                                : WeexionicTheme.bgElevated,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isSelected
+                                  ? WeexionicTheme.brandGold
+                                  : WeexionicTheme.border,
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              code.length > 3 ? code.substring(0, 3) : code,
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                color: isSelected ? WeexionicTheme.bgBase : WeexionicTheme.textMuted,
+                              ),
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          symbol,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                            color: isSelected ? WeexionicTheme.brandGold : WeexionicTheme.textPrimary,
+                          ),
+                        ),
+                        trailing: isSelected
+                            ? const Icon(Icons.check_circle, color: WeexionicTheme.brandGold, size: 20)
+                            : (maxReached
+                                ? const Icon(Icons.lock, color: WeexionicTheme.textFaint, size: 16)
+                                : const Icon(Icons.add, color: WeexionicTheme.textMuted, size: 18)),
+                      );
+                    },
+                  ),
+          ),
+          // Done button
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: const BoxDecoration(
+              color: WeexionicTheme.bgSurface,
+              border: Border(top: BorderSide(color: WeexionicTheme.border)),
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: WeexionicTheme.brandGold,
+                  foregroundColor: WeexionicTheme.bgBase,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text(
+                  'DONE',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 1),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

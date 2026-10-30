@@ -68,6 +68,20 @@ class ApiService {
     await _cookieJar.saveFromResponse(uri, [cookie]);
   }
 
+  /// Get the current session cookie value — used by Socket.IO for auth
+  /// (socket_io_client doesn't auto-send cookies like browsers do)
+  Future<String?> getSessionCookieValue() async {
+    await init();
+    final uri = Uri.parse(AppConfig.baseUrl);
+    final cookies = await _cookieJar.loadForRequest(uri);
+    for (final c in cookies) {
+      if (c.name == 'session' && c.value.isNotEmpty) {
+        return c.value;
+      }
+    }
+    return null;
+  }
+
   // ============ SaaS Auth API ============
 
   /// POST /api/auth/login — sets Flask session cookie via Set-Cookie header

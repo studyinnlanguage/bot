@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../core/config.dart';
+import '../core/api_service.dart';
 import '../models/bot_log.dart';
 
 /// Real-time Socket.IO client — connects to bot-engine
-/// CRITICAL: must use polling transport only (matches web client app.js line 797-805)
-/// Server uses async_mode="threading" with no WebSocket support
+/// CRITICAL: must use polling transport + pass session cookie (SaaS proxy requires auth)
 class SocketService {
   IO.Socket? _socket;
   bool _connected = false;
@@ -35,9 +35,16 @@ class SocketService {
   bool get isConnected => _connected;
   IO.Socket? get socket => _socket;
 
-  /// Connect to bot-engine Socket.IO server
-  void connect() {
+  /// Connect to bot-engine Socket.IO server with session cookie
+  Future<void> connect() async {
     if (_socket != null) return;
+
+    // Fetch session cookie from PersistCookieJar (set during login)
+    final cookieValue = await ApiService().getSessionCookieValue();
+    final Map<String, dynamic> extraHeaders = {
+      'Accept': 'text/html,application/xhtml+xml',
+      if (cookieValue != null) 'Cookie': 'session=$cookieValue',
+    };
 
     _socket = IO.io(
       AppConfig.socketUrl,
@@ -49,6 +56,7 @@ class SocketService {
         .setReconnectionDelay(1000)
         .setReconnectionDelayMax(5000)
         .setTimeout(25000)
+        .setExtraHeaders(extraHeaders)
         .build(),
     );
 
