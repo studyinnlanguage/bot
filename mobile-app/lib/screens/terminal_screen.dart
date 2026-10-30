@@ -59,7 +59,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
           children: [
             _buildAppBar(p),
             _buildFilterTabs(),
-            Expanded(child: _buildTerminal(logs)),
+            Expanded(child: _buildTerminal(logs, p)),
             _buildControls(),
           ],
         ),
@@ -169,7 +169,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
   }
 
-  Widget _buildTerminal(List<BotLog> logs) {
+  Widget _buildTerminal(List<BotLog> logs, BotProvider p) {
     if (logs.isEmpty) {
       return Container(
         margin: const EdgeInsets.all(14),
@@ -178,11 +178,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: WeexionicTheme.border),
         ),
-        child: EmptyState(
-          icon: Icons.terminal,
-          title: 'No logs yet',
-          subtitle: 'Connect to the bot and start it to see live activity here.',
-        ),
+        child: _AnimatedEmptyTerminal(connected: p.socketConnected),
       );
     }
 
@@ -355,3 +351,138 @@ class _CtrlBtn extends StatelessWidget {
     );
   }
 }
+
+/// Animated empty terminal state — pulsing icon + blinking cursor
+class _AnimatedEmptyTerminal extends StatefulWidget {
+  final bool connected;
+  const _AnimatedEmptyTerminal({required this.connected});
+
+  @override
+  State<_AnimatedEmptyTerminal> createState() => _AnimatedEmptyTerminalState();
+}
+
+class _AnimatedEmptyTerminalState extends State<_AnimatedEmptyTerminal>
+    with TickerProviderStateMixin {
+  late AnimationController _pulseCtrl;
+  late AnimationController _blinkCtrl;
+  late Animation<double> _pulseAnim;
+  late Animation<double> _blinkAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    _pulseAnim = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+    );
+
+    _blinkCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat();
+    _blinkAnim = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(parent: _blinkCtrl, curve: Curves.linear),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    _blinkCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedBuilder(
+            animation: _pulseAnim,
+            builder: (_, __) {
+              return Container(
+                width: 64, height: 64,
+                decoration: BoxDecoration(
+                  color: WeexionicTheme.bgElevated,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: widget.connected
+                        ? WeexionicTheme.green.withOpacity(_pulseAnim.value * 0.6)
+                        : WeexionicTheme.textMuted.withOpacity(_pulseAnim.value * 0.4),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: widget.connected
+                          ? WeexionicTheme.green.withOpacity(_pulseAnim.value * 0.3)
+                          : WeexionicTheme.textMuted.withOpacity(_pulseAnim.value * 0.2),
+                      blurRadius: 20,
+                      spreadRadius: 0,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.terminal,
+                  size: 28,
+                  color: widget.connected
+                      ? WeexionicTheme.green
+                      : WeexionicTheme.textFaint,
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          Text(
+            widget.connected ? "Waiting for logs..." : "Socket disconnected",
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: widget.connected ? WeexionicTheme.textPrimary : WeexionicTheme.red,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.connected
+                ? "Tap START on the home screen to begin streaming bot activity."
+                : "Check your internet connection. Reconnecting automatically...",
+            style: const TextStyle(fontSize: 11, color: WeexionicTheme.textMuted, height: 1.5),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                "> ",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: WeexionicTheme.brandGold,
+                  fontFamily: "RobotoMono",
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              AnimatedBuilder(
+                animation: _blinkAnim,
+                builder: (_, __) {
+                  return Opacity(
+                    opacity: _blinkAnim.value,
+                    child: Container(
+                      width: 8, height: 14,
+                      color: WeexionicTheme.brandGold,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+

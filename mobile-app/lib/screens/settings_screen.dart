@@ -6,6 +6,7 @@ import '../core/bot_provider.dart';
 import '../core/theme.dart';
 import '../models/bot_config.dart';
 import '../widgets/common.dart';
+import '../widgets/premium.dart';
 import 'alerts_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -126,7 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/// Account info card — shows user email, plan, days left, logout button
+/// Premium account card — gradient avatar + plan badge + days-left progress bar
 class _AccountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -135,12 +136,39 @@ class _AccountCard extends StatelessWidget {
     if (user == null) return const SizedBox.shrink();
     final sub = user.subscription;
 
+    // Progress bar: days remaining / total plan days
+    double progress;
+    if (sub.isLifetime) {
+      progress = 1.0;
+    } else if (sub.plan == 'yearly') {
+      progress = (sub.daysLeft / 365).clamp(0.0, 1.0);
+    } else {
+      progress = (sub.daysLeft / 30).clamp(0.0, 1.0);
+    }
+    if (!sub.isActive) progress = 0;
+
+    final progressColor = sub.isLifetime
+        ? WeexionicTheme.brandGold
+        : (sub.daysLeft < 7 ? WeexionicTheme.red : WeexionicTheme.green);
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: WeexionicTheme.border),
-        gradient: WeexionicTheme.brandGradientSoft,
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1E2329), Color(0xFF181A20)],
+        ),
+        border: Border.all(color: WeexionicTheme.brandGold.withOpacity(0.25)),
+        boxShadow: [
+          BoxShadow(
+            color: WeexionicTheme.brandGold.withOpacity(0.06),
+            blurRadius: 24,
+            spreadRadius: -8,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -148,16 +176,17 @@ class _AccountCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 44, height: 44,
-                decoration: const BoxDecoration(
+                width: 52, height: 52,
+                decoration: BoxDecoration(
                   gradient: WeexionicTheme.brandGradient,
                   shape: BoxShape.circle,
+                  boxShadow: WeexionicTheme.goldGlow,
                 ),
                 child: Center(
                   child: Text(
                     (user.name.isNotEmpty ? user.name[0] : '?').toUpperCase(),
                     style: const TextStyle(
-                      fontSize: 18,
+                      fontSize: 22,
                       fontWeight: FontWeight.w900,
                       color: WeexionicTheme.bgBase,
                     ),
@@ -169,97 +198,158 @@ class _AccountCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      user.name,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            user.name,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        if (user.isAdmin)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              gradient: WeexionicTheme.brandGradient,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'ADMIN',
+                              style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: WeexionicTheme.bgBase, letterSpacing: 0.5),
+                            ),
+                          ),
+                      ],
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       user.email,
                       style: const TextStyle(fontSize: 11, color: WeexionicTheme.textMuted),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-              if (user.isAdmin)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: WeexionicTheme.brandGold.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'ADMIN',
-                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: WeexionicTheme.brandGold),
-                  ),
+              IconButton(
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      backgroundColor: WeexionicTheme.bgSurface,
+                      title: const Text('Sign Out?'),
+                      content: const Text('You\'ll need to sign in again to access the bot.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: WeexionicTheme.red),
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Sign Out'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await context.read<BotProvider>().stop();
+                    await auth.logout();
+                  }
+                },
+                icon: const Icon(Icons.logout_rounded, size: 18, color: WeexionicTheme.red),
+                style: IconButton.styleFrom(
+                  backgroundColor: WeexionicTheme.red.withOpacity(0.1),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  minimumSize: const Size(36, 36),
                 ),
+              ),
+            ],
+         ),
+          const SizedBox(height: 14),
+          // Plan + days remaining
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'PLAN',
+                    style: TextStyle(fontSize: 9, color: WeexionicTheme.textMuted, letterSpacing: 1, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: WeexionicTheme.brandGold.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: WeexionicTheme.brandGold.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          sub.displayPlan.toUpperCase(),
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: WeexionicTheme.brandGold, letterSpacing: 0.5),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      if (sub.isActive)
+                        Row(
+                          children: [
+                            PulsingGlowDot(color: WeexionicTheme.green, size: 5),
+                            const SizedBox(width: 4),
+                            const Text('ACTIVE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: WeexionicTheme.green, letterSpacing: 0.5)),
+                          ],
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'REMAINING',
+                    style: TextStyle(fontSize: 9, color: WeexionicTheme.textMuted, letterSpacing: 1, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    sub.displayDaysLeft,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: progressColor,
+                      fontFamily: 'RobotoMono',
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: WeexionicTheme.bgBase.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const SizedBox(height: 10),
+          // Progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Stack(
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('PLAN', style: TextStyle(fontSize: 9, color: WeexionicTheme.textMuted, letterSpacing: 0.5)),
-                    const SizedBox(height: 2),
-                    Text(
-                      sub.displayPlan,
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: WeexionicTheme.brandGold),
-                    ),
-                  ],
+                Container(
+                  height: 5,
+                  color: WeexionicTheme.bgElevated,
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const Text('REMAINING', style: TextStyle(fontSize: 9, color: WeexionicTheme.textMuted, letterSpacing: 0.5)),
-                    const SizedBox(height: 2),
-                    Text(
-                      sub.displayDaysLeft,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: sub.isLifetime
-                            ? WeexionicTheme.brandGold
-                            : (sub.daysLeft < 7 ? WeexionicTheme.red : WeexionicTheme.green),
+                FractionallySizedBox(
+                  widthFactor: progress,
+                  child: Container(
+                    height: 5,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [progressColor, progressColor.withOpacity(0.7)],
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: progressColor.withOpacity(0.4),
+                          blurRadius: 6,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                TextButton.icon(
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        backgroundColor: WeexionicTheme.bgSurface,
-                        title: const Text('Sign Out?'),
-                        content: const Text('You\'ll need to sign in again to access the bot.'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: WeexionicTheme.red),
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('Sign Out'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true) {
-                      await context.read<BotProvider>().stop();
-                      await auth.logout();
-                    }
-                  },
-                  icon: const Icon(Icons.logout, size: 14, color: WeexionicTheme.red),
-                  label: const Text('Sign Out', style: TextStyle(fontSize: 11, color: WeexionicTheme.red, fontWeight: FontWeight.w600)),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    minimumSize: Size.zero,
                   ),
                 ),
               ],
