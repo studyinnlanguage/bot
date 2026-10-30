@@ -56,6 +56,18 @@ class ApiService {
     await _cookieJar.deleteAll();
   }
 
+  /// Manually inject a session cookie captured from WebView login flow
+  /// Used after Google OAuth completes in InAppWebView
+  Future<void> setSessionCookie(String cookieValue) async {
+    await init();
+    final uri = Uri.parse(AppConfig.baseUrl);
+    final cookie = Cookie('session', cookieValue);
+    cookie.domain = uri.host;
+    cookie.path = '/';
+    cookie.httpOnly = true;
+    await _cookieJar.saveFromResponse(uri, [cookie]);
+  }
+
   // ============ SaaS Auth API ============
 
   /// POST /api/auth/login — sets Flask session cookie via Set-Cookie header
