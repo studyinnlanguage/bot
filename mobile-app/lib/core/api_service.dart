@@ -1,84 +1,220 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:cookie_jar/cookie_jar.dart';
+import 'package:path_provider/path_provider.dart';
 import '../core/config.dart';
 
-/// REST API client for bot-engine
-/// All endpoints match bot-engine/app.py exactly
-/// Sends 'X-Bot-Token' header if AppConfig.botToken is non-empty
+/// REST API client — uses dio with persistent cookie jar
+/// Auth: Flask session cookie (set by /api/auth/login, persisted across app launches)
+/// All bot-engine endpoints under /bot/api/* require this cookie (SaaS proxy enforces)
 class ApiService {
   static final ApiService _i = ApiService._();
   factory ApiService() => _i;
   ApiService._();
 
-  Map<String, String> get _headers => {
-    'Content-Type': 'application/json',
-    if (AppConfig.botToken.isNotEmpty) 'X-Bot-Token': AppConfig.botToken,
-  };
+  late final Dio _dio;
+  late final PersistCookieJar _cookieJar;
+  bool _initialized = false;
 
-  String _url(String endpoint) => '${AppConfig.apiBase}$endpoint';
-
-  Future<Map<String, dynamic>> _get(String endpoint, {Map<String, String?>? q}) async {
-    final uri = Uri.parse(_url(endpoint)).replace(queryParameters: q?.map((k, v) => MapEntry(k, v?.toString())));
-    final r = await http.get(uri, headers: _headers);
-    if (r.statusCode == 403) {
-      throw Exception('Unauthorized — X-Bot-Token rejected (403)');
-    }
-    return jsonDecode(r.body) as Map<String, dynamic>;
-  }
-
-  Future<Map<String, dynamic>> _post(String endpoint, {Map<String, dynamic>? body}) async {
-    final r = await http.post(
-      Uri.parse(_url(endpoint)),
-      headers: _headers,
-      body: body == null ? '{}' : jsonEncode(body),
+  Future<void> init() async {
+    if (_initialized) return;
+    final appDir = await getApplicationDocumentsDirectory();
+    final cookiePath = '${appDir.path}/.cookies/';
+    _cookieJar = PersistCookieJar(
+      storage: FileStorage(cookiePath),
+      ignoreExpires: false,
     );
-    if (r.statusCode == 403) {
-      throw Exception('Unauthorized — X-Bot-Token rejected (403)');
-    }
-    return jsonDecode(r.body) as Map<String, dynamic>;
+
+    _dio = Dio(BaseOptions(
+      baseUrl: AppConfig.baseUrl,
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 30),
+      followRedirects: false, // SaaS returns 302 on auth fail — we want to catch it
+      validateStatus: (status) => status != null && status < 400, // accept 2xx + 3xx
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    ));
+
+    _dio.interceptors.add(CookieManager(_cookieJar));
+    _initialized = true;
   }
 
-  // ============ Config & Settings ============
-  Future<Map<String, dynamic>> getConfig() => _get(AppConfig.epConfig);
+  /// Returns true if we have a session cookie (doesn't guarantee it's valid)
+  Future<bool> hasSessionCookie() async {
+    await init();
+    final uri = Uri.parse(AppConfig.baseUrl);
+    final cookies = await _cookieJar.loadForRequest(uri);
+    return cookies.any((c) => c.name == 'session');
+  }
 
+  Future<void> clearCookies() async {
+    await init();
+    await _cookieJar.deleteAll();
+  }
+
+  // ============ SaaS Auth API ============
+
+  /// POST /api/auth/login — sets Flask session cookie via Set-Cookie header
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    await init();
+    final r = await _dio.post(
+      '${AppConfig.saasApiBase}${AppConfig.epAuthLogin}',
+      data: jsonEncode({'email': email, 'password': password}),
+    );
+    return _parseJson(r);
+  }
+
+  Future<Map<String, dynamic>> signup({
+    required String name,
+    required String email,
+    required String password,
+    String? referralCode,
+  }) async {
+    await init();
+    final r = await _dio.post(
+      '${AppConfig.saasApiBase}${AppConfig.epAuthSignup}',
+      data: jsonEncode({
+        'name': name,
+        'email': email,
+        'password': password,
+        if (referralCode != null && referralCode.isNotEmpty) 'referral_code': referralCode,
+      }),
+    );
+    return _parseJson(r);
+  }
+
+  Future<Map<String, dynamic>> logout() async {
+    await init();
+    final r = await _dio.post('${AppConfig.saasApiBase}${AppConfig.epAuthLogout}');
+    await _cookieJar.deleteAll();
+    return _parseJson(r);
+  }
+
+  /// GET /api/auth/me — verify session, get user + subscription + license info
+  Future<Map<String, dynamic>> me() async {
+    await init();
+    final r = await _dio.get('${AppConfig.saasApiBase}${AppConfig.epAuthMe}');
+    return _parseJson(r);
+  }
+
+  /// POST /api/license/activate — activate TRDBOT-XXXX-XXXX-XXXX-XXXX
+  Future<Map<String, dynamic>> activateLicense(String key) async {
+    await init();
+    final r = await _dio.post(
+      '${AppConfig.saasApiBase}${AppConfig.epLicenseActivate}',
+      data: jsonEncode({'key': key.toUpperCase()}),
+    );
+    return _parseJson(r);
+  }
+
+  // ============ Bot Engine API (under /bot/api/*) ============
+
+  Future<Map<String, dynamic>> _botGet(String endpoint, {Map<String, String?>? q}) async {
+    await init();
+    final uri = '${AppConfig.botApiBase}$endpoint';
+    final r = await _dio.get(uri, queryParameters: q?.map((k, v) => MapEntry(k, v?.toString())));
+    return _parseJson(r);
+  }
+
+  Future<Map<String, dynamic>> _botPost(String endpoint, {Map<String, dynamic>? body}) async {
+    await init();
+    final r = await _dio.post(
+      '${AppConfig.botApiBase}$endpoint',
+      data: body == null ? '{}' : jsonEncode(body),
+    );
+    return _parseJson(r);
+  }
+
+  // Config & settings
+  Future<Map<String, dynamic>> getConfig() => _botGet(AppConfig.epConfig);
   Future<Map<String, dynamic>> saveConfig(Map<String, dynamic> cfg) =>
-      _post(AppConfig.epConfig, body: cfg);
-
+      _botPost(AppConfig.epConfig, body: cfg);
   Future<Map<String, dynamic>> setLeverage(int leverage, {String? symbol}) =>
-      _post(AppConfig.epLeverage, body: {'leverage': leverage, if (symbol != null) 'symbol': symbol});
+      _botPost(AppConfig.epLeverage, body: {'leverage': leverage, if (symbol != null) 'symbol': symbol});
+  Future<Map<String, dynamic>> testNotification() => _botPost(AppConfig.epTestNotification);
 
-  Future<Map<String, dynamic>> testNotification() => _post(AppConfig.epTestNotification);
-
-  // ============ Bot Lifecycle ============
-  Future<Map<String, dynamic>> startBot() => _post(AppConfig.epStart);
-  Future<Map<String, dynamic>> stopBot() => _post(AppConfig.epStop);
-  Future<Map<String, dynamic>> forceStop() => _post(AppConfig.epForceStop);
+  // Bot lifecycle
+  Future<Map<String, dynamic>> startBot() => _botPost(AppConfig.epStart);
+  Future<Map<String, dynamic>> stopBot() => _botPost(AppConfig.epStop);
+  Future<Map<String, dynamic>> forceStop() => _botPost(AppConfig.epForceStop);
   Future<Map<String, dynamic>> setActiveSymbol(String symbol) =>
-      _post(AppConfig.epActiveSymbol, body: {'symbol': symbol});
-  Future<Map<String, dynamic>> getStatus() => _get(AppConfig.epStatus);
+      _botPost(AppConfig.epActiveSymbol, body: {'symbol': symbol});
+  Future<Map<String, dynamic>> getStatus() => _botGet(AppConfig.epStatus);
 
-  // ============ Positions & Trading ============
+  // Positions & trading
   Future<Map<String, dynamic>> getPositions({String? symbol}) =>
-      _get(AppConfig.epPositions, q: {if (symbol != null) 'symbol': symbol});
+      _botGet(AppConfig.epPositions, q: {if (symbol != null) 'symbol': symbol});
   Future<Map<String, dynamic>> closePosition(String symbol) =>
-      _post(AppConfig.epClose, body: {'symbol': symbol});
-  Future<Map<String, dynamic>> closeAll() => _post(AppConfig.epCloseAll);
+      _botPost(AppConfig.epClose, body: {'symbol': symbol});
+  Future<Map<String, dynamic>> closeAll() => _botPost(AppConfig.epCloseAll);
 
-  // ============ Market Data ============
+  // Market data
   Future<Map<String, dynamic>> getPrice(String symbol) =>
-      _get(AppConfig.epPrice, q: {'symbol': symbol});
-  Future<Map<String, dynamic>> getSymbols() => _get(AppConfig.epSymbols);
+      _botGet(AppConfig.epPrice, q: {'symbol': symbol});
+  Future<Map<String, dynamic>> getSymbols() => _botGet(AppConfig.epSymbols);
   Future<Map<String, dynamic>> getTestChart(String symbol) =>
-      _get(AppConfig.epTestChart, q: {'symbol': symbol});
+      _botGet(AppConfig.epTestChart, q: {'symbol': symbol});
 
-  // ============ History & Balance ============
+  // History & balance
   Future<Map<String, dynamic>> getTrades({int limit = 100, String? symbol}) =>
-      _get(AppConfig.epTrades, q: {
+      _botGet(AppConfig.epTrades, q: {
         'limit': limit.toString(),
         if (symbol != null) 'symbol': symbol,
       });
-  Future<Map<String, dynamic>> clearTrades() => _post(AppConfig.epTradesClear);
-  Future<Map<String, dynamic>> getBalance() => _get(AppConfig.epBalance);
-  Future<Map<String, dynamic>> testConnection() => _post(AppConfig.epTestConnection);
-  Future<Map<String, dynamic>> startMonitor() => _post(AppConfig.epPreview);
+  Future<Map<String, dynamic>> clearTrades() => _botPost(AppConfig.epTradesClear);
+  Future<Map<String, dynamic>> getBalance() => _botGet(AppConfig.epBalance);
+  Future<Map<String, dynamic>> testConnection() => _botPost(AppConfig.epTestConnection);
+  Future<Map<String, dynamic>> startMonitor() => _botPost(AppConfig.epPreview);
+
+  // ============ Helpers ============
+
+  /// Parse JSON response — detects HTML (auth redirect) and throws AuthRequiredException
+  Map<String, dynamic> _parseJson(Response r) {
+    final contentType = r.headers.value('content-type') ?? '';
+    final body = r.data?.toString() ?? '';
+
+    // SaaS returns HTML redirect page when not authenticated
+    if (contentType.contains('text/html') || body.startsWith('<!doctype') || body.startsWith('<html')) {
+      throw AuthRequiredException('Authentication required — server returned HTML');
+    }
+
+    // Check for redirect (302) — also indicates auth failure
+    if (r.statusCode == 302 || r.statusCode == 301) {
+      final loc = r.headers.value('location') ?? '/';
+      if (loc == '/' || loc.contains('login')) {
+        throw AuthRequiredException('Session expired — redirect to login');
+      }
+    }
+
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      // Some endpoints return lists wrapped — return as success wrapper
+      if (decoded is List) return {'success': true, 'data': decoded};
+      throw ApiException('Unexpected response shape: ${decoded.runtimeType}');
+    } catch (e) {
+      if (e is AuthRequiredException || e is ApiException) rethrow;
+      throw ApiException('JSON parse failed: ${e.toString()}. Body was: ${body.substring(0, body.length > 100 ? 100 : body.length)}');
+    }
+  }
+}
+
+/// Thrown when server returns HTML or redirect — means session expired or not logged in
+class AuthRequiredException implements Exception {
+  final String message;
+  AuthRequiredException(this.message);
+  @override
+  String toString() => 'AuthRequiredException: $message';
+}
+
+class ApiException implements Exception {
+  final String message;
+  ApiException(this.message);
+  @override
+  String toString() => 'ApiException: $message';
 }

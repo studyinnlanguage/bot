@@ -20,11 +20,12 @@ class BotProvider extends ChangeNotifier {
 
   // === State ===
   BotConfig _config = BotConfig();
-  BotStatus _status = const BotStatus.empty();
-  TradeStats _stats = const TradeStats.empty();
+  BotStatus _status = BotStatus.empty;
+  TradeStats _stats = TradeStats.empty;
   List<Trade> _trades = [];
   Map<String, Position> _positions = {};   // keyed by symbol
   List<BotLog> _logs = [];
+  final StreamController<BotLog> _logCtrl = StreamController<BotLog>.broadcast();
   ChartData _chart = ChartData.empty;
   Indicators _indicators = Indicators.empty;
   double _balance = 0;
@@ -40,6 +41,8 @@ class BotProvider extends ChangeNotifier {
   List<Trade> get trades => _trades;
   Map<String, Position> get positions => _positions;
   List<BotLog> get logs => UnmodifiableListView(_logs);
+  /// Stream of newly-arrived log entries (for terminal auto-scroll)
+  Stream<BotLog> get logStream => _logCtrl.stream;
   ChartData get chart => _chart;
   Indicators get indicators => _indicators;
   double get balance => _balance;
@@ -49,7 +52,7 @@ class BotProvider extends ChangeNotifier {
   String? get error => _error;
   bool get isRunning => _status.running;
 
-  Position get activePosition => _positions[_activeSymbol] ?? const Position.empty();
+  Position get activePosition => _positions[_activeSymbol] ?? Position.empty;
 
   List<BotLog> filteredLogs({LogLevel? level, String? symbol}) {
     return _logs.where((l) {
@@ -63,8 +66,38 @@ class BotProvider extends ChangeNotifier {
   final List<StreamSubscription> _subs = [];
 
   BotProvider() {
+    // Don't auto-connect on construction — wait until user is authenticated
+    // (Socket.IO + REST both require auth cookie via SaaS proxy)
+  }
+
+  /// Called by main_screen once auth is confirmed
+  Future<void> start() async {
+    if (_started) return;
+    _started = true;
     _init();
   }
+
+  /// Called on logout — disconnect socket, clear state
+  Future<void> stop() async {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _subs.clear();
+    _socket.disconnect();
+    _started = false;
+    _config = BotConfig();
+    _status = BotStatus.empty;
+    _stats = TradeStats.empty;
+    _trades = [];
+    _positions = {};
+    _logs = [];
+    _chart = ChartData.empty;
+    _indicators = Indicators.empty;
+    _balance = 0;
+    notifyListeners();
+  }
+
+  bool _started = false;
 
   void _init() {
     // Socket.IO subscriptions
@@ -83,6 +116,7 @@ class BotProvider extends ChangeNotifier {
       if (_logs.length > 500) {
         _logs.removeRange(0, _logs.length - 500);
       }
+      _logCtrl.add(log);
       notifyListeners();
     }));
 
@@ -343,6 +377,7 @@ class BotProvider extends ChangeNotifier {
       s.cancel();
     }
     _socket.dispose();
+    _logCtrl.close();
     super.dispose();
   }
 }

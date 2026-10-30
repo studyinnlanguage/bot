@@ -137,9 +137,9 @@ class WeexionicTheme {
   // === Reusable helpers ===
   static LinearGradient pnlGradient(double pnl) {
     if (pnl >= 0) {
-      return LinearGradient(colors: [green.withValues(alpha: 0.15), green.withValues(alpha: 0.05)]);
+      return LinearGradient(colors: [green.withOpacity(0.15), green.withOpacity(0.05)]);
     }
-    return LinearGradient(colors: [red.withValues(alpha: 0.15), red.withValues(alpha: 0.05)]);
+    return LinearGradient(colors: [red.withOpacity(0.15), red.withOpacity(0.05)]);
   }
 }
 

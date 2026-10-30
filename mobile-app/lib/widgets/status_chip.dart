@@ -73,15 +73,15 @@ class StatusChip extends StatelessWidget {
   (Color, Color, Color) _colors() {
     switch (type) {
       case StatusChipType.success:
-        return (WeexionicTheme.green, WeexionicTheme.green.withValues(alpha: 0.12), WeexionicTheme.green.withValues(alpha: 0.3));
+        return (WeexionicTheme.green, WeexionicTheme.green.withOpacity(0.12), WeexionicTheme.green.withOpacity(0.3));
       case StatusChipType.danger:
-        return (WeexionicTheme.red, WeexionicTheme.red.withValues(alpha: 0.12), WeexionicTheme.red.withValues(alpha: 0.3));
+        return (WeexionicTheme.red, WeexionicTheme.red.withOpacity(0.12), WeexionicTheme.red.withOpacity(0.3));
       case StatusChipType.info:
-        return (WeexionicTheme.blue, WeexionicTheme.blue.withValues(alpha: 0.12), WeexionicTheme.blue.withValues(alpha: 0.3));
+        return (WeexionicTheme.blue, WeexionicTheme.blue.withOpacity(0.12), WeexionicTheme.blue.withOpacity(0.3));
       case StatusChipType.gold:
-        return (WeexionicTheme.brandGold, WeexionicTheme.brandGold.withValues(alpha: 0.15), WeexionicTheme.brandGold.withValues(alpha: 0.3));
+        return (WeexionicTheme.brandGold, WeexionicTheme.brandGold.withOpacity(0.15), WeexionicTheme.brandGold.withOpacity(0.3));
       case StatusChipType.flat:
-        return (WeexionicTheme.textMuted, WeexionicTheme.textMuted.withValues(alpha: 0.15), Colors.transparent);
+        return (WeexionicTheme.textMuted, WeexionicTheme.textMuted.withOpacity(0.15), Colors.transparent);
     }
   }
 }
