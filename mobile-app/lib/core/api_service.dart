@@ -184,17 +184,28 @@ class ApiService {
 
   // ============ Helpers ============
 
-  /// Parse JSON response — detects HTML (auth redirect) and throws AuthRequiredException
+  /// Parse JSON response — handles Dio's auto-decoded Map + detects HTML/redirect
   Map<String, dynamic> _parseJson(Response r) {
-    final contentType = r.headers.value('content-type') ?? '';
+    // Dio auto-parses JSON when content-type is application/json — r.data is already a Map
+    if (r.data is Map) {
+      return Map<String, dynamic>.from(r.data as Map);
+    }
+    if (r.data is List) {
+      return {'success': true, 'data': r.data};
+    }
+
     final body = r.data?.toString() ?? '';
+    final contentType = r.headers.value('content-type') ?? '';
 
     // SaaS returns HTML redirect page when not authenticated
-    if (contentType.contains('text/html') || body.startsWith('<!doctype') || body.startsWith('<html')) {
+    if (contentType.contains('text/html') ||
+        body.startsWith('<!doctype') ||
+        body.startsWith('<html') ||
+        body.startsWith('<!DOCTYPE')) {
       throw AuthRequiredException('Authentication required — server returned HTML');
     }
 
-    // Check for redirect (302) — also indicates auth failure
+    // Check for redirect (302) — indicates auth failure
     if (r.statusCode == 302 || r.statusCode == 301) {
       final loc = r.headers.value('location') ?? '/';
       if (loc == '/' || loc.contains('login')) {
@@ -206,12 +217,13 @@ class ApiService {
       final decoded = jsonDecode(body);
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      // Some endpoints return lists wrapped — return as success wrapper
       if (decoded is List) return {'success': true, 'data': decoded};
       throw ApiException('Unexpected response shape: ${decoded.runtimeType}');
     } catch (e) {
       if (e is AuthRequiredException || e is ApiException) rethrow;
-      throw ApiException('JSON parse failed: ${e.toString()}. Body was: ${body.substring(0, body.length > 100 ? 100 : body.length)}');
+      throw ApiException(
+        'JSON parse failed. Body: ${body.length > 200 ? body.substring(0, 200) : body}',
+      );
     }
   }
 }
