@@ -9,8 +9,10 @@ import base64
 import hashlib
 import json
 import logging
+import math
+import re
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import requests
 import pandas as pd
 
@@ -87,6 +89,24 @@ class PrimeXBTTrader:
         "GER30",        # DAX 30
     ]
 
+    # ---------------------------------------------------------------------
+    # Real market data sources (NO fake/synthetic candles)
+    # ---------------------------------------------------------------------
+    # PrimeXBT's own REST API does not expose public OHLCV history, so REAL
+    # candles are sourced from Binance (futures first, spot fallback), which
+    # tracks the same underlying markets:
+    #   - Crypto  "BTC/USD"  -> Binance  "BTCUSDT"
+    #   - Gold    "XAU/USD"  -> Binance  "PAXGUSDT" (1 PAXG = 1 troy oz gold)
+    # Symbols with no real source (silver, indices, most forex) raise a clean
+    # "symbol not supported" error so the engine skips them. The old behaviour
+    # of generating synthetic sawtooth candles (which made the EMA strategy
+    # mathematically unable to trade, and would have traded on noise if it
+    # could) has been REMOVED on purpose.
+    _GOLD_ALIASES = ("XAU/USD", "XAUUSD", "GOLD", "GOLD/USD", "GOLD24/7",
+                     "GOLD 24/7", "XAU/USDT", "PAXG/USD")
+    _SRC_TTL = 600.0  # seconds a venue resolution stays cached
+    _PROBE_COOLDOWN = 60.0  # seconds to pause Binance probing after a rate-limit hit
+
     def __init__(self, config: dict):
         self.config = config or {}
         self.api_key = str(self.config.get("api_key", "")).strip()
@@ -94,6 +114,10 @@ class PrimeXBTTrader:
         self.testnet = bool(self.config.get("testnet", True))
         self.private_key: Optional[Ed25519PrivateKey] = None
         self._symbol_leverage: Dict[str, int] = {}
+        # symbol -> (binance_symbol or None, preferred venue or None, cached_at_ts)
+        self._src_cache: Dict[str, Tuple[Optional[str], Optional[str], float]] = {}
+        # symbol -> ts until which Binance probing is paused (rate-limit backoff)
+        self._probe_cooldown: Dict[str, float] = {}
         self._init_crypto_keys()
 
     def _init_crypto_keys(self):
@@ -237,50 +261,151 @@ class PrimeXBTTrader:
     # =========================================================================
 
     def get_mark_price(self, symbol: str) -> float:
-        """Fetch current bid/ask quote for symbol (e.g. XAU/USD)."""
+        """Fetch current price for symbol (e.g. XAU/USD).
+
+        Order: PrimeXBT authenticated quote (real instrument price) ->
+        Binance public price of the resolved real data source. Returns 0.0
+        when nothing real is available (the engine then falls back to the
+        last candle close). NO fake hard-coded prices.
+        """
         clean_sym = symbol.strip().upper()
-        res = self._request("POST", "/v3/trading/quotes", body={"symbols": [clean_sym]})
-        if isinstance(res, dict) and not res.get("error"):
-            quotes = res.get("quotes", [])
-            for q in quotes:
-                if q.get("symbol") == clean_sym:
-                    ask = float(q.get("ask", 0.0))
-                    bid = float(q.get("bid", 0.0))
-                    if ask > 0 and bid > 0:
-                        return (ask + bid) / 2.0
-                    return ask or bid
+        # Authenticated PrimeXBT quote — only when keys are present, otherwise
+        # every tick would burn 2 doomed 401 requests (latency + log spam).
+        if self.api_key and self.private_key:
+            res = self._request("POST", "/v3/trading/quotes", body={"symbols": [clean_sym]})
+            if isinstance(res, dict) and not res.get("error"):
+                quotes = res.get("quotes", [])
+                for q in quotes:
+                    if str(q.get("symbol", "")).upper() == clean_sym:
+                        ask = float(q.get("ask", 0.0) or 0.0)
+                        bid = float(q.get("bid", 0.0) or 0.0)
+                        if ask > 0 and bid > 0:
+                            return (ask + bid) / 2.0
+                        return ask or bid
 
-        # Fallback public market quote
+            # Fallback public market quote from PrimeXBT catalogue
+            try:
+                m_res = self._request("POST", "/v3/trading/markets", body={})
+                if isinstance(m_res, dict) and "markets" in m_res:
+                    for m in m_res["markets"]:
+                        if str(m.get("symbol", "")).upper() == clean_sym:
+                            px = float(m.get("price") or m.get("ask") or m.get("bid") or 0.0)
+                            if px > 0:
+                                return px
+            except Exception:
+                pass
+
+        # Real public fallback via Binance (futures first, then spot)
         try:
-            m_res = self._request("POST", "/v3/trading/markets", body={})
-            if isinstance(m_res, dict) and "markets" in m_res:
-                for m in m_res["markets"]:
-                    if m.get("symbol") == clean_sym:
-                        return float(m.get("price") or m.get("ask") or m.get("bid") or 0.0)
-        except Exception:
-            pass
-
-        # Crypto price fallback via Binance public API if crypto pair
-        if "BTC" in clean_sym:
-            return self._fallback_binance_price("BTCUSDT")
-        if "ETH" in clean_sym:
-            return self._fallback_binance_price("ETHUSDT")
-        if "SOL" in clean_sym:
-            return self._fallback_binance_price("SOLUSDT")
-        if "XAU" in clean_sym or "GOLD" in clean_sym:
-            return 4165.0  # Gold reference
+            resolved = self._resolve_binance_source(clean_sym)
+        except RuntimeError:
+            resolved = None  # rate-limited: engine falls back to last candle close
+        if resolved:
+            binance_sym, venue = resolved
+            for v in ([venue] if venue else ["fapi", "spot"]):
+                if v == "fapi":
+                    url = f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={binance_sym}"
+                else:
+                    url = f"https://api.binance.com/api/v3/ticker/price?symbol={binance_sym}"
+                try:
+                    r = requests.get(url, timeout=4)
+                    px = float(r.json().get("price", 0.0) or 0.0)
+                    if px > 0:
+                        return px
+                except Exception:
+                    continue
 
         return 0.0
 
-    def _fallback_binance_price(self, binance_sym: str) -> float:
-        try:
-            r = requests.get(
-                f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={binance_sym}",
-                timeout=4,
+    def _binance_klines(self, binance_sym: str, interval: str, limit: int, venue: str):
+        """Fetch raw kline rows from Binance futures ('fapi') or spot.
+
+        Returns list-of-rows on success, None when the symbol does not exist
+        on that venue (-1121 Invalid symbol), raises RuntimeError on other
+        API errors (rate limits, network) so callers can react properly.
+        """
+        if venue == "fapi":
+            url = (f"https://fapi.binance.com/fapi/v1/klines"
+                   f"?symbol={binance_sym}&interval={interval}&limit={max(10, min(int(limit), 1000))}")
+        else:
+            url = (f"https://api.binance.com/api/v3/klines"
+                   f"?symbol={binance_sym}&interval={interval}&limit={max(10, min(int(limit), 1000))}")
+        r = requests.get(url, timeout=6)
+        data = r.json()
+        if isinstance(data, list) and data and isinstance(data[0], list):
+            return data
+        if isinstance(data, dict):
+            code = data.get("code")
+            msg = str(data.get("msg") or "")
+            if code == -1121 or "invalid symbol" in msg.lower():
+                return None  # symbol does not exist on this venue
+            raise RuntimeError(f"Binance {venue} error {code}: {msg}")
+        return None
+
+    def _resolve_binance_source(self, clean_sym: str) -> Optional[Tuple[str, Optional[str]]]:
+        """Map a PrimeXBT symbol to a real Binance data source.
+
+        Returns (binance_symbol, preferred_venue) or None when no real source
+        exists. Resolutions are cached for _SRC_TTL seconds (including
+        negative results) to avoid hammering public endpoints every tick.
+        On Binance rate-limit errors a 60s probe cooldown is armed and the
+        error re-raised (never misreported as 'unsupported').
+        """
+        now = time.time()
+        # Rate-limit cooldown: fail fast without hitting Binance
+        cd_until = self._probe_cooldown.get(clean_sym, 0.0)
+        if now < cd_until:
+            raise RuntimeError(
+                f"Binance rate limit cooldown active for {clean_sym} "
+                f"(probe paused {int(cd_until - now)}s more)"
             )
-            return float(r.json().get("price", 0.0))
-        except Exception:
-            return 0.0
+
+        cached = self._src_cache.get(clean_sym)
+        if cached and now - cached[2] < self._SRC_TTL:
+            return (cached[0], cached[1]) if cached[0] else None
+
+        binance_sym: Optional[str] = None
+        s = clean_sym.upper().replace(" ", "")
+        if s in self._GOLD_ALIASES or s.startswith("XAU") or s.startswith("GOLD"):
+            binance_sym = "PAXGUSDT"  # 1 PAXG = 1 troy oz — real gold market proxy
+        else:
+            m = re.match(r"^([A-Z0-9]{2,15})/(USD|USDT)$", s)
+            if m and m.group(1) != "XAG":  # silver has no reliable crypto proxy
+                binance_sym = f"{m.group(1)}USDT"
+
+        if not binance_sym:
+            self._src_cache[clean_sym] = (None, None, now)
+            return None
+
+        # Probe which venue actually lists it (futures first).
+        # A rate-limited venue is skipped (not fatal): the other venue may
+        # still be clean — e.g. fapi banned while spot works keeps the bot
+        # trading. Only when BOTH venues are rate-limited do we raise.
+        venue: Optional[str] = None
+        last_rl_err: Optional[str] = None
+        for v in ("fapi", "spot"):
+            try:
+                probe = self._binance_klines(binance_sym, "5m", 2, v)
+            except RuntimeError as e:
+                if "429" in str(e) or "418" in str(e) or "too many" in str(e).lower() or "banned" in str(e).lower():
+                    last_rl_err = str(e)
+                    continue  # try the other venue before giving up
+                continue
+            if probe:
+                venue = v
+                break
+
+        if venue:
+            self._src_cache[clean_sym] = (binance_sym, venue, now)
+            return (binance_sym, venue)
+        if last_rl_err:
+            # All venues rate-limited: arm a 60s cooldown so we do not
+            # hammer Binance every tick, then surface the rate-limit error
+            # (never misreport it as 'unsupported').
+            self._probe_cooldown[clean_sym] = now + self._PROBE_COOLDOWN
+            raise RuntimeError(last_rl_err)
+        self._src_cache[clean_sym] = (None, None, now)
+        return None
 
     def get_all_symbols(self) -> List[str]:
         """Fetch all tradable instruments across CFDs, Forex, Metals, and Crypto."""
@@ -456,12 +581,16 @@ class PrimeXBTTrader:
         res = self._request("POST", "/v3/trading/orders/market/place", body=payload)
 
         if isinstance(res, dict) and not res.get("error"):
+            order_id = res.get("orderId") or res.get("id")
             return {
                 "success": True,
-                "order_id": res.get("orderId") or res.get("id"),
+                "order_id": order_id,
+                # Engine's _log_order() reads result["order"]["orderId"]
+                "order": {"orderId": order_id},
                 "symbol": clean_sym,
                 "side": prime_side,
                 "qty": qty_val,
+                "quantity": qty_val,
                 "raw": res,
             }
 
@@ -470,6 +599,39 @@ class PrimeXBTTrader:
             "error": res.get("error") or "Order placement failed",
             "symbol": clean_sym,
         }
+
+    # =========================================================================
+    # Engine-compatible order interface (same shape as Binance/WEEX traders)
+    # =========================================================================
+
+    def open_long(self, symbol: str, quantity: float,
+                  sl_price: Optional[float] = None, tp_price: Optional[float] = None,
+                  order_type: str = "market", price: Optional[float] = None) -> dict:
+        """Open a LONG position (market) with optional exchange-side SL/TP."""
+        return self.place_order(symbol, "BUY", quantity, order_type="MARKET",
+                                sl_price=sl_price, tp_price=tp_price)
+
+    def open_short(self, symbol: str, quantity: float,
+                   sl_price: Optional[float] = None, tp_price: Optional[float] = None,
+                   order_type: str = "market", price: Optional[float] = None) -> dict:
+        """Open a SHORT position (market) with optional exchange-side SL/TP."""
+        return self.place_order(symbol, "SELL", quantity, order_type="MARKET",
+                                sl_price=sl_price, tp_price=tp_price)
+
+    def compute_quantity(self, notional_usdt: float, price: float,
+                         leverage: int, qty_step: float = 0.001) -> float:
+        """Convert USDT notional into base-asset quantity, rounded DOWN to step."""
+        if price <= 0:
+            return 0.0
+        raw_qty = notional_usdt / price
+        return self._round_to_step(raw_qty, qty_step) if qty_step > 0 else round(raw_qty, 8)
+
+    @staticmethod
+    def _round_to_step(value: float, step: float) -> float:
+        if step <= 0:
+            return value
+        decimals = max(0, int(math.ceil(-math.log10(step))))
+        return round(math.floor(value / step) * step, decimals)
 
     def close_position(self, symbol: str) -> dict:
         """Market close active position on PrimeXBT."""
@@ -500,73 +662,64 @@ class PrimeXBTTrader:
     # =========================================================================
 
     def get_klines(self, symbol: str, interval: str = "1m", limit: int = 100) -> Optional[pd.DataFrame]:
-        """
-        Fetch candlestick OHLCV data.
-        For Crypto pairs (BTC/USD, ETH/USD, SOL/USD): pulls high-precision data.
-        For Gold (XAU/USD) & Forex: generates real-time precision kline bars from market quotes.
+        """Fetch REAL candlestick OHLCV data for the EMA strategy.
+
+        PrimeXBT's own REST API does not provide public OHLCV history, so
+        candles are sourced from Binance (futures first, spot fallback),
+        which tracks the same underlying markets:
+            Crypto "BTC/USD" -> BTCUSDT futures; Gold "XAU/USD" -> PAXGUSDT.
+
+        NO synthetic candles are generated: if no real source exists for a
+        symbol (e.g. XAG/USD silver, indices USTEC/US30/GER30, most forex),
+        a clean "symbol not supported" error is raised and the engine skips
+        the symbol instead of silently computing EMAs on noise.
         """
         clean_sym = symbol.strip().upper()
+        tf_map = {"1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+                  "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h",
+                  "12h": "12h", "1d": "1d", "1w": "1w"}
+        b_interval = tf_map.get(str(interval).lower())
+        if not b_interval:
+            raise ValueError(f"Timeframe '{interval}' not supported on PrimeXBT market data")
 
-        # Crypto symbols: pull directly from high-liquidity ticker
-        crypto_map = {
-            "BTC/USD": "BTCUSDT",
-            "ETH/USD": "ETHUSDT",
-            "SOL/USD": "SOLUSDT",
-            "XRP/USD": "XRPUSDT",
-        }
+        resolved = self._resolve_binance_source(clean_sym)
+        if not resolved:
+            raise ValueError(
+                f"symbol not supported on PrimeXBT market data: {clean_sym} "
+                f"(no real candle source available; synthetic candles were removed)"
+            )
+        binance_sym, venue = resolved
 
-        binance_eq = crypto_map.get(clean_sym)
-        if binance_eq:
-            try:
-                tf_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
-                b_interval = tf_map.get(interval, "1m")
-                r = requests.get(
-                    f"https://fapi.binance.com/fapi/v1/klines?symbol={binance_eq}&interval={b_interval}&limit={limit}",
-                    timeout=5,
-                )
-                data = r.json()
-                if isinstance(data, list) and len(data) > 0:
-                    records = []
-                    for row in data:
-                        records.append({
-                            "timestamp": int(row[0]),
-                            "open": float(row[1]),
-                            "high": float(row[2]),
-                            "low": float(row[3]),
-                            "close": float(row[4]),
-                            "volume": float(row[5]),
-                        })
+        last_err: Optional[str] = None
+        for v in ([venue] if venue else ["fapi", "spot"]):
+            for _attempt in range(2):
+                try:
+                    rows = self._binance_klines(binance_sym, b_interval, limit, v)
+                except RuntimeError as e:
+                    last_err = str(e)
+                    if "429" in last_err or "418" in last_err or "too many" in last_err.lower():
+                        raise  # rate limited — engine has a dedicated pause path
+                    time.sleep(0.5)
+                    continue
+                if rows:
+                    records = [{
+                        "open_time": int(row[0]),
+                        "open": float(row[1]),
+                        "high": float(row[2]),
+                        "low": float(row[3]),
+                        "close": float(row[4]),
+                        "volume": float(row[5]),
+                    } for row in rows]
                     df = pd.DataFrame(records)
-                    df.set_index("timestamp", inplace=True)
-                    return df
-            except Exception as e:
-                logger.warning("Crypto klines fetch error for %s: %s", clean_sym, e)
-
-        # For Gold (XAU/USD) & CFDs: fetch live mark price & construct stable candle dataframe
-        mp = self.get_mark_price(clean_sym)
-        if mp <= 0:
-            mp = 4165.0 if "XAU" in clean_sym or "GOLD" in clean_sym else 100.0
-
-        now_ms = int(time.time() * 1000)
-        step_ms = 60 * 1000  # 1m step
-        records = []
-        import numpy as np
-
-        # Seed realistic micro-variance so EMAs calculate realistically without divide-by-zero
-        base = mp
-        for i in range(limit, 0, -1):
-            t = now_ms - (i * step_ms)
-            noise = (i % 5 - 2) * 0.15
-            c = base + noise
-            records.append({
-                "timestamp": t,
-                "open": c - 0.05,
-                "high": c + 0.10,
-                "low": c - 0.10,
-                "close": c,
-                "volume": 100.0,
-            })
-
-        df = pd.DataFrame(records)
-        df.set_index("timestamp", inplace=True)
-        return df
+                    df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
+                    df.set_index("open_time", inplace=True)
+                    # Remember the working venue for subsequent ticks
+                    self._src_cache[clean_sym] = (binance_sym, v, time.time())
+                    return df[["open", "high", "low", "close", "volume"]]
+                # None => symbol not listed on this venue; try the next venue
+                break
+        if last_err:
+            raise RuntimeError(f"PrimeXBT klines fetch failed for {clean_sym}: {last_err}")
+        raise ValueError(
+            f"symbol not supported on PrimeXBT market data: {clean_sym} (no real candle source)"
+        )

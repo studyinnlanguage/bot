@@ -242,6 +242,8 @@ class WEEXFuturesTrader:
 
     # ---------- Market data (public) ----------
 
+    _SUPPORTED_TFS = ("1m", "5m", "15m", "30m", "1h", "4h", "12h", "1d", "1w")
+
     def get_klines(self, symbol: str, interval: str = "1d", limit: int = 200) -> pd.DataFrame:
         """Fetch historical klines. WEEX interval codes: 1m,5m,15m,30m,1h,4h,12h,1d,1w.
 
@@ -249,6 +251,12 @@ class WEEXFuturesTrader:
         even when the user selected a demo coin (BTCSUSDT). The _market_symbol()
         helper converts BTCSUSDT -> BTCUSDT automatically.
         """
+        interval = str(interval).lower()
+        if interval not in self._SUPPORTED_TFS:
+            raise RuntimeError(
+                f"Timeframe '{interval}' not supported on WEEX "
+                f"(supported: {' '.join(self._SUPPORTED_TFS)})"
+            )
         market_sym = self._market_symbol(symbol)
         path = "/capi/v3/market/klines"
         params = {"symbol": market_sym, "interval": interval, "limit": min(limit, 1000)}
@@ -828,12 +836,25 @@ class WEEXFuturesTrader:
                                        sl_price=sl_price, tp_price=tp_price)
 
     def place_stop_loss(self, symbol: str, side: str, stop_price: float, quantity: float) -> dict:
-        """Place a stop loss order on WEEX (or manage via software watchdog)."""
-        try:
-            return self.place_market_order(symbol, side, quantity, reduce_only=True, sl_price=stop_price)
-        except Exception as e:
-            logger.warning("WEEX place_stop_loss notice: %s (software watchdog remains active)", e)
-            return {"success": True, "notice": str(e)}
+        """Exchange-side SL sync hook for WEEX.
+
+        SAFETY FIX: the old implementation called place_market_order(...,
+        reduce_only=True, sl_price=stop_price). For reduce_only orders WEEX
+        adapter silently DROPS the SL trigger price, so this placed a plain
+        reduceOnly MARKET order — i.e. it INSTANTLY CLOSED the whole position
+        at market whenever the engine tried to sync/move the exchange-side SL
+        (for example on auto-restore after a restart, or trailing-TP purge).
+
+        WEEX standalone trigger orders are not wired yet, so this is now a
+        deliberate no-op: the software watchdog in engine.py polls the mark
+        price every tick and closes via close_position() when SL/TP is hit —
+        it is the source of truth for exits on every exchange.
+        """
+        logger.info(
+            "[%s] WEEX exchange-side SL sync skipped (software watchdog active): SL=%s side=%s qty=%s",
+            symbol, stop_price, side, quantity,
+        )
+        return {"success": True, "notice": "software watchdog manages SL", "sl_price": stop_price}
 
     def cancel_open_orders(self, symbol: str) -> dict:
         """Cancel open orders for a symbol on WEEX."""
@@ -965,12 +986,14 @@ class WEEXFuturesTrader:
 
     def compute_quantity(self, notional_usdt: float, price: float,
                          leverage: int, qty_step: float = 0.001) -> float:
-        """Compute contract quantity from USDT notional."""
+        """Compute contract quantity from USDT notional (rounded DOWN to step).
+
+        Rounding DOWN (floor) instead of round-half-up guarantees the order
+        never exceeds the available notional/margin after step rounding.
+        """
         if price <= 0:
             return 0.0
         raw_qty = notional_usdt / price
         if qty_step > 0:
-            stepped = round(raw_qty / qty_step) * qty_step
-            decimals = max(0, int(math.ceil(-math.log10(qty_step)))) if qty_step >= 1e-10 else 8
-            return round(stepped, decimals)
+            return self._round_to_step(raw_qty, qty_step)
         return round(raw_qty, 8)
