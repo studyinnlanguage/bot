@@ -8,8 +8,12 @@ Rules (STRICT TREND & ANTI-CHOP MODE):
 - HOLD         : Tangled EMAs or sideways flat market (spread < min_spread_pct)
 
 Cross Detection:
-- `just_crossed` is True ONLY on the candle where the signal FIRST appears from a non-trend state.
-- Chop micro-fluctuations (wobbling between HOLD and trend) will NEVER re-trigger false entries.
+- `just_crossed` is True when EMA55 exited the bundle within the last `fresh_window`
+  closed candles (default 8). Previously this window was hard-coded to 2 candles,
+  which expired valid entries before the spread filter released (the #1 cause of
+  "bot takes almost no trades / misses good trends").
+- Chop micro-fluctuations (wobbling between HOLD and trend) will NEVER re-trigger
+  false entries for the SAME trend side (one entry per cross, state machine kept).
 - Unused legacy indicators (ATR, ADX, Slope) completely removed for maximum speed and zero bloat.
 """
 from __future__ import annotations
@@ -48,13 +52,17 @@ class StrategyResult:
 class EMAQuadStrategy:
     """Quad-EMA crossover strategy with sequential alignment & anti-chop spread guard."""
 
-    def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55, min_spread_pct=0.40):
+    def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55,
+                 min_spread_pct=0.15, fresh_window=8):
         self.indicators = IndicatorSet(ema_short, ema_mid1, ema_mid2, ema_long)
         self.ema_short = ema_short
         self.ema_mid1 = ema_mid1
         self.ema_mid2 = ema_mid2
         self.ema_long = ema_long
         self.min_spread_pct = float(min_spread_pct)
+        # How many closed candles back a fresh EMA55 cross is still considered
+        # "fresh" and tradeable. 2 was far too strict (entry window < 15 min on 5m).
+        self.fresh_window = max(2, int(fresh_window))
         self._prev_signal: Signal = Signal.HOLD
         self._last_trend_side: Optional[Signal] = None
         self._trade_entered_for_signal: bool = False
@@ -150,18 +158,21 @@ class EMAQuadStrategy:
             reason = "EMA55 tangled / inside lines (no full cross) -> HOLD"
 
         # 3. Genuine Fresh Crossover Check (EMA 55 MUST freshly cross across ALL lines):
-        # A fresh BUY cross occurs ONLY when EMA55 freshly crossed below ALL lines (prior to this, EMA55 was NOT below all lines).
-        # A fresh SELL cross occurs ONLY when EMA55 freshly crossed above ALL lines (prior to this, EMA55 was NOT above all lines).
+        # A fresh BUY cross occurs when EMA55 crossed below ALL lines within the last
+        # `fresh_window` closed candles (at least one candle in the lookback BEFORE the
+        # closed candle was NOT at the bottom extreme).
+        # A fresh SELL cross is the mirror image (top extreme).
+        # Wider window (was hard-coded 2) so a cross is no longer "consumed" while the
+        # chop-spread filter is still active on the first 1-2 candles of a new trend.
         is_fresh_cross = False
-        if signal == Signal.BUY and len(enriched) >= 4:
-            was_not_bottom_prev1 = not self._is_ema55_at_bottom(enriched.iloc[-3])
-            was_not_bottom_prev2 = not self._is_ema55_at_bottom(enriched.iloc[-4])
-            if was_not_bottom_prev1 or was_not_bottom_prev2:
+        lookback = self.fresh_window
+        if signal == Signal.BUY and len(enriched) >= lookback + 3:
+            recent = enriched.iloc[-(lookback + 2):-2]  # candles just BEFORE the closed candle
+            if any(not self._is_ema55_at_bottom(recent.iloc[j]) for j in range(len(recent))):
                 is_fresh_cross = True
-        elif signal == Signal.SELL and len(enriched) >= 4:
-            was_not_top_prev1 = not self._is_ema55_at_top(enriched.iloc[-3])
-            was_not_top_prev2 = not self._is_ema55_at_top(enriched.iloc[-4])
-            if was_not_top_prev1 or was_not_top_prev2:
+        elif signal == Signal.SELL and len(enriched) >= lookback + 3:
+            recent = enriched.iloc[-(lookback + 2):-2]
+            if any(not self._is_ema55_at_top(recent.iloc[j]) for j in range(len(recent))):
                 is_fresh_cross = True
 
         # 4. Anti-Whipsaw Flicker State Transition:

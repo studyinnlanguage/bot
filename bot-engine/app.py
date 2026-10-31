@@ -134,6 +134,8 @@ DEFAULT_CONFIG = {
     "whatsapp_phone": "",
     "whatsapp_apikey": "",
     "max_concurrent_trades": 3,
+    "min_ema_spread": 0,
+    "fresh_window": 8,
 }
 
 
@@ -229,7 +231,8 @@ def update_config():
               "telegram_enabled", "telegram_bot_token", "telegram_chat_id",
               "email_enabled", "email_smtp_server", "email_smtp_port",
               "email_sender", "email_password", "email_receiver",
-              "whatsapp_enabled", "whatsapp_phone", "whatsapp_apikey", "max_concurrent_trades"]:
+              "whatsapp_enabled", "whatsapp_phone", "whatsapp_apikey", "max_concurrent_trades",
+              "min_ema_spread", "fresh_window"]:
         if k in data:
             CONFIG[k] = data[k]
 
@@ -278,6 +281,19 @@ def update_config():
         CONFIG["max_concurrent_trades"] = 3
     if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
         ENGINE.config["max_concurrent_trades"] = CONFIG["max_concurrent_trades"]
+
+    # Strategy tuning keys: 0 = auto per-symbol default (majors 0.15%, memes 0.20%)
+    try:
+        CONFIG["min_ema_spread"] = max(0.0, min(5.0, float(CONFIG.get("min_ema_spread", 0) or 0)))
+    except (ValueError, TypeError):
+        CONFIG["min_ema_spread"] = 0
+    try:
+        CONFIG["fresh_window"] = max(2, min(50, int(CONFIG.get("fresh_window", 8))))
+    except (ValueError, TypeError):
+        CONFIG["fresh_window"] = 8
+    if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
+        ENGINE.config["min_ema_spread"] = CONFIG["min_ema_spread"]
+        ENGINE.config["fresh_window"] = CONFIG["fresh_window"]
 
     save_config(CONFIG)
 

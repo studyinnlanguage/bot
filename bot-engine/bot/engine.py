@@ -96,10 +96,21 @@ class SymbolWorker(threading.Thread):
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
-        # Adaptive spread filter: 0.50% for high-beta meme coins, 0.40% for majors/alts
-        default_spread = 0.50 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.40
-        min_spread = float(self.config.get("min_ema_spread", default_spread))
-        self.strategy = EMAQuadStrategy(min_spread_pct=min_spread)
+        # Adaptive spread filter (RELAXED): 0.20% for high-beta meme coins, 0.15% for
+        # majors/alts. Old 0.40%/0.50% values blocked 60-95% of valid fresh crosses
+        # (EMA8-EMA55 rarely separate that far intraday) -> bot took almost zero trades.
+        # Override per deployment via config key "min_ema_spread" if needed.
+        # min_ema_spread <= 0 (or absent) = AUTO per-symbol default below.
+        default_spread = 0.20 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.15
+        try:
+            cfg_spread = float(self.config.get("min_ema_spread", 0) or 0)
+        except (TypeError, ValueError):
+            cfg_spread = 0.0
+        min_spread = cfg_spread if cfg_spread > 0 else default_spread
+        # Fresh-cross lookback (closed candles). Was hard-coded 2 -> entries expired
+        # before the spread filter released. 8 gives late-expanding trends a chance.
+        fresh_window = max(2, int(self.config.get("fresh_window", 8)))
+        self.strategy = EMAQuadStrategy(min_spread_pct=min_spread, fresh_window=fresh_window)
         # Leverage readiness event — workers wait on this before trading
         self._leverage_ready = leverage_ready
         # Settlement cooldown tracking to prevent race conditions on close & open
@@ -474,17 +485,24 @@ class SymbolWorker(threading.Thread):
                     self.r_distance = 0.0
                     self.initial_sl_price = None
                     # ===== REVERSAL / EXIT LOGIC =====
-                    # Position exit complete. Always require a confirmed fresh crossover
-                    # on a closed candle with minimum spread (>=0.15%) before entering next trade.
-                    # This prevents the whipsaw trap of immediately blindly buying into a chop reversal.
+                    # Position exit complete. For NORMAL exits always require a confirmed
+                    # fresh crossover before the next entry (anti-whipsaw protection).
                     self.waiting_for_new_cross = True
                     self.reversal_pending_side = None
                     if is_ema_reversal_tp:
                         self.strategy.reset_for_reversal()
+                        # BUGFIX (dead code restored): arm the immediate OPPOSITE-side
+                        # re-entry. `reversal_pending_side` was never SET anywhere before,
+                        # so the pending-reversal entry path could never run and the bot
+                        # silently sat out the new trend after every EMA55 flip exit.
+                        self.reversal_pending_side = "SHORT" if close_side_label == "LONG" else "LONG"
+                        self.waiting_for_new_cross = False
                         self.engine._emit("log", {
                             "level": "info",
                             "msg": (f"[{symbol}] 🔄 EMA55 REVERSAL exit processed. "
-                                    f"Position closed @ {pos.mark_price:.4f}. Waiting for fresh candle confirmation.")
+                                    f"Position closed @ {pos.mark_price:.4f}. "
+                                    f"Re-entering {self.reversal_pending_side} on next tick if the "
+                                    f"opposite signal is still active.")
                         })
                     else:
                         self.strategy.reset_cross_state()
