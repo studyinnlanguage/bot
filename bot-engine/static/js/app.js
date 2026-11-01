@@ -31,8 +31,24 @@ let chartDataBySymbol = {};  // latest chart_data per symbol
 // destroying the saved config on every refresh.
 let isRestoringSettings = false;
 
+// Saved-keys truth (set from /api/config) so the env badge stays honest even
+// after the UI clears the key inputs following a successful save.
+window._savedKeysLoaded = undefined;
+
+// Live TP/SL/Entry price lines drawn on the active chart
+let _posPriceLines = [];
+let _lastChartSymbol = null;
+let _lastChartTime = 0;
+
 // ===== DOM Helpers =====
 const $ = (id) => document.getElementById(id);
+
+// Escape untrusted strings before injecting into innerHTML (logs, tables)
+function esc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 function log(level, msg) {
     const logs = $('logs');
@@ -40,7 +56,7 @@ function log(level, msg) {
     const entry = document.createElement('div');
     entry.className = `log-entry ${level}`;
     const time = new Date().toLocaleTimeString();
-    entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${msg}</span>`;
+    entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${esc(msg)}</span>`;
     logs.appendChild(entry);
     logs.scrollTop = logs.scrollHeight;
     while (logs.children.length > 500) logs.removeChild(logs.firstChild);
@@ -74,6 +90,43 @@ function fmt(n) {
     if (n >= 1000) return Number(n).toFixed(2);
     if (n >= 1) return Number(n).toFixed(4);
     return Number(n).toFixed(6);
+}
+
+// ===== Engine Workers telemetry strip =====
+function updateWorkersUI(status) {
+    const list = $('workersList');
+    const badge = $('workersAliveBadge');
+    if (!list && !badge) return;
+    const workers = (status && status.workers) || {};
+    const syms = Object.keys(workers);
+    let alive = 0;
+    syms.forEach(s => { if (workers[s] && workers[s].alive) alive++; });
+    if (badge) badge.textContent = `${alive}/${syms.length} ALIVE`;
+    if (!list) return;
+    if (!syms.length) {
+        list.innerHTML = '<div class="workers-empty">Bot START karne par har coin ka live worker telemetry yahan dikhega.</div>';
+        return;
+    }
+    const now = Date.now() / 1000;
+    let html = '';
+    syms.forEach(s => {
+        const w = workers[s] || {};
+        let chk = '—';
+        if (w.last_check && w.last_check > 1000000) {
+            const ago = Math.max(0, Math.round(now - w.last_check));
+            chk = (ago > 999 ? '999+' : ago) + 's';
+        }
+        html += `<div class="worker-row ${w.alive ? '' : 'dead'}">` +
+            `<span class="w-dot"></span>` +
+            `<span class="w-sym">${esc(s)}</span>` +
+            `<span class="w-meta">` +
+            `<span>CND <b>${w.candles_processed != null ? w.candles_processed : 0}</b></span>` +
+            `<span>TRD <b>${w.trades_today != null ? w.trades_today : 0}</b></span>` +
+            `<span>CHK <b>${chk}</b></span>` +
+            `<span>SIG <b>${esc(w.last_signal || 'HOLD')}</b></span>` +
+            `</span></div>`;
+    });
+    list.innerHTML = html;
 }
 
 // ===== EMA Stack Visualizer =====
@@ -150,7 +203,7 @@ async function fetchChartData(symbol) {
 
 // ===== TradingView-style Drawing Canvas Overlay System =====
 let currentDrawingTool = 'cursor'; // 'cursor' | 'trendline' | 'horizontal' | 'rectangle' | 'text'
-let activeDrawingColor = '#f0b90b';
+let activeDrawingColor = '#D4AF37';
 let drawings = [];
 let isDrawing = false;
 let drawStartPoint = null;
@@ -667,17 +720,17 @@ function initChart() {
 
         chart = LightweightCharts.createChart(container, {
             layout: {
-                background: { type: 'solid', color: '#0b0e11' },
-                textColor: '#848e9c',
-                fontFamily: 'JetBrains Mono, monospace',
+                background: { type: 'solid', color: '#0A0806' },
+                textColor: '#A99F87',
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                 fontSize: 11,
             },
             grid: {
-                vertLines: { color: '#1e2126' },
-                horzLines: { color: '#1e2126' },
+                vertLines: { color: 'rgba(212,175,55,0.06)' },
+                horzLines: { color: 'rgba(212,175,55,0.06)' },
             },
             timeScale: {
-                borderColor: '#2a2e36',
+                borderColor: 'rgba(212,175,55,0.22)',
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 5,
@@ -687,13 +740,13 @@ function initChart() {
                 fixRightEdge: false,
             },
             rightPriceScale: {
-                borderColor: '#2a2e36',
+                borderColor: 'rgba(212,175,55,0.22)',
                 scaleMargins: { top: 0.1, bottom: 0.1 },
             },
             crosshair: {
                 mode: 1,  // Magnet mode
-                vertLine: { color: '#f0b90b', width: 1, style: 2, labelBackgroundColor: '#f0b90b' },
-                horzLine: { color: '#f0b90b', width: 1, style: 2, labelBackgroundColor: '#f0b90b' },
+                vertLine: { color: '#D4AF37', width: 1, style: 2, labelBackgroundColor: '#8C6D1F' },
+                horzLine: { color: '#D4AF37', width: 1, style: 2, labelBackgroundColor: '#8C6D1F' },
             },
             // TradingView style interactions
             handleScroll: true,    // Enable panning (drag to move)
@@ -704,18 +757,18 @@ function initChart() {
         });
 
         candleSeries = chart.addCandlestickSeries({
-            upColor: '#0ecb81',
-            downColor: '#f6465d',
-            borderUpColor: '#0ecb81',
-            borderDownColor: '#f6465d',
+            upColor: '#2FD58C',
+            downColor: '#FF4D5E',
+            borderUpColor: '#2FD58C',
+            borderDownColor: '#FF4D5E',
             borderVisible: false,
-            wickUpColor: '#0ecb81',
-            wickDownColor: '#f6465d',
+            wickUpColor: '#2FD58C',
+            wickDownColor: '#FF4D5E',
         });
-        ema8Series  = chart.addLineSeries({ color: '#2196f3', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema13Series = chart.addLineSeries({ color: '#ff9800', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema21Series = chart.addLineSeries({ color: '#9c27b0', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema55Series = chart.addLineSeries({ color: '#f44336', lineWidth: 3, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema8Series  = chart.addLineSeries({ color: '#5B8DEF', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema13Series = chart.addLineSeries({ color: '#F0A03C', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema21Series = chart.addLineSeries({ color: '#A06BF0', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema55Series = chart.addLineSeries({ color: '#FF4D5E', lineWidth: 3, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
 
         const ro = new ResizeObserver(() => {
             if (chart) {
@@ -747,46 +800,51 @@ function renderChartForSymbol(symbol) {
     const data = chartDataBySymbol[symbol];
     if (!data) return;
     try {
-        if (data.candles && data.candles.length > 0) {
-            // Sort by time and remove duplicates (LightweightCharts requires this)
-            let candles = data.candles.slice().sort((a, b) => a.time - b.time);
-            let unique = [];
-            let lastTime = 0;
-            for (let c of candles) {
-                if (c.time > lastTime) {
-                    unique.push(c);
-                    lastTime = c.time;
-                }
+        // Sort + dedupe helper (LightweightCharts requires ascending unique times)
+        const uniq = (arr) => {
+            if (!arr || !arr.length) return [];
+            const out = [];
+            let lt = 0;
+            for (const c of arr.slice().sort((a, b) => a.time - b.time)) {
+                if (c.time > lt) { out.push(c); lt = c.time; }
             }
-            candleSeries.setData(unique);
+            return out;
+        };
+        const isSwitch = symbol !== _lastChartSymbol;
+
+        if (data.candles && data.candles.length > 0) {
+            const candles = uniq(data.candles);
+            const lastT = candles.length ? candles[candles.length - 1].time : 0;
+            // Full re-render only on symbol switch or data reset (e.g. timeframe
+            // change). Same-symbol live ticks use update() so the user's
+            // pan/zoom position is NOT destroyed on every socket update.
+            if (isSwitch || lastT < _lastChartTime) {
+                candleSeries.setData(candles);
+                chart.timeScale().fitContent();
+            } else if (candles.length) {
+                candleSeries.update(candles[candles.length - 1]);
+            }
+            _lastChartTime = lastT;
         }
         if (data.emas) {
-            if (data.emas.ema8) {
-                let e8 = data.emas.ema8.slice().sort((a, b) => a.time - b.time);
-                let u8 = []; let lt = 0;
-                for (let c of e8) { if (c.time > lt) { u8.push(c); lt = c.time; } }
-                ema8Series.setData(u8);
-            }
-            if (data.emas.ema13) {
-                let e13 = data.emas.ema13.slice().sort((a, b) => a.time - b.time);
-                let u13 = []; let lt = 0;
-                for (let c of e13) { if (c.time > lt) { u13.push(c); lt = c.time; } }
-                ema13Series.setData(u13);
-            }
-            if (data.emas.ema21) {
-                let e21 = data.emas.ema21.slice().sort((a, b) => a.time - b.time);
-                let u21 = []; let lt = 0;
-                for (let c of e21) { if (c.time > lt) { u21.push(c); lt = c.time; } }
-                ema21Series.setData(u21);
-            }
-            if (data.emas.ema55) {
-                let e55 = data.emas.ema55.slice().sort((a, b) => a.time - b.time);
-                let u55 = []; let lt = 0;
-                for (let c of e55) { if (c.time > lt) { u55.push(c); lt = c.time; } }
-                ema55Series.setData(u55);
-            }
+            const emaPairs = [
+                [data.emas.ema8, ema8Series],
+                [data.emas.ema13, ema13Series],
+                [data.emas.ema21, ema21Series],
+                [data.emas.ema55, ema55Series],
+            ];
+            emaPairs.forEach(([arr, series]) => {
+                if (!arr || !arr.length || !series) return;
+                const pts = uniq(arr);
+                if (!pts.length) return;
+                if (isSwitch || (pts[pts.length - 1].time < _lastChartTime)) {
+                    series.setData(pts);
+                } else {
+                    series.update(pts[pts.length - 1]);
+                }
+            });
         }
-        chart.timeScale().fitContent();
+        _lastChartSymbol = symbol;
         requestAnimationFrame(redrawCanvas);
     } catch (e) {
         console.error('Chart render failed:', e);
@@ -837,6 +895,7 @@ function initSocket() {
 
         socket.on('status', (data) => {
             setBotRunning(!!data.running);
+            updateWorkersUI(data);
             if (data.message) log('info', data.message);
             if (data.symbols) {
                 // update coins from server if running
@@ -1156,8 +1215,38 @@ function updatePositionUI(data) {
     if ($('posTabRoe')) $('posTabRoe').textContent = roeText;
     if ($('posFocusRoe')) {
         $('posFocusRoe').textContent = `${roeSign}${roeEstimated.toFixed(2)}%`;
-        $('posFocusRoe').style.color = roeEstimated > 0 ? 'var(--green-success)' : (roeEstimated < 0 ? 'var(--red-danger)' : 'inherit');
+        $('posFocusRoe').style.color = roeEstimated > 0 ? 'var(--green)' : (roeEstimated < 0 ? 'var(--red)' : 'inherit');
     }
+
+    // Extra engine position fields: TP mode / Target ROE / TP stage
+    if ($('posFocusTpMode')) {
+        const tm = data.tp_mode || 'fixed';
+        $('posFocusTpMode').textContent = tm === 'fixed' ? '1:1 FIXED' : tm.toUpperCase();
+    }
+    if ($('posFocusTargetRoe')) {
+        const troe = Number(data.target_roe);
+        $('posFocusTargetRoe').textContent = (data.side && data.side !== 'NONE' && troe > 0) ? `+${troe.toFixed(0)}%` : '--';
+    }
+    if ($('posFocusStage')) {
+        $('posFocusStage').textContent = (data.side && data.side !== 'NONE') ? String(data.tp_stage || 0) : '0';
+    }
+
+    // Draw ENTRY / TP / SL price lines on the active chart (mockup-style risk lines)
+    try {
+        if (chart && candleSeries && typeof candleSeries.createPriceLine === 'function') {
+            _posPriceLines.forEach(l => { try { candleSeries.removePriceLine(l); } catch (e2) {} });
+            _posPriceLines = [];
+            if (data.side && data.side !== 'NONE' && data.symbol === activeSymbol && data.entry_price) {
+                const mkLine = (price, color, title, dashed) => candleSeries.createPriceLine({
+                    price: price, color: color, lineWidth: 1,
+                    lineStyle: dashed ? 2 : 0, axisLabelVisible: true, title: title,
+                });
+                _posPriceLines.push(mkLine(Number(data.entry_price), '#D4AF37', 'ENTRY', false));
+                if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#2FD58C', 'TP 1:1', true));
+                if (data.sl_price) _posPriceLines.push(mkLine(Number(data.sl_price), '#FF4D5E', 'SL 1:1', true));
+            }
+        }
+    } catch (plErr) { console.warn('price lines:', plErr); }
 
     if ($('posFocusTrailingTp')) $('posFocusTrailingTp').textContent = trailingEl ? trailingEl.textContent : '--';
     if ($('posFocusCurrentSl')) $('posFocusCurrentSl').textContent = slEl ? slEl.textContent : '--';
@@ -1213,14 +1302,14 @@ function renderPositionsTable() {
 
         html += `
         <tr class="${sym === activeSymbol ? 'table-row-selected' : ''}" onclick="selectSymbol('${sym}')" style="cursor:pointer;">
-            <td><strong style="color:var(--gold-primary);">${sym}</strong></td>
+            <td><strong style="color:var(--gold);">${esc(sym)}</strong></td>
             <td>${sideBadge}</td>
             <td style="font-family:var(--font-mono);">${Math.abs(p.size || 0).toFixed(4)}${feeSub}</td>
             <td style="font-family:var(--font-mono);">${p.entry_price ? '$' + fmt(p.entry_price) : '--'}</td>
             <td style="font-family:var(--font-mono);">${p.mark_price ? '$' + fmt(p.mark_price) : '--'}</td>
             <td class="${pnlClass}" style="font-weight:700; font-family:var(--font-mono);">$${pnl.toFixed(2)}</td>
-            <td style="color:var(--green-success); font-family:var(--font-mono);">${p.tp_price ? '$' + fmt(p.tp_price) : '--'}</td>
-            <td style="color:var(--red-danger); font-family:var(--font-mono);">${p.sl_price ? '$' + fmt(p.sl_price) : '--'}</td>
+            <td style="color:var(--green); font-family:var(--font-mono);">${p.tp_price ? '$' + fmt(p.tp_price) : '--'}</td>
+            <td style="color:var(--red); font-family:var(--font-mono);">${p.sl_price ? '$' + fmt(p.sl_price) : '--'}</td>
             <td>
                 ${hasPos ? `<button type="button" class="btn btn-xs btn-warning" onclick="event.stopPropagation(); closePositionForSymbol('${sym}');">✕ Close</button>` : `<button type="button" class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); selectSymbol('${sym}'); switchWorkspaceTab('terminal');">View</button>`}
             </td>
@@ -1377,20 +1466,20 @@ window.renderTradeHistoryTable = function() {
             (openDate ? `<div style="font-size:12px;">${openDate.toLocaleTimeString()}</div>` : '--');
 
         // Reason badge
-        let reasonBadge = `<span class="badge-reason">${t.close_reason || (isClosed ? 'Closed' : 'Active')}</span>`;
+        let reasonBadge = `<span class="badge-reason">${esc(t.close_reason || (isClosed ? 'Closed' : 'Active'))}</span>`;
         if (t.close_reason) {
             const cr = t.close_reason;
             if (cr.includes('Trailing') || cr.includes('TP') || cr.includes('Target')) {
                 const icon = cr.startsWith('🎯') ? '' : '🎯 ';
-                reasonBadge = `<span class="badge-reason badge-reason-trailing">${icon}${cr}</span>`;
+                reasonBadge = `<span class="badge-reason badge-reason-trailing">${icon}${esc(cr)}</span>`;
             } else if (cr.includes('SL') || cr.includes('REVERSAL')) {
                 const icon = (cr.startsWith('⚡') || cr.startsWith('🛡️')) ? '' : '⚡ ';
-                reasonBadge = `<span class="badge-reason badge-reason-sl">${icon}${cr}</span>`;
+                reasonBadge = `<span class="badge-reason badge-reason-sl">${icon}${esc(cr)}</span>`;
             } else if (cr.includes('Manual')) {
                 const icon = cr.startsWith('👤') ? '' : '👤 ';
-                reasonBadge = `<span class="badge-reason badge-reason-manual">${icon}${cr}</span>`;
+                reasonBadge = `<span class="badge-reason badge-reason-manual">${icon}${esc(cr)}</span>`;
             } else if (cr.includes('Unfilled') || cr.includes('Expired')) {
-                reasonBadge = `<span class="badge-reason" style="background:rgba(255,255,255,0.06); color:var(--text-muted); border-color:var(--border-subtle);">${cr}</span>`;
+                reasonBadge = `<span class="badge-reason" style="background:rgba(255,255,255,0.06); color:var(--text-muted); border-color:var(--border-subtle);">${esc(cr)}</span>`;
             }
         }
 
@@ -1400,7 +1489,7 @@ window.renderTradeHistoryTable = function() {
         html += `
         <tr>
             <td style="font-family:var(--font-mono);">${timeDisplay}</td>
-            <td><strong style="color:var(--gold-primary);">${t.symbol}</strong></td>
+            <td><strong style="color:var(--gold);">${esc(t.symbol)}</strong></td>
             <td>${sideBadge}</td>
             <td>${orderTypeBadge}</td>
             <td style="font-family:var(--font-mono);">${t.qty ? t.qty : '--'} <span style="color:var(--text-muted); font-size:11px;">(${activeLev}x)</span></td>
@@ -1438,11 +1527,11 @@ window.renderRecentTradesQuickTable = function() {
         html += `
         <tr>
             <td style="font-family:var(--font-mono); font-size:12px;">${timeStr}</td>
-            <td><strong style="color:var(--gold-primary);">${t.symbol}</strong></td>
-            <td><span class="${sideClass}">${t.side}</span></td>
+            <td><strong style="color:var(--gold);">${esc(t.symbol)}</strong></td>
+            <td><span class="${sideClass}">${esc(t.side)}</span></td>
             <td style="font-family:var(--font-mono); font-size:12px;">$${t.entry_price ? fmt(t.entry_price) : '--'} ➔ $${t.exit_price ? fmt(t.exit_price) : '--'}</td>
             <td style="color:${pnlColor}; font-weight:700; font-family:var(--font-mono);">${pnlSign}$${pnl.toFixed(2)} (${pnlSign}${roe.toFixed(1)}%)</td>
-            <td style="font-size:11px;">${t.close_reason || 'Closed'}</td>
+            <td style="font-size:11px;">${esc(t.close_reason || 'Closed')}</td>
             <td style="font-family:var(--font-mono); color:var(--gold-primary); font-size:12px;">$${Number(t.fee_est || 0).toFixed(3)}</td>
         </tr>`;
     });
@@ -1676,6 +1765,13 @@ async function loadSettings() {
         if ($('mode')) $('mode').value = cfg.mode || 'both';
         if ($('testnet')) $('testnet').value = String(cfg.testnet ?? true);
         if (cfg.api_key && $('apiKey')) $('apiKey').placeholder = cfg.api_key_masked || 'Saved';
+        // Advanced engine tuning fields
+        if ($('minEmaSpread')) $('minEmaSpread').value = (cfg.min_ema_spread != null) ? cfg.min_ema_spread : 0;
+        if ($('freshWindow')) $('freshWindow').value = (cfg.fresh_window != null) ? cfg.fresh_window : 8;
+        if ($('autoStart')) $('autoStart').checked = !!cfg.auto_start;
+        // Remember whether keys are REALLY saved server-side (inputs are
+        // cleared after every save, so the badge must not trust them)
+        window._savedKeysLoaded = !!(cfg.api_key && cfg.api_secret);
 
         // Notifications - Telegram
         if ($('telegramEnabled')) $('telegramEnabled').checked = !!cfg.telegram_enabled;
@@ -1736,6 +1832,23 @@ async function loadSettings() {
     }
 }
 
+// Keep the quick leverage <select> in sync with the exchange's max leverage
+function updateQuickLevOptions(exchange) {
+    const sel = $('quickPosLevSelect');
+    if (!sel) return;
+    const extra = exchange === 'primexbt' ? [200, 500, 1000]
+                : (exchange === 'weex' ? [200, 300, 400, 500] : []);
+    const existing = sel.options ? Array.from(sel.options).map(o => parseInt(o.value, 10)) : [];
+    extra.forEach(v => {
+        if (!existing.includes(v)) {
+            const o = document.createElement('option');
+            o.value = String(v);
+            o.textContent = v + 'x';
+            sel.appendChild(o);
+        }
+    });
+}
+
 function setExchange(exchange) {
     const prevExchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || null;
     document.querySelectorAll('.exchange-btn').forEach(btn => {
@@ -1791,6 +1904,8 @@ function setExchange(exchange) {
         if (levInput) levInput.max = '125';
         if (maxLevBtn) maxLevBtn.textContent = 'SET 100x LEVERAGE';
     }
+    // Quick position leverage select: expose the exchange's higher tiers too
+    updateQuickLevOptions(exchange);
     // Update env badge
     const testnet = $('testnet') ? $('testnet').value === 'true' : true;
     updateEnvBadge(testnet, exchange,
@@ -1879,6 +1994,10 @@ async function saveSettings() {
         max_concurrent_trades: parseInt($('maxConcurrentTrades')?.value || 3),
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
+        // Advanced engine tuning
+        min_ema_spread: parseFloat($('minEmaSpread')?.value) || 0,
+        fresh_window: parseInt($('freshWindow')?.value) || 8,
+        auto_start: $('autoStart')?.checked || false,
         // Notifications
         telegram_enabled: $('telegramEnabled')?.checked || false,
         telegram_bot_token: $('telegramBotToken')?.value || undefined,
@@ -1911,6 +2030,9 @@ async function saveSettings() {
         const data = await r.json();
         if (data.success) {
             log('success', `Settings saved! Exchange: ${exchange.toUpperCase()}`);
+            // Track the real saved-keys state from the authoritative response
+            window._savedKeysLoaded = !!(data.config && data.config.api_key);
+            updateEnvBadge(cfg.testnet, exchange, window._savedKeysLoaded);
             $('apiKey').value = '';
             $('apiSecret').value = '';
             $('apiPassphrase').value = '';
@@ -1960,16 +2082,24 @@ function updateEnvBadge(testnet, exchange, keysLoaded) {
     const modeBadge = $('modeBadge');
     if (exBadge) {
         exBadge.textContent = (exchange || 'binance').toUpperCase();
-        exBadge.style.color = exchange === 'primexbt' ? '#3b82f6' : (exchange === 'weex' ? '#0ecb81' : '#f0b90b');
+        exBadge.style.color = exchange === 'primexbt' ? '#5B8DEF' : (exchange === 'weex' ? '#2FD58C' : '#D4AF37');
     }
     if (modeBadge) {
+        // Resolve the REAL keys state: explicit param first, then the saved
+        // config truth, then the DOM fields. This keeps the badge honest even
+        // after a save clears the key inputs.
+        let hasKeys;
+        if (keysLoaded !== undefined && keysLoaded !== null) {
+            hasKeys = !!keysLoaded || window._savedKeysLoaded === true;
+        } else if (window._savedKeysLoaded !== undefined) {
+            hasKeys = !!window._savedKeysLoaded;
+        } else {
+            hasKeys = !!($('apiKey')?.value && $('apiSecret')?.value);
+        }
         if (exchange === 'primexbt') {
             // HONEST badge: PrimeXBT has NO demo/testnet server - with keys
             // loaded every order hits the REAL account. Never trust the
             // testnet checkbox for this exchange.
-            const hasKeys = (keysLoaded !== undefined && keysLoaded !== null)
-                ? !!keysLoaded
-                : !!($('apiKey')?.value && $('apiSecret')?.value);
             modeBadge.textContent = hasKeys ? 'LIVE' : 'NO KEYS';
             modeBadge.style.color = hasKeys ? '#f6465d' : '#f0b90b';
         } else if (exchange === 'weex') {
@@ -1988,6 +2118,9 @@ async function startBot() {
         log('warn', 'Pehle coins add karein ya "Load All Coins" dabao.');
         return;
     }
+    // Persist whatever the user just typed so START always runs on the
+    // latest settings (atomic backend write; failure never blocks start).
+    try { await saveSettings(); } catch (e) { /* non-blocking */ }
     log('info', 'Start request bhej rahe hain...');
     // Add 30s timeout
     const controller = new AbortController();
@@ -2104,6 +2237,7 @@ async function refreshStatus() {
         const r = await fetch('/api/status');
         const s = await r.json();
         setBotRunning(!!s.running);
+        updateWorkersUI(s);
         let totalTrades = s.trades_today != null ? s.trades_today : null;
         if (totalTrades === null && s.workers) {
             totalTrades = 0;
@@ -2608,7 +2742,7 @@ window.applyQuickPosLeverage = async function() {
         if (res.success) {
             if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
             if ($('leverage')) $('leverage').value = lev;
-            if (typeof logMsg === 'function') logMsg(`⚡ Leverage updated to ${lev}x for ${sym}`, 'success');
+            log('success', `⚡ Leverage updated to ${lev}x for ${sym}`);
         } else {
             alert(res.error || 'Failed to update leverage');
         }
