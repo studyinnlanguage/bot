@@ -73,7 +73,8 @@ DB_FILE = BASE_DIR / "database.json"
 # PostgreSQL is the PRIMARY database when DATABASE_URL is set
 # (recommended on Railway / VPS). Without it, the app transparently
 # falls back to the local database.json file so it still runs anywhere.
-# 'bot_processes' is runtime-only state (pid/port) and is never persisted.
+# 'bot_processes' pid/port state is ALSO mirrored to .bot_processes.json so a
+# restarted SaaS worker re-adopts still-running bot-engine instances.
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 try:
     import psycopg2
@@ -101,7 +102,12 @@ def _load_bot_processes() -> dict:
 
 def _save_bot_processes(procs: dict):
     try:
-        BOT_PROCESSES_FILE.write_text(json.dumps(procs, indent=2), encoding="utf-8")
+        tmp = BOT_PROCESSES_FILE.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(procs, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, BOT_PROCESSES_FILE)
     except Exception:
         pass
 
@@ -779,8 +785,13 @@ def save_db(db: dict):
             except Exception as e:
                 logger.error("PostgreSQL save failed (%s) — writing database.json fallback", e)
         try:
-            with open(DB_FILE, "w", encoding="utf-8") as f:
+            # Atomic write: never leave a truncated database.json behind
+            tmp = DB_FILE.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(db, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, DB_FILE)
         except OSError as e:
             logger.error("DB save failed: %s", e)
 
@@ -1042,8 +1053,14 @@ def write_user_bot_config(user_id: str) -> str:
         except Exception as copy_err:
             logger.debug("Syncing file %s: %s", item.name, copy_err)
 
-    with open(config_path, "w", encoding="utf-8") as f:
+    # Atomic write — a crash mid-write must not truncate the user's only
+    # copy of their engine settings (that is what reset them to defaults).
+    tmp_cfg = config_path.with_suffix(".json.tmp")
+    with open(tmp_cfg, "w", encoding="utf-8") as f:
         json.dump(bot_config, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_cfg, config_path)
 
     (user_bot_dir / "logs").mkdir(exist_ok=True)
     return str(config_path)
@@ -1058,7 +1075,12 @@ def _sync_engine_config_to_db(user: dict, data: dict):
     """
     config = user.setdefault("bot_config", {})
     if "exchange" in data:
-        config["exchange"] = "weex" if data["exchange"] == "weex" else "binance"
+        ex = str(data["exchange"] or "binance").lower()
+        # Keep the exchange EXACTLY as saved (binance, weex OR primexbt).
+        # The old weex/else-binance mapping silently rewrote PrimeXBT
+        # accounts to binance in the DB, which then "restored" the wrong
+        # exchange whenever the engine's config.json was lost.
+        config["exchange"] = ex if ex in ("binance", "weex", "primexbt") else "binance"
     if "testnet" in data:
         config["testnet"] = bool(data["testnet"])
     if data.get("api_key") and str(data["api_key"]).strip():
@@ -1083,7 +1105,8 @@ def _sync_engine_config_to_db(user: dict, data: dict):
 
     # Same clamping the bot-engine applies, so DB stays truthful.
     try:
-        max_lev = 500 if config.get("exchange") == "weex" else 125
+        _ex_now = str(config.get("exchange") or "binance").lower()
+        max_lev = 1000 if _ex_now == "primexbt" else (500 if _ex_now == "weex" else 125)
         config["leverage"] = max(1, min(max_lev, int(data.get("leverage") or config.get("leverage", 10))))
     except (TypeError, ValueError):
         pass
@@ -2061,7 +2084,12 @@ def api_bot_config():
     config = user.setdefault("bot_config", {})
 
     if "exchange" in data:
-        config["exchange"] = "weex" if data["exchange"] == "weex" else "binance"
+        ex = str(data["exchange"] or "binance").lower()
+        # Keep the exchange EXACTLY as saved (binance, weex OR primexbt).
+        # The old weex/else-binance mapping silently rewrote PrimeXBT
+        # accounts to binance in the DB, which then "restored" the wrong
+        # exchange whenever the engine's config.json was lost.
+        config["exchange"] = ex if ex in ("binance", "weex", "primexbt") else "binance"
     if "testnet" in data:
         config["testnet"] = bool(data["testnet"])
     if data.get("api_key") and str(data["api_key"]).strip():
@@ -2079,7 +2107,8 @@ def api_bot_config():
     if "timeframe" in data:
         config["timeframe"] = data["timeframe"]
     if "leverage" in data:
-        max_lev = 500 if config.get("exchange") == "weex" else 125
+        _ex_now = str(config.get("exchange") or "binance").lower()
+        max_lev = 1000 if _ex_now == "primexbt" else (500 if _ex_now == "weex" else 125)
         config["leverage"] = max(1, min(max_lev, int(data["leverage"]) or 10))
     if "amount_mode" in data:
         config["amount_mode"] = "percent" if data["amount_mode"] == "percent" else "fixed"

@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -140,24 +141,48 @@ DEFAULT_CONFIG = {
 
 
 def load_config() -> dict:
-    if CONFIG_FILE.exists():
+    # Try the live config first, then the last-good backup. A crash or power
+    # cut mid-write used to leave a truncated config.json behind, which made
+    # the bot silently reset ALL dashboard settings (coins, leverage, SL,
+    # exchange...) to defaults on the next start — the backup fixes that.
+    for path in (CONFIG_FILE, CONFIG_FILE.with_suffix(".json.bak")):
+        if not path.exists():
+            continue
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             merged = {**DEFAULT_CONFIG, **cfg}
             # Enforce strict 1:1 TP & SL with auto-reversal
             merged["tp_mode"] = "fixed"
             merged["take_profit_pct"] = merged.get("stop_loss_pct", 2)
             merged["trailing_roe_pct"] = 100.0
+            if path != CONFIG_FILE:
+                logger.warning("config.json was unreadable — settings recovered from %s", path.name)
             return merged
         except (json.JSONDecodeError, OSError) as e:
-            logger.error("Failed to load config: %s", e)
+            logger.error("Failed to load config from %s: %s", path.name, e)
     return DEFAULT_CONFIG.copy()
 
 
 def save_config(cfg: dict):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    """Persist settings WITHOUT ever leaving a half-written config.json.
+
+    The previous direct open(...,"w") write truncated the file first; any
+    crash/kill/power-cut in that window corrupted config.json and the next
+    start silently reset all settings to defaults. Now: backup the old file,
+    write to a temp file, fsync, then atomically os.replace() it into place.
+    """
+    try:
+        if CONFIG_FILE.exists():
+            shutil.copyfile(CONFIG_FILE, CONFIG_FILE.with_suffix(".json.bak"))
+        tmp = CONFIG_FILE.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, CONFIG_FILE)
+    except OSError as e:
+        logger.error("Failed to save config: %s", e)
 
 
 CONFIG = load_config()

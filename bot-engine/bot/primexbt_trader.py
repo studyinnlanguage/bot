@@ -92,14 +92,21 @@ class PrimeXBTTrader:
     # ---------------------------------------------------------------------
     # Real market data sources (NO fake/synthetic candles)
     # ---------------------------------------------------------------------
-    # PrimeXBT's own REST API does not expose public OHLCV history, so REAL
-    # candles are sourced from two free public markets:
-    #   1) Yahoo Finance — indices (USTEC->^NDX, US30->^DJI, GER30->^GDAXI),
-    #      silver (XAG/USD->SI=F), commodities and real FX (EURUSD=X ...).
-    #   2) Binance (futures first, spot fallback) — crypto ("BTC/USD" ->
-    #      "BTCUSDT") and gold ("XAU/USD" -> "PAXGUSDT"), also the fallback
-    #      proxy for FX pairs when Yahoo is unreachable.
-    # Symbols with NO real source on either venue raise a clean "symbol not
+    # Priority order — the exchange itself first, public markets as backup:
+    #   1) PrimeXBT's OWN public price-history feed (GET /v3/trading/bars,
+    #      no API key needed) — the same feed the PrimeXBT chart shows.
+    #      Covers crypto, forex, metals, indices and tokenized stocks
+    #      (BTC/USD, USTEC, US30, GER30, UK100, US500, XAU/USD, XAG/USD,
+    #      EUR/USD ... AAPL, TSLA, NVDA ...). PRIMARY for every instrument
+    #      the feed carries.
+    #   2) Yahoo Finance — fallback for instruments NOT on the PrimeXBT
+    #      bars feed (e.g. "GOLD 24/7", USOIL, JP225) and when the feed is
+    #      unreachable: indices (^NDX/^DJI/^GDAXI/...), silver (SI=F),
+    #      oil (CL=F/BZ=F) and real FX (EURUSD=X ...).
+    #   3) Binance (futures first, spot fallback) — last-resort proxy for
+    #      crypto ("BTC/USD" -> "BTCUSDT") and gold ("XAU/USD" ->
+    #      "PAXGUSDT") when both PrimeXBT and Yahoo fail.
+    # Symbols with NO real source anywhere raise a clean "symbol not
     # supported" error so the engine skips them. The old behaviour of
     # generating synthetic sawtooth candles (which made the EMA strategy
     # mathematically unable to trade, and would have traded on noise if it
@@ -108,6 +115,36 @@ class PrimeXBTTrader:
                      "GOLD 24/7", "XAU/USDT", "PAXG/USD")
     _SRC_TTL = 600.0  # seconds a venue resolution stays cached
     _PROBE_COOLDOWN = 60.0  # seconds to pause Binance probing after a rate-limit hit
+
+    # PrimeXBT barSize values for its own bars feed (note: NO 3m/6h/8h/12h —
+    # those timeframes automatically fall back to Yahoo/Binance).
+    _PXBT_BAR_SIZES = {"1m": "1M", "5m": "5M", "15m": "15M", "30m": "30M",
+                       "1h": "1H", "2h": "2H", "4h": "4H", "1d": "1D", "1w": "1W"}
+    _PXBT_BARS_NEG_TTL = 300.0  # seconds to remember symbols the feed rejects (HTTP 400)
+
+    # Paper-mode fallback catalogue: instruments verified live on the
+    # PrimeXBT bars feed (plus dashboard favourites served via the Yahoo
+    # fallback). With API keys the FULL authenticated catalogue
+    # (POST /v3/trading/markets) is used instead — every instrument
+    # PrimeXBT carries, fetched straight from the exchange.
+    _PAPER_SYMBOLS = [
+        # Metals
+        "XAU/USD", "XAG/USD", "XPT/USD", "XPD/USD",
+        # Crypto CFDs
+        "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "ADA/USD", "DOGE/USD",
+        "AVAX/USD", "LINK/USD", "DOT/USD", "LTC/USD", "BNB/USD", "TRX/USD",
+        "BTC/USDT", "ETH/USDT",
+        # Forex majors & crosses
+        "EUR/USD", "GBP/USD", "AUD/USD", "NZD/USD",
+        "USD/JPY", "USD/CAD", "USD/CHF",
+        "EUR/GBP", "EUR/JPY", "EUR/AUD", "GBP/JPY", "AUD/JPY",
+        # Indices
+        "USTEC", "US30", "US500", "GER30", "UK100", "AUS200",
+        # Tokenized stocks (verified on the PrimeXBT bars feed)
+        "AAPL", "TSLA", "NVDA", "AMZN", "META", "GOOG", "NFLX", "AMD",
+        # Dashboard favourites NOT on the bars feed (served via Yahoo fallback)
+        "GOLD 24/7", "USOIL", "UKOIL", "NATGAS", "JP225", "HK50",
+    ]
 
     # ---------------------------------------------------------------------
     # Yahoo Finance real data (indices, silver, commodities, real FX rates)
@@ -154,6 +191,11 @@ class PrimeXBTTrader:
         self._yahoo_cache: Dict[str, Tuple[Optional[str], float]] = {}
         # symbol -> (price, cached_at_ts) — short-TTL cache for Yahoo quotes
         self._price_cache: Dict[str, Tuple[float, float]] = {}
+        # symbol -> ts until which the PrimeXBT bars feed is not probed again
+        # (HTTP 400 = instrument not on the feed; avoid re-probing every tick)
+        self._pxbt_bars_neg: Dict[str, float] = {}
+        # last full catalogue fetched with API keys (stale-cache fallback)
+        self._catalogue_cache: Optional[List[str]] = None
         self._init_crypto_keys()
 
     def _init_crypto_keys(self):
@@ -330,6 +372,22 @@ class PrimeXBTTrader:
                                 return px
             except Exception:
                 pass
+
+        # PrimeXBT's OWN public price: last close of the exchange's bars feed
+        # (real instrument price, no key needed — the same feed as the chart).
+        now_ts = time.time()
+        pc_px = self._price_cache.get(("pxbt", clean_sym))
+        if pc_px and now_ts - pc_px[1] < 5.0:
+            return pc_px[0]
+        try:
+            pdf = self._pxbt_bars(clean_sym, "5m", 2)
+        except Exception:
+            pdf = None
+        if pdf is not None and len(pdf) > 0:
+            px = float(pdf["close"].iloc[-1])
+            if px > 0:
+                self._price_cache[("pxbt", clean_sym)] = (px, now_ts)
+                return px
 
         # Real public quote from Yahoo for instruments Binance cannot price
         # (indices, silver, commodities, real FX) — cached a few seconds.
@@ -609,17 +667,92 @@ class PrimeXBTTrader:
         return float(closes[-1]) if closes else 0.0
 
     def get_all_symbols(self) -> List[str]:
-        """Fetch all tradable instruments across CFDs, Forex, Metals, and Crypto."""
-        try:
-            res = self._request("POST", "/v3/trading/markets", body={})
-            if isinstance(res, dict) and "markets" in res:
-                syms = [m.get("symbol") for m in res["markets"] if m.get("symbol")]
-                if syms:
-                    return sorted(list(set(syms)))
-        except Exception as e:
-            logger.warning("PrimeXBT markets catalogue fetch fallback: %s", e)
+        """Full PrimeXBT catalogue: crypto, forex, metals, indices, stocks.
 
-        return self.DEFAULT_SYMBOLS
+        With API keys the authenticated /v3/trading/markets endpoint returns
+        the complete live catalogue (every tradable instrument PrimeXBT
+        carries, straight from the exchange). Without keys (paper mode) the
+        verified PrimeXBT-native instrument list is served instead.
+        """
+        if self.api_key and self.private_key:
+            try:
+                res = self._request("POST", "/v3/trading/markets", body={})
+                if isinstance(res, dict) and "markets" in res:
+                    syms = sorted({str(m.get("symbol")).strip().upper()
+                                   for m in res["markets"]
+                                   if m.get("symbol") and m.get("tradable", True)})
+                    if syms:
+                        self._catalogue_cache = syms
+                        logger.info("PrimeXBT catalogue: %d tradable instruments", len(syms))
+                        return syms
+            except Exception as e:
+                logger.warning("PrimeXBT markets catalogue fetch failed: %s", e)
+            # Stale catalogue beats an empty list (network blip mid-run)
+            if self._catalogue_cache:
+                return list(self._catalogue_cache)
+        return list(self._PAPER_SYMBOLS)
+
+    # =========================================================================
+    # PrimeXBT's own price history (PRIMARY candle source)
+    # =========================================================================
+
+    def _pxbt_bars(self, clean_sym: str, b_interval: str, limit: int) -> Optional[pd.DataFrame]:
+        """Fetch REAL candles from PrimeXBT's own public price-history feed.
+
+        GET /v3/trading/bars needs no API key and serves the same feed the
+        PrimeXBT chart shows (bars of the market bid, oldest first, up to
+        500 per request). Returns a DataFrame ([open, high, low, close,
+        volume] indexed by open time) or None when the instrument is not on
+        the feed (HTTP 400 / empty) or the request failed — callers then
+        fall back to Yahoo/Binance. Feed rejections are remembered for
+        _PXBT_BARS_NEG_TTL seconds; transient errors are never cached.
+        """
+        bar_size = self._PXBT_BAR_SIZES.get(b_interval)
+        if not bar_size:
+            return None  # timeframe the feed does not offer (3m/6h/8h/12h)
+        now_ts = time.time()
+        neg = self._pxbt_bars_neg.get(clean_sym)
+        if neg and now_ts < neg:
+            return None
+        try:
+            r = requests.get(
+                f"{self.BASE_URL}/v3/trading/bars",
+                params={"symbol": clean_sym, "barSize": bar_size,
+                        "limit": max(10, min(int(limit), 500))},
+                timeout=8,
+            )
+            if r.status_code == 400:
+                # Instrument exists on PrimeXBT but has no entry on this
+                # public feed (e.g. "GOLD 24/7", USOIL, JP225) — stop
+                # probing it for a while, Yahoo/Binance serve instead.
+                self._pxbt_bars_neg[clean_sym] = now_ts + self._PXBT_BARS_NEG_TTL
+                return None
+            if r.status_code != 200:
+                logger.warning("PrimeXBT bars HTTP %s for %s — using fallback sources",
+                               r.status_code, clean_sym)
+                return None
+            bars = (r.json() or {}).get("bars") or []
+            if not bars:
+                self._pxbt_bars_neg[clean_sym] = now_ts + self._PXBT_BARS_NEG_TTL
+                return None
+            df = pd.DataFrame([{
+                "open_time": int(b["time"]),
+                "open": float(b["open"]),
+                "high": float(b["high"]),
+                "low": float(b["low"]),
+                "close": float(b["close"]),
+                "volume": float(b.get("volume") or 0.0),
+            } for b in bars])
+            df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
+            df.set_index("open_time", inplace=True)
+            out = df[["open", "high", "low", "close", "volume"]]
+            logger.info("PrimeXBT bars: %d real candles for %s (%s) — exchange feed",
+                        len(out), clean_sym, bar_size)
+            return out
+        except Exception as e:
+            logger.warning("PrimeXBT bars request failed for %s: %s — using fallback sources",
+                           clean_sym, e)
+            return None
 
     def get_symbol_filters(self, symbol: str) -> dict:
         """Fetch min order quantity, precision, and max leverage for symbol."""
@@ -897,17 +1030,22 @@ class PrimeXBTTrader:
     def get_klines(self, symbol: str, interval: str = "1m", limit: int = 100) -> Optional[pd.DataFrame]:
         """Fetch REAL candlestick OHLCV data for the EMA strategy.
 
-        PrimeXBT's own REST API does not provide public OHLCV history, so
-        candles are sourced from two free public markets:
-            1) Yahoo Finance — indices "USTEC" -> ^NDX, "US30" -> ^DJI,
-               "GER30" -> ^GDAXI, silver "XAG/USD" -> SI=F, commodities,
-               and real FX ("EUR/USD" -> EURUSD=X, "GBP/USD" -> GBPUSD=X).
-            2) Binance (futures first, spot fallback) — crypto "BTC/USD" ->
+        Priority — the exchange itself first, public markets as backup:
+            1) PrimeXBT's OWN public price-history feed (GET
+               /v3/trading/bars, no key needed) — the same data the
+               PrimeXBT chart shows; covers crypto, forex, metals, indices
+               and tokenized stocks.
+            2) Yahoo Finance — instruments not on the PrimeXBT feed
+               ("GOLD 24/7", USOIL, JP225, ...) and feed outages:
+               indices "USTEC" -> ^NDX, "US30" -> ^DJI, "GER30" -> ^GDAXI,
+               silver "XAG/USD" -> SI=F, commodities, real FX
+               ("EUR/USD" -> EURUSD=X, "GBP/USD" -> GBPUSD=X).
+            3) Binance (futures first, spot fallback) — crypto "BTC/USD" ->
                BTCUSDT, gold "XAU/USD" -> PAXGUSDT; also the fallback proxy
                for FX pairs (EURUSDT/GBPUSDT) when Yahoo is unreachable.
 
         NO synthetic candles are generated: if no real source exists for a
-        symbol on either venue, a clean "symbol not supported" error is
+        symbol on any venue, a clean "symbol not supported" error is
         raised and the engine skips the symbol instead of silently computing
         EMAs on noise.
         """
@@ -919,7 +1057,17 @@ class PrimeXBTTrader:
         if not b_interval:
             raise ValueError(f"Timeframe '{interval}' not supported on PrimeXBT market data")
 
-        # --- Yahoo real data first (indices, silver, commodities, real FX) ---
+        # --- 1) PrimeXBT's OWN public bars feed (the exchange itself) ---
+        # NOTE: no freshness guard here on purpose — this IS the exchange's
+        # own feed. On closed markets (weekend indices) the last session's
+        # candles are exactly what the PrimeXBT chart shows; re-routing to
+        # Yahoo/Binance would only serve the same closed-market data.
+        pdf = self._pxbt_bars(clean_sym, b_interval, limit)
+        if pdf is not None and len(pdf) > 0:
+            return pdf.tail(max(10, int(limit)))
+        # Not on the feed (or feed hiccup) — real public fallbacks below.
+
+        # --- 2) Yahoo real data (indices, silver, commodities, real FX) ---
         y_sym: Optional[str] = None
         yahoo_status = "none"  # none | ok | no_data | error
         try:
@@ -941,7 +1089,7 @@ class PrimeXBTTrader:
                 logger.warning("Yahoo klines error for %s (%s): %s", clean_sym, y_sym, e)
             # fall through: a Binance proxy (e.g. EURUSDT for EUR/USD) may still exist
 
-        # --- Binance real data (crypto, PAXG gold, FX USDT proxies) ---
+        # --- 3) Binance real data (crypto, PAXG gold, FX USDT proxies) ---
         binance_rate_limited = False
         resolved = None
         try:
