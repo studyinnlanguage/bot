@@ -87,15 +87,15 @@ echo ""
 echo "Step 3/4: Admin password set kar rahe hain..."
 
 if [ ! -f ".admin_password.txt" ]; then
-    echo "***REMOVED***" > .admin_password.txt
-    print_step "Default admin password set: ***REMOVED***"
+    echo "$(openssl rand -hex 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(16))")" > .admin_password.txt
+    print_step "Random admin password generated (stored in .admin_password.txt)"
     print_warn "Change karne ke liye .admin_password.txt edit karo"
 else
     print_step "Admin password already exists"
 fi
 
 # Set environment variable
-export ADMIN_SECRET=$(cat .admin_password.txt 2>/dev/null || echo "***REMOVED***")
+export ADMIN_SECRET=$(cat .admin_password.txt 2>/dev/null || echo "")
 
 # ============================================
 # Step 4: Start bot

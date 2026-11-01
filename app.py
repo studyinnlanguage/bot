@@ -181,23 +181,40 @@ if not ADMIN_SECRET_PATH.startswith("/"):
     ADMIN_SECRET_PATH = "/" + ADMIN_SECRET_PATH
 
 # Admin password - supports ADMIN_SECRET, ADMIN_PASSWORD, ADMIN_PASS, etc.
-# Defaults to "***REMOVED***" (as specified in install.sh and README) if not set.
+# SECURITY: no default password. Admin panel stays DISABLED until ADMIN_SECRET
+# is configured (fail-closed). Set it in .env on the server.
 ADMIN_SECRET = (
     os.environ.get("ADMIN_SECRET")
     or os.environ.get("ADMIN_PASSWORD")
     or os.environ.get("ADMIN_PASS")
     or os.environ.get("SAAS_ADMIN_PASSWORD")
     or os.environ.get("SAAS_ADMIN_SECRET")
-    or "***REMOVED***"
+    or ""
 ).strip()
-logger.info("Admin panel: ENABLED (secret path: %s)", ADMIN_SECRET_PATH)
+if ADMIN_SECRET:
+    logger.info("Admin panel: ENABLED (secret path: %s)", ADMIN_SECRET_PATH)
+else:
+    logger.warning("Admin panel DISABLED — set ADMIN_SECRET in .env to enable it.")
 
-# Fix 1: Encryption key for API keys — MUST be set via env var in production
+# Fix 1: Encryption key for API keys — MUST be set via env var in production.
+# If unset, a strong random key is generated and persisted to .encryption_key
+# (next to .flask_secret). The old hardcoded default is retired: deployments
+# that relied on it must re-save users' API keys once after setting the env.
 _ENCRYPTION_RAW = os.environ.get("ENCRYPTION_KEY", "")
 if not _ENCRYPTION_RAW:
-    logger.critical("[SECURITY] ENCRYPTION_KEY env var NOT SET! Using insecure default key."
-                    " All user API keys are at risk. Set ENCRYPTION_KEY=<32+ char random string> IMMEDIATELY.")
-    _ENCRYPTION_RAW = "***REMOVED-ROTATE-ENCRYPTION-KEY***"
+    _enc_key_file = BASE_DIR / ".encryption_key"
+    try:
+        if _enc_key_file.exists():
+            _ENCRYPTION_RAW = _enc_key_file.read_text().strip()
+        if not _ENCRYPTION_RAW:
+            _ENCRYPTION_RAW = secrets.token_hex(32)
+            _enc_key_file.write_text(_ENCRYPTION_RAW)
+            logger.warning("[SECURITY] ENCRYPTION_KEY not set — generated and persisted a new "
+                           "random key at .encryption_key. Back it up with your secrets.")
+    except Exception:
+        logger.critical("[SECURITY] Could not persist encryption key — refusing to use an "
+                        "insecure default. Set ENCRYPTION_KEY env var.")
+        raise SystemExit(1)
 # Derive a valid 32-byte key
 _ENCRYPTION_KEY_BYTES = hashlib.sha256(_ENCRYPTION_RAW.encode("utf-8")).digest()
 

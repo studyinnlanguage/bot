@@ -107,7 +107,7 @@ cat > "$SCRIPT_DIR/.env" << EOF
 
 FLASK_SECRET=$JWT_SECRET
 ENCRYPTION_KEY=$ENCRYPTION_KEY
-ADMIN_SECRET=***REMOVED***
+ADMIN_SECRET=$(openssl rand -hex 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(16))")
 ADMIN_SECRET_PATH=/x7k2-admin
 TRIAL_DAYS=7
 PORT=5000
@@ -115,7 +115,7 @@ HOST=0.0.0.0
 EOF
 
 print_step "Secrets generated (.env file created with secret admin path)"
-print_warn "Admin password: ***REMOVED*** (change it later via env var)"
+print_warn "Admin password generated (random) — check .env / the summary below"
 
 # ============================================
 # Step 5: Start with PM2
@@ -155,7 +155,7 @@ echo "  http://$SERVER_IP:5000"
 echo ""
 echo "Secret Admin Panel (Confidential):"
 echo "  http://$SERVER_IP:5000/x7k2-admin"
-echo "  Admin Password: ***REMOVED***"
+echo "  Admin Password: (see ADMIN_SECRET in .env)"
 echo ""
 echo "First user jo signup karega woh ADMIN ban jayega."
 echo "Phir admin dusre users ko manage kar sakta hai."

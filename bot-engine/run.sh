@@ -37,7 +37,7 @@ echo "Admin Panel:    http://localhost:5000/admin"
 if [ -n "$ADMIN_SECRET" ]; then
     echo "Admin Password: $ADMIN_SECRET"
 else
-    echo "Admin Password: ***REMOVED*** (default)"
+    echo "Admin Password: (managed by the SaaS app)"
 fi
 echo ""
 echo "Press Ctrl+C to stop"

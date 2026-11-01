@@ -119,7 +119,7 @@ entry_price,mark_price,unrealized_pnl,leverage,tp_price,sl_price,...}`,
 
 | ID | Severity | Finding |
 |---|---|---|
-| S1 | critical | Default admin password `***REMOVED***` in app.py:181, install.sh:110/158, README:64 |
+| S1 | critical | Hardcoded default admin password in app.py/install.sh/README (removed & scrubbed in v2.0.0) |
 | S2 | critical | Default `ENCRYPTION_KEY` fallback (app.py:186–190) |
 | S3 | critical | Engine `GET /api/config` returns plaintext `api_key/api_secret/api_passphrase/email_password/telegram_bot_token/whatsapp_apikey` (bot-engine/app.py:236–245) |
 | S4 | critical | Google OAuth: no `email_verified` check; `google_id` mismatch silently overwritten (app.py:2779–2790, 2844–2846) |

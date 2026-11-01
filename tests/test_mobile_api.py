@@ -25,6 +25,7 @@ def client():
     if _DB_FILE.exists():
         backup = _DB_FILE.read_text()
         _DB_FILE.unlink()
+    os.environ.setdefault("ADMIN_SECRET", "test-admin-secret-pytest")
     import app as saas
     import mobile_api
     saas.app.config["TESTING"] = True
