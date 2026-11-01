@@ -93,19 +93,51 @@ class PrimeXBTTrader:
     # Real market data sources (NO fake/synthetic candles)
     # ---------------------------------------------------------------------
     # PrimeXBT's own REST API does not expose public OHLCV history, so REAL
-    # candles are sourced from Binance (futures first, spot fallback), which
-    # tracks the same underlying markets:
-    #   - Crypto  "BTC/USD"  -> Binance  "BTCUSDT"
-    #   - Gold    "XAU/USD"  -> Binance  "PAXGUSDT" (1 PAXG = 1 troy oz gold)
-    # Symbols with no real source (silver, indices, most forex) raise a clean
-    # "symbol not supported" error so the engine skips them. The old behaviour
-    # of generating synthetic sawtooth candles (which made the EMA strategy
+    # candles are sourced from two free public markets:
+    #   1) Yahoo Finance — indices (USTEC->^NDX, US30->^DJI, GER30->^GDAXI),
+    #      silver (XAG/USD->SI=F), commodities and real FX (EURUSD=X ...).
+    #   2) Binance (futures first, spot fallback) — crypto ("BTC/USD" ->
+    #      "BTCUSDT") and gold ("XAU/USD" -> "PAXGUSDT"), also the fallback
+    #      proxy for FX pairs when Yahoo is unreachable.
+    # Symbols with NO real source on either venue raise a clean "symbol not
+    # supported" error so the engine skips them. The old behaviour of
+    # generating synthetic sawtooth candles (which made the EMA strategy
     # mathematically unable to trade, and would have traded on noise if it
     # could) has been REMOVED on purpose.
     _GOLD_ALIASES = ("XAU/USD", "XAUUSD", "GOLD", "GOLD/USD", "GOLD24/7",
                      "GOLD 24/7", "XAU/USDT", "PAXG/USD")
     _SRC_TTL = 600.0  # seconds a venue resolution stays cached
     _PROBE_COOLDOWN = 60.0  # seconds to pause Binance probing after a rate-limit hit
+
+    # ---------------------------------------------------------------------
+    # Yahoo Finance real data (indices, silver, commodities, real FX rates)
+    # ---------------------------------------------------------------------
+    # Binance cannot proxy stock indices (USTEC/US30/GER30), silver or
+    # commodities, and its EURUSDT/GBPUSDT order books are thin. Yahoo's free
+    # chart API provides real OHLCV for all of them (no API key needed):
+    #   USTEC -> ^NDX, US30 -> ^DJI, GER30 -> ^GDAXI, XAG/USD -> SI=F,
+    #   EUR/USD -> EURUSD=X, GBP/USD -> GBPUSD=X, ... (generic CCC/CCC rule)
+    # Binance stays as the fallback wherever a proxy exists. Indices only
+    # produce NEW candles during their exchange's trading hours — outside
+    # hours the last session's candles are served (no new signals, harmless).
+    _YAHOO_SYMBOL_MAP = {
+        "USTEC": "^NDX", "USTEC100": "^NDX", "NAS100": "^NDX", "NDX100": "^NDX",
+        "US30": "^DJI", "DOW30": "^DJI", "DJ30": "^DJI", "WALLSTREET": "^DJI",
+        "GER30": "^GDAXI", "GER40": "^GDAXI", "DAX30": "^GDAXI", "DAX40": "^GDAXI",
+        "UK100": "^FTSE", "FTSE100": "^FTSE",
+        "JP225": "^N225", "NIKKEI225": "^N225", "NIKKEI": "^N225",
+        "HK50": "^HSI", "AUS200": "^AXJO",
+        "XAG/USD": "SI=F", "XAGUSD": "SI=F", "SILVER": "SI=F",
+        "USOIL": "CL=F", "WTI": "CL=F", "XTI/USD": "CL=F", "CRUDEOIL": "CL=F",
+        "UKOIL": "BZ=F", "BRENT": "BZ=F", "XBR/USD": "BZ=F",
+        "NATGAS": "NG=F", "NGAS": "NG=F",
+        "XPT/USD": "PL=F", "PLATINUM": "PL=F", "XPD/USD": "PA=F", "PALLADIUM": "PA=F",
+    }
+    _FX_PAIR_RE = re.compile(r"^([A-Z]{3})/([A-Z]{3})$")  # EUR/USD -> EURUSD=X
+    _YAHOO_INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+                        "1h": "60m", "1d": "1d", "1w": "1wk"}
+    _YAHOO_TTL = 600.0   # seconds a Yahoo symbol resolution stays cached
+    _PRICE_TTL = 10.0    # seconds a Yahoo quote stays cached (get_mark_price)
 
     def __init__(self, config: dict):
         self.config = config or {}
@@ -118,6 +150,10 @@ class PrimeXBTTrader:
         self._src_cache: Dict[str, Tuple[Optional[str], Optional[str], float]] = {}
         # symbol -> ts until which Binance probing is paused (rate-limit backoff)
         self._probe_cooldown: Dict[str, float] = {}
+        # symbol -> (yahoo_symbol or None, cached_at_ts)
+        self._yahoo_cache: Dict[str, Tuple[Optional[str], float]] = {}
+        # symbol -> (price, cached_at_ts) — short-TTL cache for Yahoo quotes
+        self._price_cache: Dict[str, Tuple[float, float]] = {}
         self._init_crypto_keys()
 
     def _init_crypto_keys(self):
@@ -295,6 +331,25 @@ class PrimeXBTTrader:
             except Exception:
                 pass
 
+        # Real public quote from Yahoo for instruments Binance cannot price
+        # (indices, silver, commodities, real FX) — cached a few seconds.
+        try:
+            y_sym = self._resolve_yahoo_source(clean_sym)
+        except Exception:
+            y_sym = None
+        if y_sym:
+            now_ts = time.time()
+            pc = self._price_cache.get(clean_sym)
+            if pc and now_ts - pc[1] < self._PRICE_TTL:
+                return pc[0]
+            try:
+                px = self._yahoo_quote(y_sym)
+                if px > 0:
+                    self._price_cache[clean_sym] = (px, now_ts)
+                    return px
+            except Exception as e:
+                logger.warning("Yahoo quote failed for %s (%s): %s", clean_sym, y_sym, e)
+
         # Real public fallback via Binance (futures first, then spot)
         try:
             resolved = self._resolve_binance_source(clean_sym)
@@ -314,6 +369,16 @@ class PrimeXBTTrader:
                         return px
                 except Exception:
                     continue
+            # Binance price failed (rate limit / ban) — Yahoo aggregate quote
+            # for crypto ("BTCUSDT" -> "BTC-USD") as a last real-data resort.
+            s2 = binance_sym[:-4] if binance_sym.endswith("USDT") else binance_sym
+            if s2 and s2 != "PAXG":
+                try:
+                    px = self._yahoo_quote(f"{s2}-USD")
+                    if px > 0:
+                        return px
+                except Exception:
+                    pass
 
         return 0.0
 
@@ -407,6 +472,142 @@ class PrimeXBTTrader:
         self._src_cache[clean_sym] = (None, None, now)
         return None
 
+    # ---------------------------------------------------------------------
+    # Yahoo Finance helpers
+    # ---------------------------------------------------------------------
+
+    def _resolve_yahoo_source(self, clean_sym: str) -> Optional[str]:
+        """Map a PrimeXBT symbol to a Yahoo Finance chart symbol (cached).
+
+        Returns None when the symbol is a pure crypto-style pair that Yahoo
+        does not serve (those are handled by the Binance path).
+        """
+        now = time.time()
+        cached = self._yahoo_cache.get(clean_sym)
+        if cached and now - cached[1] < self._YAHOO_TTL:
+            return cached[0]
+        s = clean_sym.upper().replace(" ", "")
+        y_sym = self._YAHOO_SYMBOL_MAP.get(s) or self._YAHOO_SYMBOL_MAP.get(clean_sym.upper())
+        if not y_sym:
+            m = self._FX_PAIR_RE.match(s)
+            # XAU/USD is handled by Binance PAXG (Yahoo has no XAUUSD=X)
+            if m and m.group(1) != "XAU":
+                y_sym = f"{m.group(1)}{m.group(2)}=X"  # e.g. EUR/USD -> EURUSD=X
+        self._yahoo_cache[clean_sym] = (y_sym, now)
+        return y_sym
+
+    def _yahoo_chart(self, yahoo_sym: str, y_interval: str, rng: str) -> Optional[dict]:
+        """GET Yahoo chart payload. Returns result[0] dict, or None when the
+        symbol is unknown / has no data. Raises RuntimeError on rate limits
+        and network failures so callers can distinguish real errors."""
+        url = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+               + requests.utils.quote(yahoo_sym, safe="")
+               + f"?interval={y_interval}&range={rng}&includePrePost=false")
+        r = requests.get(url, timeout=8, headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) trading-bot/2.0"})
+        if r.status_code == 429:
+            raise RuntimeError("Yahoo rate limit (429)")
+        try:
+            data = r.json()
+        except Exception:
+            raise RuntimeError(f"Yahoo bad response (HTTP {r.status_code})")
+        result = ((data or {}).get("chart") or {}).get("result") or []
+        if not result:
+            return None
+        return result[0]
+
+    def _yahoo_klines(self, yahoo_sym: str, b_interval: str, limit: int) -> Optional[pd.DataFrame]:
+        """Fetch real OHLCV from Yahoo and return a Binance-style DataFrame.
+
+        Timeframes Yahoo does not offer natively (2h..12h, 3m) are aggregated
+        from the closest native interval. Returns None when no usable data;
+        raises RuntimeError on rate limits/network failures.
+        """
+        y_interval = self._YAHOO_INTERVALS.get(b_interval)
+        resample_rule: Optional[str] = None
+        if y_interval is None:
+            if b_interval in ("2h", "4h", "6h", "8h", "12h"):
+                y_interval, resample_rule = "60m", b_interval
+            elif b_interval == "3m":
+                y_interval, resample_rule = "1m", "3min"
+            else:
+                return None
+        if y_interval == "1m":
+            rng = "7d"            # Yahoo caps 1m history per request
+        elif y_interval in ("5m", "15m", "30m"):
+            rng = "1mo"           # intraday history up to 60d; 1mo is plenty
+        elif y_interval == "60m":
+            rng = "3mo"
+        elif y_interval == "1d":
+            rng = "1y"
+        else:
+            rng = "5y"
+
+        res: Optional[dict] = None
+        last_err: Optional[str] = None
+        for attempt in range(2):
+            try:
+                res = self._yahoo_chart(yahoo_sym, y_interval, rng)
+                break
+            except RuntimeError as e:
+                last_err = str(e)
+                if attempt == 0:
+                    time.sleep(0.8)
+                    continue
+        if res is None:
+            if last_err:
+                raise RuntimeError(f"Yahoo fetch failed for {yahoo_sym}: {last_err}")
+            return None
+
+        ts = res.get("timestamp") or []
+        quote = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+        opens = quote.get("open") or []
+        highs = quote.get("high") or []
+        lows = quote.get("low") or []
+        closes = quote.get("close") or []
+        vols = quote.get("volume") or []
+
+        records = []
+        for i, t in enumerate(ts):
+            if i >= len(opens) or i >= len(highs) or i >= len(lows) or i >= len(closes):
+                break
+            o, h, l, c = opens[i], highs[i], lows[i], closes[i]
+            if o is None or h is None or l is None or c is None:
+                continue
+            v = vols[i] if i < len(vols) and vols[i] is not None else 0.0
+            records.append({
+                "open_time": int(t) * 1000,
+                "open": float(o), "high": float(h), "low": float(l),
+                "close": float(c), "volume": float(v),
+            })
+        if not records:
+            return None
+        df = pd.DataFrame(records)
+        df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
+        df.set_index("open_time", inplace=True)
+        if resample_rule:
+            df = (df.resample(resample_rule, label="left", closed="left")
+                    .agg({"open": "first", "high": "max", "low": "min",
+                          "close": "last", "volume": "sum"})
+                    .dropna(subset=["open", "high", "low", "close"]))
+        return df[["open", "high", "low", "close", "volume"]]
+
+    def _yahoo_quote(self, yahoo_sym: str) -> float:
+        """Latest real price from Yahoo (regularMarketPrice, else last close)."""
+        res = self._yahoo_chart(yahoo_sym, "5m", "1d")
+        if not res:
+            return 0.0
+        meta = res.get("meta") or {}
+        try:
+            px = float(meta.get("regularMarketPrice") or 0.0)
+        except (TypeError, ValueError):
+            px = 0.0
+        if px > 0:
+            return px
+        quote = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+        closes = [c for c in (quote.get("close") or []) if c is not None]
+        return float(closes[-1]) if closes else 0.0
+
     def get_all_symbols(self) -> List[str]:
         """Fetch all tradable instruments across CFDs, Forex, Metals, and Crypto."""
         try:
@@ -453,11 +654,32 @@ class PrimeXBTTrader:
     # =========================================================================
 
     def set_leverage(self, symbol: str, leverage: int) -> dict:
-        """Configure cross margin leverage (up to 1000x on Metals/Forex, 200x on Crypto)."""
+        """Configure cross margin leverage (up to 1000x on Metals/Forex, 200x on Crypto).
+
+        HONEST result: the PrimeXBT API response is respected — a failed
+        remote update is reported as success=False with the real error
+        instead of silently claiming success.
+        """
         clean_sym = symbol.strip().upper()
         filters = self.get_symbol_filters(clean_sym)
         max_allowed = filters.get("max_leverage", 1000)
         target_lev = max(1, min(max_allowed, int(leverage)))
+
+        # Paper/testnet mode without API keys: no remote call would ever
+        # succeed (unsigned requests get 401) — store locally and say so.
+        if not self.api_key or not self.private_key:
+            self._symbol_leverage[clean_sym] = target_lev
+            logger.info(
+                "PrimeXBT leverage %dx stored locally for %s (paper mode — no API keys)",
+                target_lev, clean_sym,
+            )
+            return {
+                "success": True,
+                "leverage": target_lev,
+                "adjusted": target_lev != leverage,
+                "max_allowed": max_allowed,
+                "note": "paper mode — no PrimeXBT API keys, leverage stored locally only",
+            }
 
         # Attempt remote margin update on PrimeXBT
         res = self._request(
@@ -465,14 +687,25 @@ class PrimeXBTTrader:
             "/v3/trading/margins/change",
             body={"symbol": clean_sym, "leverage": target_lev},
         )
-        self._symbol_leverage[clean_sym] = target_lev
-        logger.info("PrimeXBT leverage set to %dx for %s", target_lev, clean_sym)
+        ok = isinstance(res, dict) and not res.get("error")
+        if ok:
+            self._symbol_leverage[clean_sym] = target_lev
+            logger.info("PrimeXBT leverage set to %dx for %s", target_lev, clean_sym)
+            return {
+                "success": True,
+                "leverage": target_lev,
+                "adjusted": target_lev != leverage,
+                "max_allowed": max_allowed,
+                "raw": res,
+            }
+        err = res.get("error") if isinstance(res, dict) else str(res)
+        logger.warning("PrimeXBT leverage update FAILED for %s (%dx): %s", clean_sym, target_lev, err)
         return {
-            "success": True,
+            "success": False,
             "leverage": target_lev,
-            "adjusted": target_lev != leverage,
+            "adjusted": False,
             "max_allowed": max_allowed,
-            "raw": res,
+            "error": f"PrimeXBT margin update failed: {err}",
         }
 
     # =========================================================================
@@ -665,14 +898,18 @@ class PrimeXBTTrader:
         """Fetch REAL candlestick OHLCV data for the EMA strategy.
 
         PrimeXBT's own REST API does not provide public OHLCV history, so
-        candles are sourced from Binance (futures first, spot fallback),
-        which tracks the same underlying markets:
-            Crypto "BTC/USD" -> BTCUSDT futures; Gold "XAU/USD" -> PAXGUSDT.
+        candles are sourced from two free public markets:
+            1) Yahoo Finance — indices "USTEC" -> ^NDX, "US30" -> ^DJI,
+               "GER30" -> ^GDAXI, silver "XAG/USD" -> SI=F, commodities,
+               and real FX ("EUR/USD" -> EURUSD=X, "GBP/USD" -> GBPUSD=X).
+            2) Binance (futures first, spot fallback) — crypto "BTC/USD" ->
+               BTCUSDT, gold "XAU/USD" -> PAXGUSDT; also the fallback proxy
+               for FX pairs (EURUSDT/GBPUSDT) when Yahoo is unreachable.
 
         NO synthetic candles are generated: if no real source exists for a
-        symbol (e.g. XAG/USD silver, indices USTEC/US30/GER30, most forex),
-        a clean "symbol not supported" error is raised and the engine skips
-        the symbol instead of silently computing EMAs on noise.
+        symbol on either venue, a clean "symbol not supported" error is
+        raised and the engine skips the symbol instead of silently computing
+        EMAs on noise.
         """
         clean_sym = symbol.strip().upper()
         tf_map = {"1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
@@ -682,8 +919,60 @@ class PrimeXBTTrader:
         if not b_interval:
             raise ValueError(f"Timeframe '{interval}' not supported on PrimeXBT market data")
 
-        resolved = self._resolve_binance_source(clean_sym)
+        # --- Yahoo real data first (indices, silver, commodities, real FX) ---
+        y_sym: Optional[str] = None
+        yahoo_status = "none"  # none | ok | no_data | error
+        try:
+            y_sym = self._resolve_yahoo_source(clean_sym)
+        except Exception:
+            y_sym = None
+        if y_sym:
+            try:
+                ydf = self._yahoo_klines(y_sym, b_interval, limit)
+                if ydf is not None and len(ydf) > 0:
+                    yahoo_status = "ok"
+                    return ydf.tail(max(10, int(limit)))
+                yahoo_status = "no_data"  # Yahoo knows the symbol class but has no data for it
+            except RuntimeError as e:
+                yahoo_status = "error"  # transient (rate limit / network) — not 'unsupported'
+                logger.warning("Yahoo klines failed for %s (%s): %s", clean_sym, y_sym, e)
+            except Exception as e:
+                yahoo_status = "error"
+                logger.warning("Yahoo klines error for %s (%s): %s", clean_sym, y_sym, e)
+            # fall through: a Binance proxy (e.g. EURUSDT for EUR/USD) may still exist
+
+        # --- Binance real data (crypto, PAXG gold, FX USDT proxies) ---
+        binance_rate_limited = False
+        resolved = None
+        try:
+            resolved = self._resolve_binance_source(clean_sym)
+        except RuntimeError:
+            # Probe hit a Binance rate limit / IP ban — remember and try the
+            # Yahoo crypto fallback instead of crashing the tick.
+            binance_rate_limited = True
         if not resolved:
+            if binance_rate_limited:
+                df_fb = self._yahoo_crypto_fallback(clean_sym, b_interval, limit)
+                if df_fb is not None:
+                    return df_fb
+                raise RuntimeError(
+                    f"Real market data temporarily unavailable for {clean_sym} "
+                    f"(Binance rate-limited and no Yahoo source for this symbol)"
+                )
+            if y_sym:
+                if yahoo_status == "error":
+                    # Yahoo serves this symbol class but failed just now — do
+                    # NOT misreport it as 'unsupported' (transient issue).
+                    raise RuntimeError(
+                        f"Real market data temporarily unavailable for {clean_sym} "
+                        f"(Yahoo: {y_sym}; no Binance source for this symbol)"
+                    )
+                # Yahoo answered cleanly with no data -> the symbol genuinely
+                # has no real source anywhere.
+                raise ValueError(
+                    f"symbol not supported on PrimeXBT market data: {clean_sym} "
+                    f"(no real candle source available; synthetic candles were removed)"
+                )
             raise ValueError(
                 f"symbol not supported on PrimeXBT market data: {clean_sym} "
                 f"(no real candle source available; synthetic candles were removed)"
@@ -691,14 +980,18 @@ class PrimeXBTTrader:
         binance_sym, venue = resolved
 
         last_err: Optional[str] = None
+        best_df: Optional[pd.DataFrame] = None
         for v in ([venue] if venue else ["fapi", "spot"]):
             for _attempt in range(2):
                 try:
                     rows = self._binance_klines(binance_sym, b_interval, limit, v)
                 except RuntimeError as e:
                     last_err = str(e)
-                    if "429" in last_err or "418" in last_err or "too many" in last_err.lower():
-                        raise  # rate limited — engine has a dedicated pause path
+                    low = last_err.lower()
+                    if ("429" in last_err or "418" in last_err or "-1003" in last_err
+                            or "too many" in low or "too much" in low or "banned" in low):
+                        binance_rate_limited = True
+                        break  # stop hammering Binance — Yahoo fallback below
                     time.sleep(0.5)
                     continue
                 if rows:
@@ -713,13 +1006,94 @@ class PrimeXBTTrader:
                     df = pd.DataFrame(records)
                     df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
                     df.set_index("open_time", inplace=True)
-                    # Remember the working venue for subsequent ticks
-                    self._src_cache[clean_sym] = (binance_sym, v, time.time())
-                    return df[["open", "high", "low", "close", "volume"]]
+                    out = df[["open", "high", "low", "close", "volume"]]
+                    # Freshness guard: a venue whose last candle is far behind
+                    # (halted/delisted contract) must not be trusted — try the
+                    # next venue (and finally Yahoo) before using stale data.
+                    if self._df_is_fresh(df, b_interval):
+                        # Remember the working venue for subsequent ticks
+                        self._src_cache[clean_sym] = (binance_sym, v, time.time())
+                        return out
+                    logger.warning(
+                        "Binance %s data for %s looks stale (last candle %s) — trying next venue/source",
+                        v, binance_sym, df.index[-1])
+                    if best_df is None:
+                        best_df = out
+                    break
                 # None => symbol not listed on this venue; try the next venue
                 break
+            if binance_rate_limited:
+                break
+
+        if binance_rate_limited or best_df is not None:
+            df_fb = self._yahoo_crypto_fallback(clean_sym, b_interval, limit)
+            if df_fb is not None:
+                return df_fb
+        if best_df is not None:
+            # Every venue stale and no Yahoo fallback — serve the freshest
+            # real data we have (better than failing the tick entirely).
+            return best_df
         if last_err:
             raise RuntimeError(f"PrimeXBT klines fetch failed for {clean_sym}: {last_err}")
+        if y_sym:
+            if yahoo_status == "error":
+                raise RuntimeError(
+                    f"Real market data temporarily unavailable for {clean_sym} "
+                    f"(Yahoo: {y_sym}; no Binance source for this symbol)"
+                )
+            raise ValueError(
+                f"symbol not supported on PrimeXBT market data: {clean_sym} (no real candle source)"
+            )
         raise ValueError(
             f"symbol not supported on PrimeXBT market data: {clean_sym} (no real candle source)"
         )
+
+    def _df_is_fresh(self, df: pd.DataFrame, b_interval: str) -> bool:
+        """True when the last candle is recent enough for a 24/7 market.
+        Generous 3-candle window so slow markets are never misjudged."""
+        try:
+            mult = {"1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
+                    "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600, "8h": 28800,
+                    "12h": 43200, "1d": 86400, "1w": 604800}[b_interval]
+        except KeyError:
+            return True
+        try:
+            last_ms = int(df.index[-1].value // 10**6)
+        except Exception:
+            return True
+        return (int(time.time() * 1000) - last_ms) <= mult * 1000 * 3 + 120_000
+
+    def _yahoo_crypto_fallback(self, clean_sym: str, b_interval: str, limit: int) -> Optional[pd.DataFrame]:
+        """When Binance is rate-limited/IP-banned, serve REAL candles for
+        crypto pairs from Yahoo's aggregate market ("BTC/USD" -> "BTC-USD").
+        Returns None when no Yahoo data exists (caller raises the real error).
+        """
+        s = clean_sym.upper().replace(" ", "")
+        # Gold aliases (XAU/USD, GOLD 24/7, GOLD/USD, ...) -> COMEX futures.
+        # NOTE: "GOLD 24/7" does NOT match the crypto regex below (quote is
+        # neither USD nor USDT), so gold must be detected before it.
+        if s.startswith("XAU") or s.startswith("GOLD") or s in self._GOLD_ALIASES:
+            # Gold: PAXG on Binance is primary; COMEX gold futures (GC=F) is
+            # the Yahoo resilience fallback (trades ~23h/day).
+            try:
+                ydf = self._yahoo_klines("GC=F", b_interval, limit)
+            except Exception:
+                return None
+            if ydf is not None and len(ydf) > 0:
+                logger.warning("Binance unavailable for %s — served real candles from Yahoo (GC=F)",
+                               clean_sym)
+                return ydf.tail(max(10, int(limit)))
+            return None
+        m = re.match(r"^([A-Z0-9]{2,15})/(USD|USDT)$", s)
+        if not m:
+            return None
+        base = m.group(1)
+        try:
+            ydf = self._yahoo_klines(f"{base}-USD", b_interval, limit)
+        except Exception:
+            return None
+        if ydf is not None and len(ydf) > 0:
+            logger.warning("Binance unavailable for %s — served real candles from Yahoo (%s-USD)",
+                           clean_sym, base)
+            return ydf.tail(max(10, int(limit)))
+        return None

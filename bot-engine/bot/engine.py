@@ -1693,6 +1693,24 @@ class BotEngine:
                 w.config["leverage"] = leverage
 
         results = {}
+
+        # ---- High leverage risk warning (once per apply call) ----
+        # At very high leverage the -80% ROE stop-loss sits extremely close
+        # to the entry: at 200x it is only a 0.40% price move away, so normal
+        # 5m noise on gold/forex can stop the trade out instantly.
+        try:
+            _lev_int = int(leverage)
+        except (TypeError, ValueError):
+            _lev_int = 0
+        if _lev_int >= 100:
+            _sl_move = 0.8 / max(_lev_int, 1) * 100  # -80% ROE as price move %
+            self._emit("log", {
+                "level": "warn",
+                "msg": (f"\u26a0\ufe0f HIGH LEVERAGE WARNING: {_lev_int}x par -80% ROE ka SL sirf "
+                        f"{_sl_move:.2f}% price move par lag jayega — gold/forex ki normal 5m noise "
+                        f"hi usay hit kar deti hai. Gold/Forex ke liye 10-20x, crypto ke liye 10-50x recommended.")
+            })
+
         active_trader = self.trader or self.monitor_trader
         if not active_trader:
             try:
@@ -1713,9 +1731,11 @@ class BotEngine:
                             "msg": f"[{sym}] ⚠️ Binance Official Limit: {sym} par maximum allowed leverage {actual}x hai ({leverage}x Binance allow nahi karta). Set to {actual}x."
                         })
                     elif r.get("success"):
+                        _note = r.get("note")
                         self._emit("log", {
                             "level": "success",
-                            "msg": f"[{sym}] ⚡ Leverage set to {actual}x on {self.config.get('exchange', 'binance').upper()}"
+                            "msg": (f"[{sym}] \u26a1 Leverage set to {actual}x on {self.config.get('exchange', 'binance').upper()}"
+                                    + (f" ({_note})" if _note else ""))
                         })
                     else:
                         self._emit("log", {

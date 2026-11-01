@@ -220,10 +220,74 @@ def get_config():
     return jsonify(safe)
 
 
+def _handle_exchange_switch(old_exchange: str, new_exchange: str) -> None:
+    """Rebuild exchange adapters when the user switches exchange.
+
+    Stops trading workers (exchange positions themselves are NOT touched),
+    drops the stale trader object so the next START builds one for the NEW
+    exchange, and reconnects the monitor with the new exchange config.
+    """
+    if 'ENGINE' not in globals() or ENGINE is None:
+        return
+    try:
+        # 1) Safety check: open positions on the OLD exchange lose their
+        #    software SL/TP watchdog once the workers stop. Warn loudly.
+        open_syms = []
+        old_trader = getattr(ENGINE, "trader", None)
+        if old_trader is not None:
+            for sym in (CONFIG.get("symbols_list") or []):
+                try:
+                    p = old_trader.get_position(sym)
+                    if getattr(p, "side", "NONE") not in (None, "NONE") and getattr(p, "size", 0) > 0:
+                        open_syms.append(sym)
+                except Exception:
+                    continue
+
+        # 2) Stop trading workers (positions on the exchange stay as they are)
+        was_running = bool(getattr(ENGINE, "is_running", False))
+        if was_running:
+            try:
+                ENGINE.stop()
+            except Exception as e:
+                logger.warning("Engine stop during exchange switch failed: %s", e)
+
+        # 3) Drop the stale trader + rebuild the monitor on the NEW exchange
+        ENGINE.trader = None
+        try:
+            ENGINE.stop_monitor()
+            ENGINE.start_monitor(CONFIG)
+        except Exception as e:
+            logger.warning("Monitor rebuild during exchange switch failed: %s", e)
+
+        try:
+            ENGINE._emit("log", {
+                "level": "warn",
+                "msg": (f"\U0001f504 Exchange changed: {old_exchange.upper()} -> {new_exchange.upper()}. "
+                        + ("Bot stop kiya gaya aur adapters rebuild ho gaye — START dabayein." if was_running
+                           else "Adapters rebuild ho gaye."))
+            })
+            if open_syms:
+                ENGINE._emit("log", {
+                    "level": "error",
+                    "msg": (f"\u26a0\ufe0f OPEN POSITION(S) purane exchange ({old_exchange.upper()}) par: "
+                            f"{', '.join(open_syms)}. Un ka software SL/TP watchdog ab band hai "
+                            f"— unhay khud manage/close karein!")
+                })
+        except Exception:
+            pass
+        logger.warning("Exchange switch handled: %s -> %s (open on old exchange: %s)",
+                       old_exchange, new_exchange, open_syms)
+    except Exception as e:
+        logger.error("Exchange switch handling failed: %s", e)
+
+
 @app.route("/api/config", methods=["POST"])
 def update_config():
     global CONFIG
     data = request.get_json(force=True)
+    # Remember the exchange BEFORE merging the new settings so a live
+    # exchange switch can be detected and handled safely.
+    prev_exchange = (CONFIG.get("exchange") or "binance").lower()
 
     for k in ["exchange", "api_passphrase", "symbol", "symbols_list", "timeframe",
               "leverage", "amount", "amount_mode", "amount_pct",
@@ -244,6 +308,13 @@ def update_config():
     CONFIG["exchange"] = (CONFIG.get("exchange") or "binance").lower()
     if CONFIG["exchange"] not in ("binance", "weex", "primexbt"):
         CONFIG["exchange"] = "binance"
+
+    # ---- Exchange switch safety ------------------------------------------
+    # Detect a live exchange change and rebuild the engine adapters, so the
+    # old exchange's trader never receives the new exchange's symbols.
+    if CONFIG["exchange"] != prev_exchange:
+        _handle_exchange_switch(prev_exchange, CONFIG["exchange"])
+
     max_lev = 1000 if CONFIG["exchange"] == "primexbt" else (500 if CONFIG["exchange"] == "weex" else 125)
     CONFIG["leverage"] = max(1, min(max_lev, int(CONFIG["leverage"])))
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
