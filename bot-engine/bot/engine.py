@@ -1820,6 +1820,20 @@ class BotEngine:
             logger.error("Failed to connect to exchange: %s", e)
             return {"success": False, "error": f"Exchange connection failed: {e}"}
 
+        # Loud early warning: PrimeXBT without a usable Ed25519 private key
+        # cannot sign orders - every trade would fail with "Sign the request:
+        # X-API-KEY, X-API-TIMESTAMP and X-API-SIGNATURE are all required".
+        # Tell the user NOW on the dashboard instead of at first signal.
+        if ((config.get("exchange") or "").lower() == "primexbt"
+                and getattr(self.trader, "private_key", "n/a") is None):
+            self._emit("log", {
+                "level": "warn",
+                "msg": ("⚠️ PrimeXBT: Secret Key NOT loaded - orders will FAIL. "
+                        "Open Settings and paste the Ed25519 PRIVATE KEY from "
+                        "PrimeXBT API settings into the Secret Key field, then "
+                        "restart the bot.")
+            })
+
         # Get symbols and leverage
         symbols = self._symbols_list()
         lev = config.get("leverage", 10)

@@ -20,6 +20,7 @@ try:
     from cryptography.hazmat.primitives.serialization import (
         load_pem_private_key,
         load_der_private_key,
+        load_ssh_private_key,
     )
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     HAS_CRYPTOGRAPHY = True
@@ -27,6 +28,7 @@ except ImportError:
     HAS_CRYPTOGRAPHY = False
     load_pem_private_key = None
     load_der_private_key = None
+    load_ssh_private_key = None
     Ed25519PrivateKey = None
 
 logger = logging.getLogger("bot.primexbt_trader")
@@ -199,31 +201,88 @@ class PrimeXBTTrader:
         self._init_crypto_keys()
 
     def _init_crypto_keys(self):
-        """Parse and load Ed25519 PKCS#8 private key from base64 secret."""
+        """Load the PrimeXBT Ed25519 private key from the Secret Key field.
+
+        Users paste the key in MANY shapes depending on where/how it was
+        generated, so EVERY common format is tried before giving up:
+          1. Raw base64 of PKCS#8 DER          (PrimeXBT's default display)
+          2. PEM PKCS#8 ("-----BEGIN PRIVATE KEY-----")
+          3. OpenSSH ("-----BEGIN OPENSSH PRIVATE KEY-----")
+        Quotes, whitespace, newlines and surrounding armor text are tolerated.
+
+        A key that fails to load is reported LOUDLY (error, not a quiet
+        warning): without it PrimeXBT rejects every order with the cryptic
+        "Sign the request: X-API-KEY, X-API-TIMESTAMP and X-API-SIGNATURE
+        are all required" - while market data keeps working (it is public),
+        so the failure otherwise only surfaces at trade time.
+        """
+        self.private_key = None
         if not self.api_secret:
+            logger.error(
+                "PrimeXBT: Secret Key is EMPTY - orders will be REJECTED "
+                "(market data still works because it is public). Paste the "
+                "Ed25519 PRIVATE KEY from PrimeXBT API settings."
+            )
             return
         if not HAS_CRYPTOGRAPHY:
-            logger.warning("PrimeXBT requires 'cryptography' library for Ed25519 authentication. Run: pip install cryptography")
-            return
-        try:
-            raw_b64 = self.api_secret
-            # Remove PEM header/footer if pasted by user
-            cleaned = (
-                raw_b64.replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
-                .replace("\n", "")
-                .replace("\r", "")
-                .strip()
+            logger.error(
+                "PrimeXBT: 'cryptography' library missing - orders will be "
+                "REJECTED. Install it with: pip install cryptography"
             )
-            key_bytes = base64.b64decode(cleaned)
+            return
+
+        raw = str(self.api_secret).strip().strip('"').strip("'")
+        candidates: List[str] = [raw]
+        # Base64 body with all PEM/SSH armor lines stripped (one long string)
+        body = "".join(
+            ln.strip() for ln in raw.splitlines()
+            if ln.strip() and not ln.strip().startswith("-----")
+        )
+        if body and body != raw:
+            candidates.append(body)
+
+        for cand in candidates:
+            # 1) base64 -> PKCS#8 DER (padding-tolerant)
             try:
-                self.private_key = load_der_private_key(key_bytes, password=None)
+                padded = cand + "=" * (-len(cand) % 4)
+                der = base64.b64decode(padded, validate=False)
+                self.private_key = load_der_private_key(der, password=None)
+                break
             except Exception:
-                self.private_key = load_pem_private_key(key_bytes, password=None)
-            logger.info("PrimeXBT Ed25519 private key loaded successfully.")
-        except Exception as e:
-            logger.warning("PrimeXBT Ed25519 key load failed: %s (Check secret format)", e)
+                self.private_key = None
+            # 2) as-is PEM (PKCS#8)
+            try:
+                self.private_key = load_pem_private_key(cand.encode("utf-8"), password=None)
+                break
+            except Exception:
+                self.private_key = None
+            # 3) as-is OpenSSH format
+            try:
+                if load_ssh_private_key is not None:
+                    self.private_key = load_ssh_private_key(cand.encode("utf-8"), password=None)
+                    break
+            except Exception:
+                self.private_key = None
+
+        if self.private_key is not None and not isinstance(self.private_key, Ed25519PrivateKey):
+            logger.error(
+                "PrimeXBT: Secret Key is a valid private key but NOT Ed25519 "
+                "(%s) - PrimeXBT requires Ed25519. Re-create the API key on "
+                "PrimeXBT and paste the new PRIVATE KEY.",
+                type(self.private_key).__name__,
+            )
             self.private_key = None
+
+        if self.private_key is not None:
+            logger.info("PrimeXBT Ed25519 private key loaded successfully.")
+        else:
+            logger.error(
+                "PrimeXBT: Secret Key could NOT be parsed as an Ed25519 "
+                "private key (tried base64 DER, PEM and OpenSSH formats) - "
+                "orders will be REJECTED by PrimeXBT. Re-create the API key "
+                "on PrimeXBT and paste the PRIVATE KEY into the Secret Key "
+                "field."
+            )
 
     def _sign_request(
         self, method: str, path: str, query_string: str = "", body_bytes: bytes = b""
@@ -928,6 +987,27 @@ class PrimeXBTTrader:
     ) -> dict:
         """Place market order on PrimeXBT."""
         clean_sym = symbol.strip().upper()
+
+        # Refuse EARLY when the Ed25519 private key is not usable. Sending the
+        # order unsigned only earns PrimeXBT's cryptic "Sign the request:
+        # X-API-KEY, X-API-TIMESTAMP and X-API-SIGNATURE are all required" -
+        # a clear, actionable error is far better on a live signal.
+        if self.private_key is None:
+            logger.error(
+                "PrimeXBT order REFUSED for %s: private key not loaded - "
+                "check the Secret Key in settings (must be the Ed25519 "
+                "PRIVATE KEY from PrimeXBT API settings).",
+                clean_sym,
+            )
+            return {
+                "success": False,
+                "error": ("PrimeXBT: Secret Key missing/invalid - order cannot "
+                          "be signed. Paste the Ed25519 PRIVATE KEY from "
+                          "PrimeXBT API settings into the Secret Key field, "
+                          "then restart the bot."),
+                "symbol": clean_sym,
+            }
+
         prime_side = "BUY" if side.upper() in ("BUY", "LONG") else "SELL"
         qty_val = round(float(qty), 4)
 
