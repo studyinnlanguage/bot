@@ -207,6 +207,18 @@ class WEEXFuturesTrader:
         """
         try:
             balance = self.get_balance()
+            # HONESTY: get_balance() swallows errors and returns 0.0 — if the last
+            # call actually failed, this is NOT a successful connection.
+            err = getattr(self, "_last_balance_error", None)
+            if err:
+                return {
+                    "success": False,
+                    "message": f"API test failed: {err}",
+                    "error": err,
+                    "balance": None,
+                    "exchange": "weex",
+                    "demo": self.demo,
+                }
             return {
                 "success": True,
                 "message": f"Connected successfully! Balance: ${balance:.2f}",
@@ -423,12 +435,13 @@ class WEEXFuturesTrader:
             data = self._retry_api_call(self._request, "GET", path, signed=True)
         except Exception as e:
             logger.error("WEEX get_balance failed: %s", e)
+            self._last_balance_error = str(e)
             return 0.0
         rows = data
         if isinstance(data, dict):
             rows = data.get("data", data.get("result", []))
-        # DEBUG: Log raw response so we can diagnose $0 balance issues
-        logger.info("WEEX balance raw response: %s", str(data)[:500])
+        # raw balance response only at DEBUG level (may contain account metadata)
+        logger.debug("WEEX balance raw response: %s", str(data)[:500])
         if isinstance(rows, dict):
             usdt = rows.get("USDT") or rows.get("usdt") or rows.get("SUSDT")
             if isinstance(usdt, dict):

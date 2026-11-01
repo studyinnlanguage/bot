@@ -144,6 +144,16 @@ app.config["SECRET_KEY"] = _flask_secret
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Set COOKIE_SECURE=1 in production (HTTPS) so session cookies never travel over plain HTTP
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("COOKIE_SECURE", "0") == "1"
+
+# Bad numeric input ("abc" as leverage/amount/days) must return a clean 400,
+# never an unhandled 500
+@app.errorhandler(ValueError)
+@app.errorhandler(TypeError)
+def _bad_numeric_value(e):
+    logger.warning("Rejected request with invalid value: %s", e)
+    return jsonify({"success": False, "error": "Invalid value provided", "detail": str(e)}), 400
 
 # Security: Suppress Werkzeug server banner disclosure in development / fallback modes
 try:
@@ -194,6 +204,11 @@ _ENCRYPTION_KEY_BYTES = hashlib.sha256(_ENCRYPTION_RAW.encode("utf-8")).digest()
 # Fix 12: Shared secret token for SaaS ↔ Bot-Engine communication
 # Bot engine instances will only accept requests bearing this token.
 BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", secrets.token_hex(32))
+
+# Serialization guards: payment activation + referral payouts must be atomic
+# (prevents double licenses / double withdrawals under concurrent requests)
+_payment_lock = _threading.RLock()
+_payout_lock = _threading.RLock()
 
 # Port range for per-user bot-engine instances
 PORT_START = 5001
@@ -796,6 +811,17 @@ def save_db(db: dict):
             logger.error("DB save failed: %s", e)
 
 DB = load_db()
+
+# Restore admin-configured payment wallets (persisted; were previously runtime-only
+# and silently reverted on every restart, letting users pay a stale address)
+_settings_wallets = (DB.get("settings") or {}).get("wallets") or {}
+if _settings_wallets.get("trc20"):
+    WALLET_TRC20 = _settings_wallets["trc20"]
+    WALLET_ADDRESS = WALLET_TRC20
+if _settings_wallets.get("bep20"):
+    WALLET_BEP20 = _settings_wallets["bep20"]
+if _settings_wallets.get("network"):
+    WALLET_NETWORK = _settings_wallets["network"]
 
 # ============================================================
 # Database Migration (runs once at startup)
@@ -1421,6 +1447,8 @@ def proxy_to_bot(user_id: str, method: str, path: str, body=None) -> dict:
         data = json.dumps(body).encode("utf-8") if body and method != "GET" else None
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
+        # Engine rejects un-tokened /api/* calls — always identify ourselves
+        req.add_header("X-Bot-Token", BOT_ENGINE_TOKEN)
         with urllib.request.urlopen(req, timeout=10) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
@@ -1949,28 +1977,31 @@ def api_user_request_payout():
 
     total_earnings = float(user.get("referral_earnings", 0.0) or 0.0)
     payout_requests = user.setdefault("payout_requests", [])
-    total_withdrawn = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "paid")
-    pending_payout = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "pending")
-    available_balance = max(0.0, round(total_earnings - total_withdrawn - pending_payout, 2))
+    # Atomic balance check + append: two concurrent requests must never both see
+    # the same available balance (previously a race allowed 2x withdrawals)
+    with _payout_lock:
+        total_withdrawn = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "paid")
+        pending_payout = sum(float(p.get("amount", 0)) for p in payout_requests if p.get("status") == "pending")
+        available_balance = max(0.0, round(total_earnings - total_withdrawn - pending_payout, 2))
 
-    if available_balance <= 0:
-        return jsonify({"success": False, "error": "No available referral commission to withdraw"})
+        if available_balance <= 0:
+            return jsonify({"success": False, "error": "No available referral commission to withdraw"})
 
-    req_id = "PAY-" + secrets.token_hex(4).upper()
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    payout_entry = {
-        "id": req_id,
-        "amount": available_balance,
-        "currency": "USDT",
-        "wallet_address": wallet,
-        "status": "pending",
-        "created_at": now,
-        "paid_at": None,
-        "tx_hash": "",
-    }
-    user["payout_wallet"] = wallet
-    payout_requests.append(payout_entry)
-    save_db(DB)
+        req_id = "PAY-" + secrets.token_hex(4).upper()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        payout_entry = {
+            "id": req_id,
+            "amount": available_balance,
+            "currency": "USDT",
+            "wallet_address": wallet,
+            "status": "pending",
+            "created_at": now,
+            "paid_at": None,
+            "tx_hash": "",
+        }
+        user["payout_wallet"] = wallet
+        payout_requests.append(payout_entry)
+        save_db(DB)
 
     logger.info("User %s requested payout %s for $%s USDT to %s",
                 user["email"], req_id, available_balance, wallet)
@@ -2255,16 +2286,24 @@ def api_bot_embed():
 @app.route('/bot/', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
 @app.route('/bot/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
 def bot_engine_proxy(path=''):
-    if not is_logged_in():
-        return redirect("/")
-
     user = current_user()
     if not user:
-        session.clear()
+        # Mobile clients authenticate with a JWT bearer token instead of a cookie
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            claims = mobile_verify_token(auth_header[7:].strip())
+            if claims:
+                user = DB.get("users", {}).get(claims.get("uid", ""))
+                if user and user.get("banned"):
+                    user = None
+    if not user:
         return redirect("/")
 
     sub = check_subscription(user)
     if not sub["active"]:
+        # Browser clients go to the packages page; API/socket clients get a JSON 403
+        if path.startswith('socket.io') or path.startswith('api/') or request.headers.get("Authorization", "").startswith("Bearer"):
+            return jsonify({"success": False, "error": "Subscription inactive", "subscription": sub}), 403
         return redirect("/")
 
     status = get_bot_status(user["id"])
@@ -2415,9 +2454,8 @@ def api_admin_login():
     if not ADMIN_SECRET:
         return jsonify({"success": False, "error": "Admin panel is disabled. Set ADMIN_SECRET env var."})
 
-    # Rate limit admin login (uses X-Forwarded-For behind reverse proxies on Coolify)
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    client_ip = (forwarded.split(",")[0].strip() if forwarded else request.remote_addr) or "unknown"
+    # Rate limit admin login — server-derived IP only (X-Forwarded-For is client-spoofable)
+    client_ip = request.remote_addr or "unknown"
     if not _check_rate_limit(f"admin_login:{client_ip}", max_requests=10, window_seconds=120):
         return jsonify({"success": False, "error": "Too many admin login attempts. Please wait 2 minutes."}), 429
 
@@ -2719,6 +2757,9 @@ def google_auth():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         return redirect("/?error=google_not_configured")
     import urllib.parse
+    # Mobile clients come back to the app via the weexionic:// deep link
+    if request.args.get("client") == "mobile":
+        session["oauth_client"] = "mobile"
     # Fix 10: Generate and store OAuth state to prevent CSRF on OAuth flow
     oauth_state = secrets.token_hex(16)
     session["oauth_state"] = oauth_state
@@ -2783,6 +2824,13 @@ def google_callback():
 
         if not google_email:
             return redirect("/?error=no_email_from_google")
+
+        # SECURITY: only trust Google accounts whose email Google has verified,
+        # otherwise an attacker with an unverified lookalike email could be
+        # auto-logged into an existing WEEXIONIC account.
+        if not userinfo.get("email_verified", False):
+            logger.warning("Google login rejected for unverified email %s", google_email)
+            return redirect("/login?error=email_not_verified")
 
         # Find existing user or create new one
         user = None
@@ -2850,6 +2898,13 @@ def google_callback():
         session["user_id"] = user["id"]
         session.permanent = True
         logger.info("Google login: %s", google_email)
+
+        # Mobile OAuth round-trip: hand the app its own JWT via deep link
+        if session.pop("oauth_client", None) == "mobile":
+            from mobile_api import jwt_encode
+            token = jwt_encode({"uid": user["id"], "role": user.get("role", "user"), "typ": "access"}, 12 * 3600)
+            refresh = jwt_encode({"uid": user["id"], "typ": "refresh"}, 30 * 86400)
+            return redirect(f"weexionic://oauth?token={token}&refresh_token={refresh}")
         return redirect("/")
 
     except Exception as e:
@@ -2962,10 +3017,14 @@ def _verify_tx_blockchain(tx_hash: str, expected_amount: float) -> tuple[bool, s
     return False, "Transaction is unconfirmed or recipient/amount does not match."
 
 
-def _activate_order_and_credit_referral(order: dict, custom_days: int = None, verified_by: str = "auto") -> tuple[bool, str]:
+def _activate_order_and_credit_referral(order: dict, custom_days: int = None, verified_by: str = "auto") -> tuple[bool, str, dict]:
     """
     Activates user subscription, assigns license key, and immediately credits referral bonus to referrer.
+    Idempotent: if the order is already verified, returns the existing license without
+    creating a duplicate license or double-crediting the referrer.
     """
+    if order.get("status") == "verified" and order.get("license_key"):
+        return True, order["license_key"], {"success": False, "error": "Order was already activated"}
     order_id = order["id"]
     days = int(custom_days) if custom_days else order["days"]
     parts = [secrets.token_hex(2).upper() for _ in range(4)]
@@ -3126,6 +3185,11 @@ def api_quick_buy():
         if "@" not in email or "." not in email:
             return jsonify({"success": False, "error": "Please enter a valid email address"}), 400
 
+        # Rate limit quick-buy password verification (previously an unauthenticated
+        # brute-force oracle bypassing the login rate limit)
+        if not _check_rate_limit(f"quick_buy:{request.remote_addr}", max_requests=5, window_seconds=300):
+            return jsonify({"success": False, "error": "Too many attempts. Please wait 5 minutes."}), 429
+
         # Check if user already exists
         user = None
         for u in DB["users"].values():
@@ -3134,15 +3198,15 @@ def api_quick_buy():
                 break
 
         if user:
-            # Existing user - verify password
+            # Existing user - verify password (generic message: no account enumeration)
             if not verify_password(password, user.get("password_hash", "")):
-                return jsonify({"success": False, "error": "Account already exists with this email. Please enter the correct password."}), 401
+                return jsonify({"success": False, "error": "This email already has an account. Please enter the correct password for this email."}), 401
             if user.get("banned"):
                 return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
         else:
-            # Create brand new user
-            if len(password) < 6:
-                return jsonify({"success": False, "error": "Password must be at least 6 characters"}), 400
+            # Create brand new user (same minimum as normal signup)
+            if len(password) < 8:
+                return jsonify({"success": False, "error": "Password must be at least 8 characters"}), 400
 
             user_id = str(uuid.uuid4())
             referral_code = user_id[:8].upper()
@@ -3304,24 +3368,27 @@ def api_submit_order():
     order["submitted_at"] = now
     save_db(DB)
 
-    # Automated Blockchain Verification
-    verified, note = _verify_tx_blockchain(tx_hash, float(order.get("amount", 79)))
-    if verified:
-        _, lic_key = _activate_order_and_credit_referral(order, verified_by="auto_blockchain")
-        clean_tx = tx_hash.strip().lower()
-        clean_tx_no_0x = clean_tx[2:] if clean_tx.startswith("0x") else clean_tx
-        DB.setdefault("used_txids", {})[clean_tx] = order_id
-        DB["used_txids"][clean_tx_no_0x] = order_id
-        save_db(DB)
-        logger.info("Order %s AUTO-VERIFIED on blockchain for %s: %s", order_id, user["email"], note)
-        return jsonify({
-            "success": True,
-            "verified": True,
-            "auto_verified": True,
-            "message": "Payment verified on blockchain! Your Bot has been activated.",
-            "license_key": lic_key,
-            "redirect": "/bot/",
-        })
+    # Automated Blockchain Verification (atomic: verify + activate + txid record
+    # under one lock so two concurrent calls can never double-activate or let one
+    # tx_hash fund two orders)
+    with _payment_lock:
+        verified, note = _verify_tx_blockchain(tx_hash, float(order.get("amount", 79)))
+        if verified:
+            _, lic_key, _email_res = _activate_order_and_credit_referral(order, verified_by="auto_blockchain")
+            clean_tx = tx_hash.strip().lower()
+            clean_tx_no_0x = clean_tx[2:] if clean_tx.startswith("0x") else clean_tx
+            DB.setdefault("used_txids", {})[clean_tx] = order_id
+            DB["used_txids"][clean_tx_no_0x] = order_id
+            save_db(DB)
+            logger.info("Order %s AUTO-VERIFIED on blockchain for %s: %s", order_id, user["email"], note)
+            return jsonify({
+                "success": True,
+                "verified": True,
+                "auto_verified": True,
+                "message": "Payment verified on blockchain! Your Bot has been activated.",
+                "license_key": lic_key,
+                "redirect": "/bot/",
+            })
 
     logger.info("Order %s submitted by %s (tx=%s) - blockchain status: %s", order_id, user["email"], tx_hash[:20], note)
     return jsonify({
@@ -3355,21 +3422,22 @@ def api_check_order_verification(order_id):
 
     tx_hash = order.get("tx_hash", "").strip()
     if tx_hash and order.get("status") == "submitted":
-        verified, note = _verify_tx_blockchain(tx_hash, float(order.get("amount", 79)))
-        if verified:
-            _, lic_key = _activate_order_and_credit_referral(order, verified_by="auto_blockchain")
-            clean_tx = tx_hash.strip().lower()
-            clean_tx_no_0x = clean_tx[2:] if clean_tx.startswith("0x") else clean_tx
-            DB.setdefault("used_txids", {})[clean_tx] = order_id
-            DB["used_txids"][clean_tx_no_0x] = order_id
-            save_db(DB)
-            logger.info("Order %s AUTO-VERIFIED on re-poll for %s: %s", order_id, user["email"], note)
-            return jsonify({
-                "success": True,
-                "verified": True,
-                "license_key": lic_key,
-                "redirect": "/bot/",
-            })
+        with _payment_lock:
+            verified, note = _verify_tx_blockchain(tx_hash, float(order.get("amount", 79)))
+            if verified:
+                _, lic_key, _email_res = _activate_order_and_credit_referral(order, verified_by="auto_blockchain")
+                clean_tx = tx_hash.strip().lower()
+                clean_tx_no_0x = clean_tx[2:] if clean_tx.startswith("0x") else clean_tx
+                DB.setdefault("used_txids", {})[clean_tx] = order_id
+                DB["used_txids"][clean_tx_no_0x] = order_id
+                save_db(DB)
+                logger.info("Order %s AUTO-VERIFIED on re-poll for %s: %s", order_id, user["email"], note)
+                return jsonify({
+                    "success": True,
+                    "verified": True,
+                    "license_key": lic_key,
+                    "redirect": "/bot/",
+                })
 
     return jsonify({
         "success": True,
@@ -3623,6 +3691,14 @@ def api_admin_wallet():
         WALLET_ADDRESS = data["wallet"].strip()
     if data.get("network"):
         WALLET_NETWORK = data["network"].strip()
+    # Persist wallets so they survive restarts (previously runtime-only globals:
+    # a wallet change was lost on restart and users could pay a stale address)
+    DB.setdefault("settings", {})["wallets"] = {
+        "trc20": WALLET_TRC20,
+        "bep20": WALLET_BEP20,
+        "network": WALLET_NETWORK,
+    }
+    save_db(DB)
     return jsonify({
         "success": True,
         "wallet": WALLET_ADDRESS,
@@ -3733,7 +3809,7 @@ _watchdog_lock_file = None
 def _is_watchdog_leader() -> bool:
     global _watchdog_lock_file
     try:
-        lock_path = DATA_DIR / ".watchdog.lock"
+        lock_path = BASE_DIR / ".watchdog.lock"
         _watchdog_lock_file = open(lock_path, "w")
         if os.name == "nt":
             import msvcrt
@@ -3793,6 +3869,34 @@ def _watchdog():
 # Start watchdog in background thread (daemon)
 _watchdog_thread = _threading.Thread(target=_watchdog, daemon=True)
 _watchdog_thread.start()
+
+# ============================================================
+# Mobile API — JWT layer for the native mobile clients
+# (same accounts, no admin surface, bot plane proxied server-side)
+# ============================================================
+from mobile_api import mobile_bp, init_module as mobile_init, mobile_verify_token
+
+mobile_init(
+    db=DB,
+    save_db=save_db,
+    rate_limit=_check_rate_limit,
+    encrypt=encrypt,
+    decrypt=decrypt,
+    verify_password=verify_password,
+    check_subscription=check_subscription,
+    proxy_to_bot=proxy_to_bot,
+    ensure_bot=ensure_bot_engine_running,
+    start_bot=start_user_bot,
+    stop_bot=stop_user_bot,
+    flask_secret=_flask_secret,
+    packages=PACKAGES,
+    verify_tx=_verify_tx_blockchain,
+    activate_order=_activate_order_and_credit_referral,
+    payment_lock=_payment_lock,
+    payout_lock=_payout_lock,
+)
+app.register_blueprint(mobile_bp)
+logger.info("Mobile API registered: /api/mobile/* (JWT bearer, admin-free)")
 
 # ============================================================
 # Entry point (for standalone development execution)

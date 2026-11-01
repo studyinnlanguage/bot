@@ -360,6 +360,13 @@
                 } catch(e) {}
             }
 
+            // XSS guard: every server/user-controlled value must pass through esc()
+            function esc(v) {
+                return String(v == null ? '' : v)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+
             function renderOrders(orders) {
                 const list = document.getElementById('ordersList');
                 document.getElementById('ordersCount').textContent = '(' + orders.length + ')';
@@ -379,7 +386,7 @@
                         ? '<img class="ss-thumb" src="/uploads/' + o.screenshot + '" onclick="showSS(\'' + o.screenshot + '\')" title="Click to view">'
                         : '';
                     const txHtml = o.tx_hash
-                        ? '<div class="order-tx">TX: ' + o.tx_hash + '</div>'
+                        ? '<div class="order-tx">TX: ' + esc(o.tx_hash) + '</div>'
                         : '';
                     let actions = '';
                     if (o.status === 'submitted' || o.status === 'pending') {
@@ -395,7 +402,7 @@
                     }
                     let rejectInfo = '';
                     if (o.status === 'rejected') {
-                        rejectInfo = '<div style="margin-top:6px;color:#f6465d;font-size:11px;">Reason: ' + (o.rejection_reason || 'N/A') + '</div>';
+                        rejectInfo = '<div style="margin-top:6px;color:#f6465d;font-size:11px;">Reason: ' + esc(o.rejection_reason || 'N/A') + '</div>';
                     }
                     const dateStr = o.created_at ? new Date(o.created_at).toLocaleString() : '-';
                     return '<div class="order-row">'
@@ -403,9 +410,9 @@
                         + '  <div><span class="order-id">' + o.id + '</span> <span class="badge" style="background:rgba(240,185,11,0.1);color:#f0b90b;margin-left:8px;">$' + o.amount + ' ' + (o.currency||'') + '</span></div>'
                         + '  <div>' + statusBadge + '</div>'
                         + '</div>'
-                        + '<div class="order-user">User: ' + (o.user_email||'-') + (o.user_name ? ' (' + o.user_name + ')' : '') + '</div>'
+                        + '<div class="order-user">User: ' + esc(o.user_email||'-') + (o.user_name ? ' (' + esc(o.user_name) + ')' : '') + '</div>'
                         + '<div class="order-details">'
-                        + '  Package: <span>' + o.package_name + '</span> | '
+                        + '  Package: <span>' + esc(o.package_name) + '</span> | '
                         + '  Created: <span>' + dateStr + '</span>'
                         + '</div>'
                         + txHtml
@@ -559,9 +566,9 @@
                     const banBadge = u.banned ? '<span class="badge badge-banned">banned</span>' : '';
                     const actions = '<button class="btn-sm ' + (u.banned ? 'btn-unban' : 'btn-ban') + '" onclick="banUser(\'' + u.id + '\', ' + !u.banned + ')">' + (u.banned ? 'Unban' : 'Ban') + '</button>'
                         + '<button class="btn-sm btn-delete" onclick="deleteUser(\'' + u.id + '\')">Delete</button>';
-                    const refInfo = 'Ref: ' + (u.referral_code || '-') + ' (' + (u.referral_count || 0) + ' users, $' + (u.referral_earnings || 0) + ')' + (u.referred_by_name ? ' | Invited by: ' + u.referred_by_name : '');
+                    const refInfo = 'Ref: ' + (u.referral_code || '-') + ' (' + (u.referral_count || 0) + ' users, $' + (u.referral_earnings || 0) + ')' + (u.referred_by_name ? ' | Invited by: ' + esc(u.referred_by_name) : '');
                     return '<div class="user-row">'
-                        + '<div><div style="font-weight:600;">' + u.email + '</div><div style="color:#848e9c;font-size:11px;">' + u.name + ' | License: ' + (u.license_key || 'none') + ' | ' + refInfo + '</div></div>'
+                        + '<div><div style="font-weight:600;">' + esc(u.email) + '</div><div style="color:#848e9c;font-size:11px;">' + esc(u.name) + ' | License: ' + esc(u.license_key || 'none') + ' | ' + esc(refInfo) + '</div></div>'
                         + '<div>' + subBadge + '</div>'
                         + '<div>' + botBadge + '</div>'
                         + '<div>' + banBadge + '</div>'
@@ -672,16 +679,16 @@
                         + '<div class="order-top">'
                         + '  <div>'
                         + '    <span class="order-id">' + p.id + '</span> &bull; <strong style="color:#0ecb81; font-size:14px;">$' + p.amount + ' USDT</strong>'
-                        + '    <div class="order-user" style="margin-top:4px;">User: <strong>' + p.user_email + '</strong> (' + (p.user_name || '') + ') &bull; Requested: ' + dateStr + '</div>'
+                        + '    <div class="order-user" style="margin-top:4px;">User: <strong>' + esc(p.user_email) + '</strong> (' + esc(p.user_name || '') + ') &bull; Requested: ' + dateStr + '</div>'
                         + '  </div>'
                         + '  <div>' + statusBadge + '</div>'
                         + '</div>'
                         + '<div style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">'
                         + '  <span style="font-size:11px; color:#848e9c;">USDT Wallet:</span>'
-                        + '  <span class="order-tx" style="max-width:400px;">' + (p.wallet_address || '-') + '</span>'
+                        + '  <span class="order-tx" style="max-width:400px;">' + esc(p.wallet_address || '-') + '</span>'
                         + '  <button class="btn-sm copy-btn" onclick="copyText(\'' + (p.wallet_address || '') + '\')">Copy Wallet</button>'
                         + '</div>'
-                        + (p.tx_hash ? '<div style="font-size:11px; color:#848e9c; margin-bottom:8px;">Tx Hash: <span style="font-family:monospace; color:#0ecb81;">' + p.tx_hash + '</span></div>' : '')
+                        + (p.tx_hash ? '<div style="font-size:11px; color:#848e9c; margin-bottom:8px;">Tx Hash: <span style="font-family:monospace; color:#0ecb81;">' + esc(p.tx_hash) + '</span></div>' : '')
                         + '<div class="order-actions">' + actionBtn + '</div>'
                         + '</div>';
                 }).join('');

@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">WEEXIONIC</string>
-    <string name="tagline">Quad-Trend Quantitative Engine</string>
-    <string name="server_hint">Bot server URL  (e.g.  http://123.45.67.89:5555)</string>
-    <string name="connect">CONNECT</string>
-    <string name="trust_ssl">Trust self-signed SSL (own VPS)</string>
-    <string name="status_ready">Enter your bot server URL to begin</string>
-</resources>

@@ -1,0 +1,86 @@
+name: Build WEEXIONIC Mobile (Android)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "mobile-app/**"
+      - ".github/workflows/build-mobile.yml"
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile-app/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: mobile-app
+        run: npm ci
+
+      - name: Install Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+
+      - name: Decode release signing key (from CI secrets — never committed)
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_B64 secret missing — release build would be unsigned"
+            exit 1
+          fi
+          echo "ANDROID_KEYSTORE_B64=${ANDROID_KEYSTORE_B64}" >> "$GITHUB_ENV"
+
+      - name: Build release APK + AAB
+        working-directory: mobile-app/android
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KS_PASS: ${{ secrets.ANDROID_KS_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease --no-daemon
+
+      - name: Verify signature
+        working-directory: mobile-app/android
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | head -4
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WEEXIONIC-v2.0.0-apk
+          path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload AAB artifact (Play Store)
+        uses: actions/upload-artifact@v4
+        with:
+          name: WEEXIONIC-v2.0.0-aab
+          path: mobile-app/android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Attach APK to release (when triggered by a release)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            mobile-app/android/app/build/outputs/apk/release/app-release.apk
+            mobile-app/android/app/build/outputs/bundle/release/app-release.aab

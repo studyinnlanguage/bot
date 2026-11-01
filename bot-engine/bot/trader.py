@@ -169,6 +169,7 @@ class BinanceFuturesTrader:
 
     def get_balance(self) -> float:
         """Get USDT balance available for trading. Auto-retries on network errors."""
+        self._last_balance_error = None
         try:
             if _CONNECTOR == "binance-futures-connector":
                 acct = self._retry_api_call(self.client.balance)
@@ -228,6 +229,7 @@ class BinanceFuturesTrader:
                 return 0.0
         except Exception as e:
             logger.error("Binance get_balance failed: %s", e)
+            self._last_balance_error = str(e)
             return 0.0
 
     def _call_change_leverage(self, symbol: str, leverage: int) -> dict:
@@ -904,6 +906,18 @@ class BinanceFuturesTrader:
         """Test API connection by fetching balance. Returns detailed result."""
         try:
             balance = self.get_balance()
+            # HONESTY: get_balance() swallows errors and returns 0.0 — if the last
+            # call actually failed, this is NOT a successful connection.
+            err = getattr(self, "_last_balance_error", None)
+            if err:
+                return {
+                    "success": False,
+                    "message": f"API test failed: {err}",
+                    "error": err,
+                    "balance": None,
+                    "exchange": "binance",
+                    "demo": self.testnet,
+                }
             return {
                 "success": True,
                 "message": f"Connected successfully! Balance: ${balance:.2f}",

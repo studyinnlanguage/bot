@@ -1,0 +1,12 @@
+node_modules/
+android/app/build/
+android/build/
+android/.gradle/
+android/app/weexionic-release.keystore
+*.jks
+*.keystore
+!mobile-app/android/app/debug.keystore
+local.properties
+*.apk
+*.aab
+*.idsig

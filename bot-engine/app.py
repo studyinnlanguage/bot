@@ -14,6 +14,7 @@ import os
 import secrets
 import shutil
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -235,13 +236,23 @@ def favicon():
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
-    safe = {**CONFIG}
-    if safe.get("api_key"):
-        safe["api_key_masked"] = safe["api_key"][:4] + "***" + safe["api_key"][-4:]
-    if safe.get("api_secret"):
+    # SECURITY: never return raw secrets to any client (web or mobile).
+    # Presence flags + masked previews only.
+    _SECRET_FIELDS = (
+        "api_key", "api_secret", "api_passphrase", "email_password",
+        "telegram_bot_token", "whatsapp_apikey",
+    )
+    safe = {k: v for k, v in CONFIG.items() if k not in _SECRET_FIELDS}
+    safe["has_api_key"] = bool(CONFIG.get("api_key"))
+    safe["has_api_secret"] = bool(CONFIG.get("api_secret"))
+    safe["has_api_passphrase"] = bool(CONFIG.get("api_passphrase"))
+    safe["has_telegram_token"] = bool(CONFIG.get("telegram_bot_token"))
+    safe["has_email_password"] = bool(CONFIG.get("email_password"))
+    safe["has_whatsapp_apikey"] = bool(CONFIG.get("whatsapp_apikey"))
+    if safe.get("has_api_key"):
+        safe["api_key_masked"] = CONFIG["api_key"][:4] + "***" + CONFIG["api_key"][-4:]
+    if safe.get("has_api_secret"):
         safe["api_secret_masked"] = "***"
-    safe["api_key"] = safe.get("api_key", "")
-    safe["api_secret"] = safe.get("api_secret", "")
     return jsonify(safe)
 
 
@@ -407,8 +418,13 @@ def update_config():
         except Exception as _e:
             logger.warning("Could not sync engine config on save: %s", _e)
 
-    safe_keys = ("api_secret", "email_password", "telegram_bot_token", "whatsapp_apikey")
-    return jsonify({"success": True, "config": {k: v for k, v in CONFIG.items() if k not in safe_keys}})
+    _SECRET_FIELDS = ("api_secret", "email_password", "telegram_bot_token", "whatsapp_apikey",
+                      "api_key", "api_passphrase")
+    safe_cfg = {k: v for k, v in CONFIG.items() if k not in _SECRET_FIELDS}
+    safe_cfg["has_api_key"] = bool(CONFIG.get("api_key"))
+    safe_cfg["has_api_secret"] = bool(CONFIG.get("api_secret"))
+    safe_cfg["has_api_passphrase"] = bool(CONFIG.get("api_passphrase"))
+    return jsonify({"success": True, "config": safe_cfg})
 
 
 @app.route("/api/leverage", methods=["POST"])
@@ -527,7 +543,7 @@ def get_positions():
     if not trader:
         return jsonify({"success": False, "error": "Bot trader not connected", "positions": []})
     req_sym = request.args.get("symbol", "").strip().upper()
-    symbols = [req_sym] if req_sym else (ENGINE.symbols or [CONFIG.get("symbol", "BTCUSDT")])
+    symbols = [req_sym] if req_sym else (ENGINE._symbols_list() or [CONFIG.get("symbol", "BTCUSDT")])
     if not symbols:
         symbols = ["BTCUSDT"]
 
@@ -775,7 +791,11 @@ def close_all_positions():
 def get_trades():
     if not hasattr(ENGINE, "history"):
         return jsonify({"success": True, "trades": [], "stats": {}})
-    limit = int(request.args.get("limit", 100))
+    limit_raw = request.args.get("limit", "100")
+    try:
+        limit = max(1, min(500, int(limit_raw)))
+    except (TypeError, ValueError):
+        limit = 100
     symbol = request.args.get("symbol")
     trades = ENGINE.history.get_trades(limit=limit, symbol=symbol)
     stats = ENGINE.history.get_stats()

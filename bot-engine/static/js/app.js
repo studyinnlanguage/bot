@@ -1745,7 +1745,7 @@ async function loadSettings() {
         // Exchange
         const exchange = cfg.exchange || 'binance';
         setExchange(exchange);
-        if ($('apiPassphrase')) $('apiPassphrase').placeholder = cfg.api_passphrase ? 'Saved' : 'WEEX Passphrase';
+        if ($('apiPassphrase')) $('apiPassphrase').placeholder = cfg.has_api_passphrase ? 'Saved' : 'WEEX Passphrase';
         if ($('timeframe')) $('timeframe').value = cfg.timeframe || '1d';
         if ($('leverage')) {
             const savedLev = cfg.leverage || 10;
@@ -1764,30 +1764,30 @@ async function loadSettings() {
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
         if ($('mode')) $('mode').value = cfg.mode || 'both';
         if ($('testnet')) $('testnet').value = String(cfg.testnet ?? true);
-        if (cfg.api_key && $('apiKey')) $('apiKey').placeholder = cfg.api_key_masked || 'Saved';
+        if (cfg.has_api_key && $('apiKey')) $('apiKey').placeholder = cfg.api_key_masked || 'Saved';
         // Advanced engine tuning fields
         if ($('minEmaSpread')) $('minEmaSpread').value = (cfg.min_ema_spread != null) ? cfg.min_ema_spread : 0;
         if ($('freshWindow')) $('freshWindow').value = (cfg.fresh_window != null) ? cfg.fresh_window : 8;
         if ($('autoStart')) $('autoStart').checked = !!cfg.auto_start;
         // Remember whether keys are REALLY saved server-side (inputs are
         // cleared after every save, so the badge must not trust them)
-        window._savedKeysLoaded = !!(cfg.api_key && cfg.api_secret);
+        window._savedKeysLoaded = !!(cfg.has_api_key && cfg.has_api_secret);
 
         // Notifications - Telegram
         if ($('telegramEnabled')) $('telegramEnabled').checked = !!cfg.telegram_enabled;
-        if ($('telegramBotToken')) $('telegramBotToken').placeholder = cfg.telegram_bot_token ? 'Saved' : 'Bot Token';
+        if ($('telegramBotToken')) $('telegramBotToken').placeholder = cfg.has_telegram_token ? 'Saved' : 'Bot Token';
         if ($('telegramChatId')) $('telegramChatId').value = cfg.telegram_chat_id || '';
         // Email
         if ($('emailEnabled')) $('emailEnabled').checked = !!cfg.email_enabled;
         if ($('emailSender')) $('emailSender').value = cfg.email_sender || '';
-        if ($('emailPassword')) $('emailPassword').placeholder = cfg.email_password ? 'Saved' : 'App Password';
+        if ($('emailPassword')) $('emailPassword').placeholder = cfg.has_email_password ? 'Saved' : 'App Password';
         if ($('emailReceiver')) $('emailReceiver').value = cfg.email_receiver || '';
         if ($('emailSmtpServer')) $('emailSmtpServer').value = cfg.email_smtp_server || 'smtp.gmail.com';
         if ($('emailSmtpPort')) $('emailSmtpPort').value = cfg.email_smtp_port || 587;
         // WhatsApp
         if ($('whatsappEnabled')) $('whatsappEnabled').checked = !!cfg.whatsapp_enabled;
         if ($('whatsappPhone')) $('whatsappPhone').value = cfg.whatsapp_phone || '';
-        if ($('whatsappApikey')) $('whatsappApikey').placeholder = cfg.whatsapp_apikey ? 'Saved' : 'CallMeBot API Key';
+        if ($('whatsappApikey')) $('whatsappApikey').placeholder = cfg.has_whatsapp_apikey ? 'Saved' : 'CallMeBot API Key';
 
         // Amount mode
         const amtMode = cfg.amount_mode || 'fixed';
@@ -1824,7 +1824,7 @@ async function loadSettings() {
         if ($('statCoins')) $('statCoins').textContent = coins.length;
 
         updateEnvBadge(cfg.testnet ?? true, exchange,
-                       !!(cfg.api_key && cfg.api_secret));
+                       !!(cfg.has_api_key && cfg.has_api_secret));
     } catch (e) {
         log('error', `Settings load failed: ${e}`);
     } finally {
@@ -2031,7 +2031,7 @@ async function saveSettings() {
         if (data.success) {
             log('success', `Settings saved! Exchange: ${exchange.toUpperCase()}`);
             // Track the real saved-keys state from the authoritative response
-            window._savedKeysLoaded = !!(data.config && data.config.api_key);
+            window._savedKeysLoaded = !!(data.config && data.config.has_api_key);
             updateEnvBadge(cfg.testnet, exchange, window._savedKeysLoaded);
             $('apiKey').value = '';
             $('apiSecret').value = '';

@@ -55,3 +55,15 @@ Thumbs.db
 
 # Docker
 *.log
+
+# runtime artifacts
+.bot_processes.json
+.watchdog.lock
+logs/
+user_instances/
+uploads/
+database.json
+database.json.bak
+.flask_secret
+*.pyc
+__pycache__/

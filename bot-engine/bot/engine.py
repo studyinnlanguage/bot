@@ -59,6 +59,7 @@ class SymbolWorker(threading.Thread):
         self.last_signal = Signal.HOLD
         self.candles_processed = 0
         self.trades_today = 0
+        self.last_check = None  # set after first successful klines fetch (status() must never 500)
         self._last_trade_date = datetime.now(timezone.utc).date()
         # STRICT RULE: On startup, must wait for a genuine FRESH crossover before trading
         self.waiting_for_new_cross = True
@@ -2225,12 +2226,16 @@ class BotEngine:
         # Compute today's completed trades from trade history so count persists even when bot is stopped
         today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         trades_today_count = 0
-        if hasattr(self, "trade_history") and self.trade_history:
-            with self.trade_history.lock:
-                trades_today_count = sum(
-                    1 for t in self.trade_history.trades
-                    if t.get("status") == "CLOSED" and str(t.get("closed_at", "")).startswith(today_utc)
-                )
+        history = getattr(self, "history", None)
+        if history is not None:
+            try:
+                with history.lock:
+                    trades_today_count = sum(
+                        1 for t in history.trades
+                        if t.get("status") == "CLOSED" and str(t.get("closed_at", "")).startswith(today_utc)
+                    )
+            except Exception:
+                trades_today_count = 0
         if trades_today_count == 0 and self.workers:
             trades_today_count = sum(w.trades_today for w in self.workers.values())
 
@@ -2246,7 +2251,7 @@ class BotEngine:
             "amount_pct": self.config.get("amount_pct", 10),
             "stop_loss_pct": self.config.get("stop_loss_pct", 2),
             "take_profit_pct": self.config.get("take_profit_pct", 6),
-            "tp_mode": self.config.get("tp_mode", "both"),
+            "tp_mode": self.config.get("tp_mode", "fixed"),
             "mode": self.config.get("mode", "both"),
             "testnet": self.config.get("testnet", True),
             "workers": {
