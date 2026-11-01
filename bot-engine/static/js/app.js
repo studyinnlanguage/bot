@@ -23,6 +23,13 @@ let signalsBySymbol = {};    // {BTCUSDT: 'BUY', ...}
 let indicatorsBySymbol = {}; // latest indicators per symbol
 let positionsBySymbol = {};  // latest position per symbol
 let chartDataBySymbol = {};  // latest chart_data per symbol
+// True while loadSettings() is restoring saved settings. Restoring is NOT a
+// user exchange-switch: without this flag the HTML default active button
+// (binance) made setExchange() treat every page refresh as binance->primexbt
+// switch, which REPLACED the user's saved coins with 3 defaults and
+// auto-saved them (with the not-yet-restored leverage input = 10) —
+// destroying the saved config on every refresh.
+let isRestoringSettings = false;
 
 // ===== DOM Helpers =====
 const $ = (id) => document.getElementById(id);
@@ -1642,6 +1649,7 @@ function setAmountMode(mode) {
 
 // ===== Settings Load/Save =====
 async function loadSettings() {
+    isRestoringSettings = true;   // never treat settings restore as exchange switch
     try {
         const r = await fetch('/api/config');
         const cfg = await r.json();
@@ -1723,6 +1731,8 @@ async function loadSettings() {
                        !!(cfg.api_key && cfg.api_secret));
     } catch (e) {
         log('error', `Settings load failed: ${e}`);
+    } finally {
+        isRestoringSettings = false;
     }
 }
 
@@ -1786,9 +1796,12 @@ function setExchange(exchange) {
     updateEnvBadge(testnet, exchange,
                    !!($('apiKey')?.value && $('apiSecret')?.value));
 
-    // CRITICAL FIX: When exchange is switched, auto-refresh the coin dropdown
-    // from the NEW exchange's API.
-    if (prevExchange && prevExchange !== exchange) {
+    // CRITICAL FIX: When the user MANUALLY switches exchange, auto-refresh
+    // the coin dropdown from the NEW exchange's API. During page-load
+    // settings restore this must NOT run: the HTML default active button
+    // (binance) otherwise made every refresh look like a switch, wiping the
+    // user's saved coins and auto-saving the defaults over their config.
+    if (prevExchange && prevExchange !== exchange && !isRestoringSettings) {
         log('info', `Exchange switched: ${prevExchange} -> ${exchange}. Refreshing coin list...`);
         // Adapt existing coins for new exchange
         if (exchange === 'primexbt') {
