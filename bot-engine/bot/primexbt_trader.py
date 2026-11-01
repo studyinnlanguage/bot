@@ -393,6 +393,69 @@ class PrimeXBTTrader:
                 pass
         return 10000.0 if self.testnet else 0.0
 
+    def get_balance_or_none(self) -> Optional[float]:
+        """REAL balance from /v3/trading/metrics, or None when unavailable.
+
+        Unlike get_balance() this never returns the fake paper fallback
+        ($10,000 / 0), so callers can honestly tell a LIVE balance apart
+        from "no data" (keys missing, network error, bad signature).
+        """
+        if not self.api_key or not self.private_key:
+            return None
+        res = self._request("GET", "/v3/trading/metrics")
+        if isinstance(res, dict) and "success" not in res:
+            avail = (res.get("availableMargin")
+                     or res.get("balance")
+                     or res.get("equity"))
+            try:
+                return float(avail)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def test_connection(self) -> dict:
+        """PrimeXBT-specific connection test with HONEST mode labeling.
+
+        The base-class test_connection() hardcodes exchange="binance" and
+        demo=self.testnet - both wrong for PrimeXBT. PrimeXBT has NO
+        demo/testnet server: with keys loaded every request hits the REAL
+        account, so a successful check always says LIVE. Without keys the
+        bot runs in paper mode (fake balance) and says so explicitly.
+        """
+        if not self.api_key or not self.private_key:
+            return {
+                "success": False,
+                "error": "PrimeXBT API keys missing - paper mode (fake balance)",
+                "cause": ("API Key is not set, or the Secret Key could not be "
+                          "loaded as an Ed25519 private key"),
+                "fix": ("Paste the API Key and the Ed25519 PRIVATE KEY (from "
+                        "PrimeXBT API settings) into Settings, then restart "
+                        "the bot"),
+                "exchange": "primexbt",
+                "demo": True,
+            }
+        bal = self.get_balance_or_none()
+        if bal is not None:
+            return {
+                "success": True,
+                "message": (f"Connected to PrimeXBT LIVE! Balance: ${bal:,.2f} "
+                            f"(real account - PrimeXBT has no demo server)"),
+                "balance": bal,
+                "exchange": "primexbt",
+                "demo": False,
+            }
+        return {
+            "success": False,
+            "error": ("PrimeXBT /v3/trading/metrics call failed - balance "
+                      "unavailable (signature or network problem)"),
+            "cause": ("The signed metrics request was rejected or timed out; "
+                      "market data works but the private account is unreadable"),
+            "fix": ("Check that the Secret Key field holds the Ed25519 PRIVATE "
+                    "KEY (not the public key), then restart the bot"),
+            "exchange": "primexbt",
+            "demo": False,
+        }
+
     # =========================================================================
     # Market Info & Quotes
     # =========================================================================

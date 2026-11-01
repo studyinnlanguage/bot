@@ -1449,10 +1449,20 @@ class MonitorThread(threading.Thread):
         # 1. Fetch balance (every tick — it's fast and shows real-time state)
         try:
             balance = self.engine.monitor_trader.get_balance()
+            # HONEST demo flag: PrimeXBT has no demo server - with loaded keys
+            # the displayed balance is the REAL account, never call it DEMO.
+            ex_name = (cfg.get("exchange") or "binance").lower()
+            if ex_name == "primexbt":
+                _tr = self.engine.monitor_trader
+                is_demo = not (getattr(_tr, "api_key", "")
+                               and getattr(_tr, "private_key", None) is not None)
+            else:
+                is_demo = bool(cfg.get("testnet", True))
             self.engine._emit("balance", {
                 "balance": float(balance),
                 "exchange": cfg.get("exchange", "binance"),
                 "testnet": cfg.get("testnet", True),
+                "demo": is_demo,
             })
         except Exception as e:
             if first_run:
@@ -1824,15 +1834,38 @@ class BotEngine:
         # cannot sign orders - every trade would fail with "Sign the request:
         # X-API-KEY, X-API-TIMESTAMP and X-API-SIGNATURE are all required".
         # Tell the user NOW on the dashboard instead of at first signal.
-        if ((config.get("exchange") or "").lower() == "primexbt"
-                and getattr(self.trader, "private_key", "n/a") is None):
-            self._emit("log", {
-                "level": "warn",
-                "msg": ("⚠️ PrimeXBT: Secret Key NOT loaded - orders will FAIL. "
-                        "Open Settings and paste the Ed25519 PRIVATE KEY from "
-                        "PrimeXBT API settings into the Secret Key field, then "
-                        "restart the bot.")
-            })
+        if (config.get("exchange") or "").lower() == "primexbt":
+            if getattr(self.trader, "private_key", "n/a") is None:
+                self._emit("log", {
+                    "level": "warn",
+                    "msg": ("⚠️ PrimeXBT: Secret Key NOT loaded - orders will FAIL. "
+                            "Open Settings and paste the Ed25519 PRIVATE KEY from "
+                            "PrimeXBT API settings into the Secret Key field, then "
+                            "restart the bot.")
+                })
+            else:
+                # PrimeXBT has NO demo/testnet server - with keys loaded every
+                # request hits the REAL account. Confirm it loudly so stale
+                # "paper mode"/"DEMO" labels can never confuse the user again.
+                bal = None
+                if hasattr(self.trader, "get_balance_or_none"):
+                    try:
+                        bal = self.trader.get_balance_or_none()
+                    except Exception:
+                        bal = None
+                if bal is not None:
+                    self._emit("log", {
+                        "level": "success",
+                        "msg": (f"✅ PrimeXBT: LIVE mode - keys loaded, real "
+                                f"balance ${bal:,.2f} (PrimeXBT has no demo "
+                                f"server - every order is REAL)")
+                    })
+                else:
+                    self._emit("log", {
+                        "level": "success",
+                        "msg": ("✅ PrimeXBT: LIVE mode - keys loaded (PrimeXBT "
+                                "has no demo server - every order is REAL)")
+                    })
 
         # Get symbols and leverage
         symbols = self._symbols_list()

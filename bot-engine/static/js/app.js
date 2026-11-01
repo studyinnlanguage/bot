@@ -964,7 +964,9 @@ function initSocket() {
         socket.on('balance', (data) => {
             const bal = data.balance || 0;
             const exchange = (data.exchange || 'binance').toUpperCase();
-            const env = data.testnet ? (exchange === 'BINANCE' ? 'TESTNET' : 'DEMO') : 'LIVE';
+            // Backend sends an honest demo flag (PrimeXBT with keys = LIVE)
+            const isDemo = (data.demo !== undefined) ? !!data.demo : !!data.testnet;
+            const env = isDemo ? (exchange === 'BINANCE' ? 'TESTNET' : 'DEMO') : 'LIVE';
             if ($('statBalance')) {
                 $('statBalance').textContent = `$${Number(bal).toFixed(2)}`;
                 $('statBalance').title = `${exchange} ${env} balance`;
@@ -1717,7 +1719,8 @@ async function loadSettings() {
         selectSymbol(activeSymbol);
         if ($('statCoins')) $('statCoins').textContent = coins.length;
 
-        updateEnvBadge(cfg.testnet ?? true, exchange);
+        updateEnvBadge(cfg.testnet ?? true, exchange,
+                       !!(cfg.api_key && cfg.api_secret));
     } catch (e) {
         log('error', `Settings load failed: ${e}`);
     }
@@ -1780,7 +1783,8 @@ function setExchange(exchange) {
     }
     // Update env badge
     const testnet = $('testnet') ? $('testnet').value === 'true' : true;
-    updateEnvBadge(testnet, exchange);
+    updateEnvBadge(testnet, exchange,
+                   !!($('apiKey')?.value && $('apiSecret')?.value));
 
     // CRITICAL FIX: When exchange is switched, auto-refresh the coin dropdown
     // from the NEW exchange's API.
@@ -1938,7 +1942,7 @@ async function saveSettings() {
     }
 }
 
-function updateEnvBadge(testnet, exchange) {
+function updateEnvBadge(testnet, exchange, keysLoaded) {
     const exBadge = $('exchangeBadge');
     const modeBadge = $('modeBadge');
     if (exBadge) {
@@ -1947,13 +1951,21 @@ function updateEnvBadge(testnet, exchange) {
     }
     if (modeBadge) {
         if (exchange === 'primexbt') {
-            modeBadge.textContent = testnet ? 'DEMO' : 'LIVE';
+            // HONEST badge: PrimeXBT has NO demo/testnet server - with keys
+            // loaded every order hits the REAL account. Never trust the
+            // testnet checkbox for this exchange.
+            const hasKeys = (keysLoaded !== undefined && keysLoaded !== null)
+                ? !!keysLoaded
+                : !!($('apiKey')?.value && $('apiSecret')?.value);
+            modeBadge.textContent = hasKeys ? 'LIVE' : 'NO KEYS';
+            modeBadge.style.color = hasKeys ? '#f6465d' : '#f0b90b';
         } else if (exchange === 'weex') {
             modeBadge.textContent = testnet ? 'DEMO' : 'LIVE';
+            modeBadge.style.color = testnet ? '#f0b90b' : '#f6465d';
         } else {
             modeBadge.textContent = testnet ? 'TESTNET' : 'MAINNET';
+            modeBadge.style.color = testnet ? '#f0b90b' : '#f6465d';
         }
-        modeBadge.style.color = testnet ? '#f0b90b' : '#f6465d';
     }
 }
 
@@ -2111,7 +2123,9 @@ async function refreshBalance() {
         if (d.success && $('statBalance')) {
             $('statBalance').textContent = `$${Number(d.balance).toFixed(2)}`;
             const exchange = (d.exchange || 'binance').toUpperCase();
-            const env = d.testnet ? (exchange === 'BINANCE' ? 'TESTNET' : 'DEMO') : 'LIVE';
+            // Backend sends an honest demo flag (PrimeXBT with keys = LIVE)
+            const isDemo = (d.demo !== undefined) ? !!d.demo : !!d.testnet;
+            const env = isDemo ? (exchange === 'BINANCE' ? 'TESTNET' : 'DEMO') : 'LIVE';
             $('statBalance').title = `${exchange} ${env} balance`;
         } else if (!d.success && d.error && d.error.includes('not connected')) {
             // No trader at all — show dashes

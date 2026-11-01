@@ -922,6 +922,19 @@ def test_connection():
         return jsonify({"success": False, "error": str(e)})
 
 
+def _honest_demo_flag(trader) -> bool:
+    """Honest DEMO/LIVE flag for balance responses.
+
+    PrimeXBT has NO demo/testnet server: with keys loaded the balance is
+    the REAL account, so never label it DEMO even when the testnet checkbox
+    is on (that flag only matters for Binance/WEEX).
+    """
+    if ((CONFIG.get("exchange") or "").lower() == "primexbt"):
+        return not (getattr(trader, "api_key", "")
+                    and getattr(trader, "private_key", None) is not None)
+    return bool(CONFIG.get("testnet", True))
+
+
 @app.route("/api/balance", methods=["GET"])
 def get_balance():
     trader = ENGINE.trader or ENGINE.monitor_trader
@@ -939,6 +952,7 @@ def get_balance():
         bal = trader.get_balance()
         return jsonify({"success": True, "balance": bal,
                         "exchange": CONFIG.get("exchange", "binance"),
+                        "demo": _honest_demo_flag(trader),
                         "testnet": CONFIG.get("testnet", True)})
     except Exception as e:
         logger.error("get_balance error: %s", e)
@@ -951,6 +965,7 @@ def get_balance():
                 bal = trader.get_balance()
                 return jsonify({"success": True, "balance": bal,
                                 "exchange": CONFIG.get("exchange", "binance"),
+                                "demo": _honest_demo_flag(trader),
                                 "testnet": CONFIG.get("testnet", True)})
             except Exception as e2:
                 return jsonify({"success": False, "error": str(e2)})
