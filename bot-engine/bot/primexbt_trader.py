@@ -936,11 +936,20 @@ class PrimeXBTTrader:
                 "note": "paper mode — no PrimeXBT API keys, leverage stored locally only",
             }
 
-        # Attempt remote margin update on PrimeXBT
+        # Attempt remote margin update on PrimeXBT.
+        # The official ChangeMarginRequest schema REQUIRES marginType
+        # (enum: CROSS | ISOLATED) next to symbol — omitting it makes
+        # PrimeXBT reject the request with "marginType is required".
+        # CROSS is PrimeXBT's standard mode (hedge accounts support cross
+        # only); override in Settings via margin_type if ever needed.
+        margin_type = str((self.config.get("margin_type") or "CROSS")).strip().upper()
+        if margin_type not in ("CROSS", "ISOLATED"):
+            margin_type = "CROSS"
         res = self._request(
             "POST",
             "/v3/trading/margins/change",
-            body={"symbol": clean_sym, "leverage": target_lev},
+            body={"symbol": clean_sym, "marginType": margin_type,
+                  "leverage": target_lev},
         )
         ok = isinstance(res, dict) and not res.get("error")
         if ok:
