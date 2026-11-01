@@ -1028,6 +1028,17 @@ footer a:hover { color: var(--gold-mid) !important; }
   .exchange-toggle { grid-template-columns: 1fr; }
   .mob-quick-btn-group .btn-ref-mob { display: none; }
 }
+@media (max-width: 430px) {
+  .brand { gap: 8px; }
+  .logo-wrapper { width: 36px; height: 36px; flex-basis: 36px; border-radius: 11px; }
+  .brand-text h1 { font-size: 13px; letter-spacing: 0.09em; }
+  .topbar { gap: 8px; }
+}
+@media (max-width: 380px) {
+  .brand-text h1 { font-size: 12px; letter-spacing: 0.05em; }
+  .status-pill { padding: 5px 8px; font-size: 9px; gap: 5px; }
+  .btn-account { padding: 7px 9px; }
+}
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
