@@ -117,6 +117,9 @@ class SymbolWorker(threading.Thread):
         # Settlement cooldown tracking to prevent race conditions on close & open
         self._last_close_timestamp = 0.0
         self._last_open_timestamp = 0.0
+        # Explicit lifecycle state for the dashboard:
+        # starting -> waiting_leverage -> running -> stopped | error:<msg>
+        self.state = "starting"
 
     def _get_effective_leverage(self, symbol: str) -> int:
         """Get the true active leverage for this symbol from config (or active open position)."""
@@ -152,6 +155,7 @@ class SymbolWorker(threading.Thread):
         })
         # Wait for leverage to be set before starting the main loop
         if self._leverage_ready is not None:
+            self.state = "waiting_leverage"
             self.engine._emit("log", {
                 "level": "info",
                 "msg": f"[{self.symbol}] Waiting for leverage to be configured..."
@@ -162,10 +166,12 @@ class SymbolWorker(threading.Thread):
                     "level": "warn",
                     "msg": f"[{self.symbol}] Leverage setup timed out (30s). Proceeding with default leverage."
                 })
+        self.state = "running"
         try:
             # Pre-seed: fetch klines once to set strategy state
             df = self.engine.trader.get_klines(self.symbol, interval=self.config["timeframe"], limit=200)
             self._last_df = df
+            self.engine.set_connection_state("market_data", "ok")
             if df is not None and len(df) >= 60:
                 seed_result = self.strategy.analyze(df)
                 if seed_result:
@@ -215,6 +221,9 @@ class SymbolWorker(threading.Thread):
         except Exception as e:
             err_msg = str(e)
             logger.error(f"[{self.symbol}] Pre-seed FAILED: {err_msg}")
+            is_network_err = any(x in err_msg.lower() for x in ["timeout", "timed out", "connection", "network", "ssl", "max retries"])
+            if is_network_err:
+                self.engine.set_connection_state("market_data", "failed")
             is_invalid_sym = any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"])
             if is_invalid_sym:
                 self.engine._emit("log", {
@@ -234,6 +243,7 @@ class SymbolWorker(threading.Thread):
                 self._tick()
             except Exception as e:
                 logger.exception(f"[{self.symbol}] tick error")
+                self.state = f"error:{str(e)[:60]}"
                 self.engine._emit("log", {
                     "level": "error",
                     "msg": f"[{self.symbol}] tick error: {str(e)[:100]}"
@@ -243,6 +253,7 @@ class SymbolWorker(threading.Thread):
                     break
                 time.sleep(1)
 
+        self.state = "stopped"
         self.engine._emit("log", {
             "level": "info",
             "msg": f"[{self.symbol}] Worker stopped."
@@ -1459,6 +1470,7 @@ class MonitorThread(threading.Thread):
                                and getattr(_tr, "private_key", None) is not None)
             else:
                 is_demo = bool(cfg.get("testnet", True))
+            self.engine.set_connection_state("balance_access", "ok")
             self.engine._emit("balance", {
                 "balance": float(balance),
                 "exchange": cfg.get("exchange", "binance"),
@@ -1466,6 +1478,7 @@ class MonitorThread(threading.Thread):
                 "demo": is_demo,
             })
         except Exception as e:
+            self.engine.set_connection_state("balance_access", "failed")
             if first_run:
                 self.engine._emit("log", {
                     "level": "warn",
@@ -1475,7 +1488,9 @@ class MonitorThread(threading.Thread):
         # 2. Fetch klines + indicators + mark price for active symbol
         try:
             df = self.engine.monitor_trader.get_klines(symbol, interval=timeframe, limit=200)
+            self.engine.set_connection_state("market_data", "ok")
         except Exception as e:
+            self.engine.set_connection_state("market_data", "failed")
             if first_run:
                 self.engine._emit("log", {
                     "level": "warn",
@@ -1602,6 +1617,63 @@ class BotEngine:
         # see live data immediately after saving settings.
         self.monitor_thread: Optional[MonitorThread] = None
         self.monitor_trader = None  # separate trader instance for monitor
+        # ===== EXPLICIT CONNECTION STATES (requirement: never fake "Connected") =====
+        # Each state is "unknown" | "checking" | "ok" | "failed".
+        # market_data      -> public klines/mark price reachable
+        # api_auth         -> signed call accepted by the exchange
+        # balance_access   -> wallet readable
+        # trading_permission -> canTrade flag (Binance) / None when unknown
+        self.connection: dict = {
+            "market_data": "unknown",
+            "api_auth": "unknown",
+            "balance_access": "unknown",
+            "trading_permission": "unknown",
+            "env": "UNKNOWN",
+            "auth_check": None,       # last validate_credentials() result
+            "checked_at": None,       # ISO time of last check
+        }
+        self.auth_check: Optional[dict] = None
+
+    def set_connection_state(self, key: str, value: str):
+        """Update one connection state and push it to the dashboard."""
+        if key in ("market_data", "api_auth", "balance_access", "trading_permission"):
+            self.connection[key] = value
+            self.connection["checked_at"] = datetime.now(timezone.utc).isoformat()
+            self._emit("connection", dict(self.connection))
+
+    def validate_credentials(self, trader=None) -> dict:
+        """Run the adapter's read-only validate_credentials() and record states.
+
+        Works for any exchange adapter that implements the uniform interface
+        (Binance, PrimeXBT, WEEX all do). Never places orders.
+        """
+        t = trader or self.trader or self.monitor_trader
+        if t is None:
+            return {"ok": False, "message": "No trader instance - cannot validate credentials"}
+        if not hasattr(t, "validate_credentials"):
+            return {"ok": False, "message": "Adapter does not implement validate_credentials"}
+        self.set_connection_state("api_auth", "checking")
+        try:
+            res = t.validate_credentials()
+        except Exception as e:
+            res = {"ok": False, "message": f"validate_credentials crashed: {e}"}
+        self.auth_check = res
+        self.connection["auth_check"] = res
+        self.connection["env"] = getattr(t, "env_label", lambda: "UNKNOWN")()
+        self.connection["checked_at"] = datetime.now(timezone.utc).isoformat()
+        self.set_connection_state("api_auth", "ok" if res.get("ok") else "failed")
+        if res.get("ok"):
+            if res.get("balance") is not None:
+                self.set_connection_state("balance_access", "ok")
+            ct = res.get("can_trade")
+            if ct is True:
+                self.set_connection_state("trading_permission", "ok")
+            elif ct is False:
+                self.set_connection_state("trading_permission", "failed")
+        else:
+            self.set_connection_state("balance_access", "unknown")
+            self.set_connection_state("trading_permission", "unknown")
+        return res
 
     def get_active_positions(self) -> list[str]:
         """Return list of symbols that currently have an active open position."""
@@ -1749,9 +1821,19 @@ class BotEngine:
                                     + (f" ({_note})" if _note else ""))
                         })
                     else:
+                        _err = str(r.get("error", "unknown"))
+                        if "-2014" in _err or "API-key format invalid" in _err:
+                            _msg = ("API-key FORMAT invalid (-2014): key ka TEXT hi galat shape mein hai. "
+                                    "API Key aur SECRET alag-alag fields mein bilkul saaf paste karo "
+                                    "(koi label/quote/extra spaces nahi). PrimeXBT key Binance field mein nahi chalegi.")
+                        elif "-2015" in _err or "Invalid API-key" in _err:
+                            _msg = ("API Key REJECTED (-2015): Env=TESTNET hai to testnet.binancefuture.com ki key chahiye "
+                                    "(REAL key TESTNET pe kabhi nahi chalti); LIVE ho to Enable Futures ON + IP whitelist check karo.")
+                        else:
+                            _msg = _err[:200]
                         self._emit("log", {
                             "level": "warn",
-                            "msg": f"[{sym}] ⚠️ Leverage notice: {r.get('error', 'unknown')}"
+                            "msg": f"[{sym}] ⚠️ Leverage notice: {_msg}"
                         })
                 except Exception as e:
                     logger.error("Failed to set leverage for %s: %s", sym, e)
@@ -1829,7 +1911,59 @@ class BotEngine:
             self.trader = get_trader(config)
         except Exception as e:
             logger.error("Failed to connect to exchange: %s", e)
+            self.set_connection_state("api_auth", "failed")
             return {"success": False, "error": f"Exchange connection failed: {e}"}
+
+        # ===== PROTECT REAL FUNDS: live execution requires explicit unlock =====
+        # Demo/testnet always allowed. LIVE (testnet=False) requires the user
+        # to have ticked the live confirmation checkbox (config['live_confirmed']).
+        # This gate exists so a demo->live toggle can never silently trade real money.
+        if not bool(config.get("testnet", True)) and not bool(config.get("live_confirmed")):
+            self.set_connection_state("api_auth", "unknown")
+            self._emit("log", {
+                "level": "error",
+                "msg": ("⛔ LIVE TRADING LOCKED: Env=LIVE hai lekin live confirmation box "
+                        "tick nahi hai. Pehle demo/testnet par bot test karo, phir Settings "
+                        "mein 'I understand this will trade REAL funds' tick karke save karo.")
+            })
+            return {
+                "success": False,
+                "auth_blocked": True,
+                "error": "Live trading is locked (live_confirmed not set). Run the bot on DEMO/TESTNET first, then confirm LIVE in settings.",
+            }
+
+        # ===== PRE-FLIGHT AUTH GATE =====
+        # Workers used to spawn and die immediately when credentials were bad
+        # (-2014/-2015 appearing only AFTER start). Now: one read-only signed
+        # call BEFORE any worker exists. Bad creds -> clean refusal, zero workers.
+        auth = self.validate_credentials(self.trader)
+        if not auth.get("ok"):
+            self._emit("log", {
+                "level": "error",
+                "msg": f"⛔ START BLOCKED - {auth.get('message', 'authentication failed')}"
+            })
+            return {
+                "success": False,
+                "auth_blocked": True,
+                "error_code": auth.get("error_code"),
+                "error": auth.get("message", "Authentication failed"),
+                "auth_check": auth,
+            }
+        self._emit("log", {
+            "level": "success",
+            "msg": f"✅ Pre-flight auth OK - {auth.get('message', '')}"
+        })
+        if auth.get("can_trade") is False:
+            self._emit("log", {
+                "level": "error",
+                "msg": "⛔ START BLOCKED - account canTrade=False: exchange par Futures trading permission OFF hai."
+            })
+            return {
+                "success": False,
+                "auth_blocked": True,
+                "error": "Account cannot trade (canTrade=False). Enable Futures permission for this API key.",
+                "auth_check": auth,
+            }
 
         # Loud early warning: PrimeXBT without a usable Ed25519 private key
         # cannot sign orders - every trade would fail with "Sign the request:
@@ -1924,10 +2058,26 @@ class BotEngine:
                     else:
                         err = str(r.get("error", ""))
                         is_binance = self.config.get("exchange", "binance").lower() == "binance"
-                        if is_binance and ("-2015" in err or "Invalid API-key" in err or "401" in err):
+                        if is_binance and ("-2014" in err or "API-key format invalid" in err):
                             self._emit("log", {
                                 "level": "error",
-                                "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): Your API Key is REJECTED by Binance! 1) Check 'Enable Futures'. 2) If IP restricted, whitelist your VPS IP. 3) Ensure it's a Futures key, not Spot!"
+                                "msg": f"[{sym}] ❌ API KEY FORMAT INVALID (-2014): key ka text hi galat shape mein hai! API Key aur SECRET alag-alag fields mein saaf paste karo (koi label/quote nahi). PrimeXBT key (pxk_/MC4CAQ) Binance mein NAHI chalegi."
+                            })
+                            # Stop the bot completely and kill all threads
+                            self.is_running = False
+                            for w in self.workers.values():
+                                w.stop_event.set()
+                            return
+                        elif is_binance and ("-2015" in err or "Invalid API-key" in err or "401" in err):
+                            _testnet = bool(self.config.get("testnet", True))
+                            _hint = ("TESTNET par REAL Binance key HAMESHA fail hoti hai - "
+                                     "testnet.binancefuture.com se TESTNET key lo (GitHub se login karke), "
+                                     "ya real trading ke liye Env ko LIVE karo.") if _testnet else \
+                                    ("Binance LIVE ne key reject ki: 1) 'Enable Futures' ON karo. "
+                                     "2) IP restriction ho to VPS IP whitelist karo. 3) Futures key ho, Spot nahi.")
+                            self._emit("log", {
+                                "level": "error",
+                                "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): {_hint}"
                             })
                             # Stop the bot completely and kill all threads
                             self.is_running = False
@@ -1965,7 +2115,9 @@ class BotEngine:
             self.active_symbol = symbols[0]
 
         # Spawn one worker per symbol (STAGGERED to avoid API rate limits)
+        # GUARANTEE: no duplicate workers - clear any stale dict entries first.
         with self.lock:
+            self.workers.clear()
             for i, sym in enumerate(symbols):
                 w = SymbolWorker(self, sym, config, leverage_ready=leverage_ready)
                 self.workers[sym] = w
@@ -2254,6 +2406,8 @@ class BotEngine:
             "tp_mode": self.config.get("tp_mode", "fixed"),
             "mode": self.config.get("mode", "both"),
             "testnet": self.config.get("testnet", True),
+            "live_confirmed": bool(self.config.get("live_confirmed", False)),
+            "connection": dict(self.connection),
             "workers": {
                 sym: {
                     "candles_processed": w.candles_processed,
@@ -2262,6 +2416,7 @@ class BotEngine:
                     "last_trade_side": getattr(w, "last_trade_side", None),
                     "last_check": w.last_check,
                     "alive": w.is_alive(),
+                    "state": getattr(w, "state", "unknown"),
                 }
                 for sym, w in self.workers.items()
             },

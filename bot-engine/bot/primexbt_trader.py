@@ -178,10 +178,59 @@ class PrimeXBTTrader:
     _YAHOO_TTL = 600.0   # seconds a Yahoo symbol resolution stays cached
     _PRICE_TTL = 10.0    # seconds a Yahoo quote stays cached (get_mark_price)
 
+    _PXBT_KEY_RE = re.compile(r"pxk_[A-Za-z0-9_\-]+")
+    _PXBT_PRIV_STARTS = ("MC4CAQ", "MCowBQYDK2Vw", "MC4CAQAw", "LS0tLS1CRUdJTi", "-----BEGIN")
+
+    @classmethod
+    def _normalize_credentials(cls, config: dict):
+        """Return (api_key, api_secret, warning) tolerating classic paste mistakes:
+        key + private key merged on one line ("pxk_... MC4CAQ..."), swapped
+        fields, the pxk_ token inside the Secret field, extra text/quotes.
+        """
+        cfg = config or {}
+        raw_key = str(cfg.get("api_key") or "")
+        raw_secret = str(cfg.get("api_secret") or "")
+        key = " ".join(raw_key.split()).strip().strip('"').strip("'")
+        secret = " ".join(raw_secret.split()).strip().strip('"').strip("'")
+        warning = None
+
+        def _has_pxk(s: str) -> bool:
+            return bool(cls._PXBT_KEY_RE.search(s))
+
+        def _priv_token(s: str):
+            cands = [t for t in s.split() if t.startswith(cls._PXBT_PRIV_STARTS)]
+            return max(cands, key=len) if cands else None
+
+        if _has_pxk(key) and _priv_token(key) and not secret:
+            secret = _priv_token(key)
+            key = cls._PXBT_KEY_RE.search(key).group(0)
+            warning = "API key and PRIVATE KEY were pasted together on one line - auto-split"
+        elif _has_pxk(secret) and _priv_token(secret) and not key:
+            key = cls._PXBT_KEY_RE.search(secret).group(0)
+            secret = _priv_token(secret)
+            warning = "API key and PRIVATE KEY were pasted together on one line - auto-split"
+        elif _has_pxk(secret) and not _has_pxk(key) and _priv_token(key):
+            key, secret = cls._PXBT_KEY_RE.search(secret).group(0), _priv_token(key)
+            warning = "API Key and Secret fields were swapped - auto-corrected"
+        else:
+            if _has_pxk(key):
+                m = cls._PXBT_KEY_RE.search(key)
+                if m.group(0) != key:
+                    key = m.group(0)
+                    warning = "API key had extra text around it - auto-cleaned"
+            if _has_pxk(secret):
+                s2 = cls._PXBT_KEY_RE.sub("", secret).strip()
+                if s2 != secret and _priv_token(s2):
+                    secret = s2
+                    warning = "Secret field contained the API key - cleaned"
+
+        return key, secret, warning
+
     def __init__(self, config: dict):
         self.config = config or {}
-        self.api_key = str(self.config.get("api_key", "")).strip().strip('"').strip("'")
-        self.api_secret = str(self.config.get("api_secret", "")).strip().strip('"').strip("'")
+        self.api_key, self.api_secret, self.credential_warning = self._normalize_credentials(self.config)
+        if self.credential_warning:
+            logger.warning("PrimeXBT credentials: %s", self.credential_warning)
         self.testnet = bool(self.config.get("testnet", True))
         self.environment = "DEMO" if self.testnet else "LIVE"
         # Base URL for PrimeXBT PXTrader 2.0 Trade API
@@ -419,6 +468,59 @@ class PrimeXBTTrader:
             except (TypeError, ValueError):
                 return None
         return None
+
+    def env_label(self) -> str:
+        # PrimeXBT has NO demo/testnet server: keys loaded = REAL account.
+        return "LIVE" if (self.api_key and self.private_key) else "PAPER"
+
+    def validate_credentials(self, timeout: int = 15) -> dict:
+        """PrimeXBT pre-flight check (read-only signed /v3/trading/metrics).
+
+        Same uniform structure as the Binance validator so the engine and the
+        dashboard can treat every exchange identically. No order is placed.
+        """
+        result = {
+            "ok": False,
+            "error_code": None,
+            "error": None,
+            "message": "",
+            "balance": None,
+            "can_trade": None,   # PrimeXBT API exposes no read-only canTrade flag
+            "env": self.env_label(),
+            "exchange": "primexbt",
+            "demo": False,       # PrimeXBT has no demo server — always real
+        }
+        if not self.api_key:
+            result["message"] = ("PrimeXBT API Key missing. Settings mein API Key paste karo.")
+            return result
+        if not self.private_key:
+            result["error_code"] = 401
+            result["error"] = "Ed25519 private key not loaded"
+            result["message"] = (
+                "PrimeXBT Secret Key load NAHI hua (Ed25519 PRIVATE KEY chahiye, "
+                "public key ya HMAC secret nahi). PrimeXBT API settings se "
+                "PRIVATE KEY copy karke Secret Key field mein paste karo.")
+            return result
+        bal = self.get_balance_or_none()
+        if bal is not None:
+            result["ok"] = True
+            result["balance"] = bal
+            result["message"] = (f"Auth OK (LIVE) - Balance ${bal:,.2f} "
+                                 f"(PrimeXBT has no demo server - every order is REAL)")
+            return result
+        res = self._request("GET", "/v3/trading/metrics")
+        status_code = res.get("status_code") if isinstance(res, dict) else None
+        err = res.get("error") if isinstance(res, dict) else str(res)
+        result["error_code"] = status_code
+        result["error"] = err
+        if status_code == 401:
+            result["message"] = (
+                "PrimeXBT auth REJECTED (401 Invalid API key or signature): "
+                "1) API Key sahi ho 2) Secret Key field mein Ed25519 PRIVATE KEY ho "
+                "3) API key active ho aur trading permission ON ho.")
+        else:
+            result["message"] = f"PrimeXBT auth failed: {str(err)[:200]}"
+        return result
 
     def test_connection(self) -> dict:
         """PrimeXBT-specific connection diagnostic with honest DEMO/LIVE separation.
