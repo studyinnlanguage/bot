@@ -57,7 +57,7 @@ export function LoginScreen() {
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }} keyboardShouldPersistTaps="handled">
         <View style={{ alignItems: 'center', marginBottom: 26 }}>
           <Logo size={84} />
-          <Text style={{ color: C.gold, fontSize: 26, fontWeight: '900', letterSpacing: 7, marginTop: 14 }}>
+          <Text style={{ color: C.neon, fontSize: 26, fontWeight: '900', letterSpacing: 7, marginTop: 14 }}>
             WEEXIONIC
           </Text>
           <Text style={{ color: C.dim, fontSize: 10.5, letterSpacing: 3, marginTop: 4 }}>
@@ -66,14 +66,14 @@ export function LoginScreen() {
         </View>
 
         <Card style={{ padding: 18 }}>
-          <View style={{ flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 12, marginBottom: 16 }}>
+          <View style={{ flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, marginBottom: 16 }}>
             {(['login', 'signup'] as const).map(m => (
               <TouchableOpacity
                 key={m}
                 onPress={() => { setMode(m); setErr(null); setOk(null); }}
                 style={{
                   flex: 1, paddingVertical: 11, borderRadius: 12,
-                  backgroundColor: mode === m ? C.gold : 'transparent',
+                  backgroundColor: mode === m ? C.neon2 : 'transparent',
                   alignItems: 'center',
                 }}>
                 <Text style={{ color: mode === m ? C.bg : C.dim, fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>
@@ -103,9 +103,9 @@ export function LoginScreen() {
           />
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 14 }}>
-            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(212,175,55,0.15)' }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,230,118,0.18)' }} />
             <Text style={{ color: C.dim2, marginHorizontal: 10, fontSize: 11, letterSpacing: 2 }}>OR</Text>
-            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(212,175,55,0.15)' }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,230,118,0.18)' }} />
           </View>
 
           <TouchableOpacity

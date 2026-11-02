@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WEEXIONIC — Authenticating Mobile App</title>
+    <link rel="icon" type="image/png" href="/static/img/weexionic-logo.png">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-void: #080B0A;
+            --bg-card: #101613;
+            --neon-green: #39FF14;
+            --neon-secondary: #00E676;
+            --txt: #F2F7F3;
+            --txt-muted: #89958D;
+            --stroke: rgba(57, 255, 20, 0.22);
+            --glow: 0 0 30px rgba(57, 255, 20, 0.25);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-void);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--txt);
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
+        }
+        .handoff-card {
+            background: linear-gradient(180deg, rgba(57, 255, 20, 0.04) 0%, rgba(16, 22, 19, 0.95) 100%), var(--bg-card);
+            border: 1px solid var(--stroke);
+            border-radius: 24px;
+            padding: 48px 36px;
+            max-width: 440px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), var(--glow);
+            position: relative;
+            overflow: hidden;
+        }
+        .handoff-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 15%;
+            right: 15%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--neon-green), transparent);
+        }
+        .icon-wrap {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+            border-radius: 50%;
+            background: rgba(57, 255, 20, 0.08);
+            border: 1px solid var(--neon-green);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 25px rgba(57, 255, 20, 0.35);
+            animation: pulse 2s infinite ease-in-out;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(57, 255, 20, 0.3); }
+            50% { transform: scale(1.05); box-shadow: 0 0 35px rgba(57, 255, 20, 0.5); }
+        }
+        .icon-wrap svg {
+            width: 40px;
+            height: 40px;
+            fill: none;
+            stroke: var(--neon-green);
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        h1 {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+            color: #FFFFFF;
+        }
+        .status-txt {
+            font-size: 14px;
+            color: var(--neon-secondary);
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--neon-green);
+            box-shadow: 0 0 8px var(--neon-green);
+            display: inline-block;
+        }
+        p {
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--txt-muted);
+            margin-bottom: 32px;
+        }
+        .btn-neon {
+            display: block;
+            width: 100%;
+            background: var(--neon-green);
+            color: #080B0A;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 700;
+            padding: 16px 20px;
+            border-radius: 14px;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 20px rgba(57, 255, 20, 0.4);
+            letter-spacing: 0.3px;
+        }
+        .btn-neon:hover {
+            background: #55FF38;
+            box-shadow: 0 0 30px rgba(57, 255, 20, 0.6);
+            transform: translateY(-1px);
+        }
+        .btn-alt {
+            display: inline-block;
+            margin-top: 18px;
+            font-size: 12px;
+            color: var(--txt-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .btn-alt:hover {
+            color: var(--neon-green);
+        }
+    </style>
+</head>
+<body>
+    <div class="handoff-card">
+        <div class="icon-wrap">
+            <svg viewBox="0 0 24 24">
+                <path d="M20 6L9 17l-5-5"/>
+            </svg>
+        </div>
+        <h1>Authentication Successful</h1>
+        <div class="status-txt">
+            <span class="status-dot"></span>
+            Returning to WEEXIONIC App...
+        </div>
+        <p>Your secure session is verified. You will be redirected to the native app automatically.</p>
+        
+        <a id="handoff-btn" href="{{ intent_url }}" class="btn-neon">Return to WEEXIONIC App</a>
+        
+        <br>
+        <a href="{{ handoff_url }}" class="btn-alt">Or open via custom link (weexionic://)</a>
+    </div>
+
+    <script>
+        const intentUrl = {{ intent_url | tojson }};
+        const handoffUrl = {{ handoff_url | tojson }};
+        
+        function redirect() {
+            // First try launching the Android Intent targeting com.weexionic.app
+            window.location.href = intentUrl;
+            // Fallback after 600ms to custom scheme
+            setTimeout(() => {
+                window.location.href = handoffUrl;
+            }, 600);
+        }
+
+        // Run immediately on page load
+        window.addEventListener('DOMContentLoaded', redirect);
+        setTimeout(redirect, 100);
+    </script>
+</body>
+</html>
+

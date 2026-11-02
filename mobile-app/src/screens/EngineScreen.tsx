@@ -10,7 +10,7 @@ import { useAuth } from '../store/auth';
 const EXCHANGES = [
   { id: 'binance', label: 'Binance', maxLev: 125, note: 'USDT-M Futures' },
   { id: 'weex', label: 'WEEX', maxLev: 500, note: 'Passphrase required' },
-  { id: 'primexbt', label: 'PrimeXBT', maxLev: 1000, note: 'Ed25519 key as secret' },
+  { id: 'primexbt', label: 'PrimeXBT', maxLev: 1000, note: 'PXTrader 2.0 API (Demo & Live)' },
 ];
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d'];
 const MODES = ['both', 'long', 'short'];
@@ -139,12 +139,31 @@ export function EngineScreen() {
         </View>
         <Text style={{ color: C.dim2, fontSize: 11, marginBottom: 10 }}>{ex.note} · max leverage {ex.maxLev}x</Text>
 
-        <Lbl style={{ marginBottom: 8 }}>MODE</Lbl>
+        <Lbl style={{ marginBottom: 8 }}>ENVIRONMENT</Lbl>
         <View style={{ flexDirection: 'row' }}>
-          <Chip label={testnet ? 'TESTNET / DEMO' : 'LIVE — REAL MONEY'} active onPress={() => setTestnet(!testnet)} />
+          <Chip
+            label={testnet ? '● DEMO — SIMULATED FUNDS' : '● LIVE — REAL MONEY'}
+            active
+            onPress={() => {
+              if (testnet) {
+                Alert.alert(
+                  'Enable LIVE TRADING?',
+                  'LIVE trading places REAL ORDERS with REAL CAPITAL on the live exchange. Ensure your risk parameters and API keys are verified.\n\nSimulated funds will NOT be used in Live mode.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Switch to LIVE', style: 'destructive', onPress: () => setTestnet(false) },
+                  ],
+                );
+              } else {
+                setTestnet(true);
+              }
+            }}
+          />
         </View>
-        <Text style={{ color: testnet ? C.orange : C.loss, fontSize: 11, marginBottom: 12 }}>
-          {testnet ? 'Demo environment — no real funds at risk.' : 'LIVE TRADING: every order uses real funds.'}
+        <Text style={{ color: testnet ? C.neon : C.loss, fontSize: 11, marginBottom: 12, fontWeight: '700' }}>
+          {testnet
+            ? 'DEMO: Virtual simulated funds only. Completely isolated from live capital.'
+            : '⚠️ LIVE TRADING ACTIVE: Every order executes with real money on the live exchange.'}
         </Text>
 
         <Field label="API KEY" value={apiKey} onChangeText={setApiKey}
@@ -156,8 +175,8 @@ export function EngineScreen() {
             placeholder={user?.bot_config?.has_passphrase ? 'Saved — enter to replace' : 'WEEX passphrase'} secure />
         )}
         {exchange === 'primexbt' && (
-          <Text style={{ color: C.dim2, fontSize: 11, marginBottom: 10 }}>
-            PrimeXBT uses an Ed25519 private key as the API secret. Orders are always real — PrimeXBT has no testnet.
+          <Text style={{ color: C.dim, fontSize: 11, marginBottom: 10, lineHeight: 16 }}>
+            PrimeXBT PXTrader 2.0 API: Supports PXTrader 2.0 HMAC-SHA256 and Ed25519 signing. DEMO connects to PXTrader 2.0 Demo sandbox.
           </Text>
         )}
         <GlassButton title={testing ? 'TESTING…' : '🔌 TEST CONNECTION (CHECK API KEYS)'} onPress={testConn} />

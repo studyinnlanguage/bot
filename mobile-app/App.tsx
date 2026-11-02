@@ -25,18 +25,18 @@ const navTheme = {
   colors: {
     ...DefaultTheme.colors,
     background: C.bg,
-    card: '#0E0D0B',
+    card: '#101613',
     text: C.txt,
-    border: 'rgba(212,175,55,0.12)',
-    primary: C.gold,
+    border: 'rgba(57, 255, 20, 0.18)',
+    primary: C.neon,
   },
 };
 
 function TabIcon({ glyph, focused }: { glyph: string; focused: boolean }) {
   return (
     <View style={{ alignItems: 'center' }}>
-      <Text style={{ color: focused ? C.gold : C.dim2, fontSize: 19, lineHeight: 22 }}>{glyph}</Text>
-      <View style={{ width: 4, height: 4, borderRadius: 2, marginTop: 3, backgroundColor: focused ? C.gold : 'transparent' }} />
+      <Text style={{ color: focused ? C.neon : C.dim2, fontSize: 19, lineHeight: 22 }}>{glyph}</Text>
+      <View style={{ width: 4, height: 4, borderRadius: 2, marginTop: 3, backgroundColor: focused ? C.neon : 'transparent' }} />
     </View>
   );
 }
@@ -46,11 +46,11 @@ function MainTabs() {
     <Tabs.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: C.gold,
+        tabBarActiveTintColor: C.neon,
         tabBarInactiveTintColor: C.dim2,
         tabBarStyle: {
-          backgroundColor: '#0E0D0B',
-          borderTopColor: 'rgba(212,175,55,0.18)',
+          backgroundColor: '#101613',
+          borderTopColor: 'rgba(57, 255, 20, 0.20)',
           borderTopWidth: 1,
           height: 84,
           paddingTop: 10,

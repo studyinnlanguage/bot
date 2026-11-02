@@ -116,17 +116,17 @@ export function CockpitScreen({ navigation }: any) {
       refreshControl={<RefreshControl refreshing={false} onRefresh={pull} tintColor={C.gold} />}>
       <View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ color: C.gold, fontWeight: '900', fontSize: 17, letterSpacing: 2 }}>COCKPIT</Text>
+          <Text style={{ color: C.neon, fontWeight: '900', fontSize: 17, letterSpacing: 2 }}>COCKPIT</Text>
           {stale && engineRunning ? (
-            <Text style={{ color: C.orange, fontSize: 10, letterSpacing: 1 }}>STALE</Text>
+            <Text style={{ color: C.neon2, fontSize: 10, letterSpacing: 1 }}>STALE</Text>
           ) : null}
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity onPress={() => navigation.navigate('Radar')} style={iconBtn}>
-            <Text style={{ color: C.goldB, fontSize: 12, fontWeight: '700' }}>RADAR</Text>
+            <Text style={{ color: C.neon2, fontSize: 12, fontWeight: '700' }}>RADAR</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('Pulse')} style={iconBtn}>
-            <Text style={{ color: C.goldB, fontSize: 12, fontWeight: '700' }}>PULSE</Text>
+            <Text style={{ color: C.neon2, fontSize: 12, fontWeight: '700' }}>PULSE</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -136,12 +136,17 @@ export function CockpitScreen({ navigation }: any) {
       <Card>
         <StatusPill running={engineRunning} testnet={testnet} exchange={exchange} />
         <View style={{ height: 12 }} />
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flex: 1 }}>
-            <Lbl>USDT BALANCE</Lbl>
-            <Text style={{ color: C.gold, fontSize: 24, fontWeight: '900', marginTop: 2 }}>
-              {balance == null ? '--' : money(balance)}
-            </Text>
+            <Lbl>{testnet ? 'DEMO BALANCE (SIMULATED)' : 'LIVE USDT BALANCE'}</Lbl>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+              {balance == null && engineRunning ? (
+                <ActivityIndicator size="small" color={C.neon2} style={{ marginRight: 6 }} />
+              ) : null}
+              <Text style={{ color: C.neon, fontSize: 24, fontWeight: '900' }}>
+                {balance == null ? (engineRunning ? 'SYNCING…' : '--') : money(balance)}
+              </Text>
+            </View>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Lbl>TRADES TODAY</Lbl>
@@ -179,7 +184,7 @@ export function CockpitScreen({ navigation }: any) {
         </SectionTitle>
         <CandleChart candles={candles} emas={emas} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, gap: 4 }}>
-          {[['EMA8', C.blue], ['EMA13', C.orange], ['EMA21', C.purple], ['EMA55', C.loss]].map(([n, c]) => (
+          {[['EMA8', C.blue], ['EMA13', C.neon2], ['EMA21', C.purple], ['EMA55', C.loss]].map(([n, c]) => (
             <View key={n as string} style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
               <View style={{ width: 8, height: 3, backgroundColor: c as string, marginRight: 4 }} />
               <Text style={{ color: C.dim, fontSize: 10 }}>{n}</Text>
@@ -244,7 +249,7 @@ export function CockpitScreen({ navigation }: any) {
           <Empty text="Start the bot to spawn workers." />
         ) : (
           workers.map(([sym, w]: any) => (
-            <View key={sym} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomColor: 'rgba(212,175,55,0.07)', borderBottomWidth: 1 }}>
+            <View key={sym} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomColor: 'rgba(57,255,20,0.10)', borderBottomWidth: 1 }}>
               <TouchableOpacity onPress={() => setActiveSymbol(sym)}>
                 <Text style={{ color: sym === activeSymbol ? C.goldB : C.txt, fontWeight: '800', fontSize: 12.5 }}>{sym}</Text>
               </TouchableOpacity>
@@ -266,14 +271,14 @@ export function CockpitScreen({ navigation }: any) {
 }
 
 const iconBtn = {
-  borderColor: 'rgba(212,175,55,0.3)',
+  borderColor: 'rgba(0,230,118,0.25)',
   borderWidth: 1,
   borderRadius: 10,
   paddingHorizontal: 10,
   paddingVertical: 6,
-  backgroundColor: 'rgba(212,175,55,0.05)',
+  backgroundColor: 'rgba(57,255,20,0.05)',
 } as const;
 
 const S = {
-  sep: { height: 1, backgroundColor: 'rgba(212,175,55,0.1)', marginVertical: 8 },
+  sep: { height: 1, backgroundColor: 'rgba(57,255,20,0.1)', marginVertical: 8 },
 };

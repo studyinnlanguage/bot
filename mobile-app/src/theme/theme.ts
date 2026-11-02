@@ -1,20 +1,26 @@
-// WEEXIONIC Luxury Gold-Dark design system (shared with the web dashboard).
+// WEEXIONIC Premium Neon-Green Design System (shared with web terminal).
 export const C = {
-  bg: '#0A0908',
-  bg2: '#080706',
-  card: 'rgba(255,255,255,0.034)',
-  cardBorder: 'rgba(212,175,55,0.17)',
-  gold: '#D4AF37',
-  goldB: '#F0D98C',
-  goldD: '#8C6D1F',
-  txt: '#F5F0E1',
-  dim: '#99917E',
-  dim2: '#6A6455',
-  profit: '#16C784',
-  loss: '#EA3943',
-  blue: '#5B8DEF',
-  orange: '#F0A03C',
-  purple: '#A06BF0',
+  bg: '#080B0A',
+  bg2: '#101613',
+  bg3: '#141C17',
+  card: '#101613',
+  cardBorder: 'rgba(57, 255, 20, 0.20)',
+  neon: '#39FF14',
+  neon2: '#00E676',
+  neonGlow: 'rgba(57, 255, 20, 0.25)',
+  // Backwards-compatible aliases mapped strictly to Neon Green (No gold, yellow or orange):
+  gold: '#39FF14',
+  goldB: '#55FF38',
+  goldD: '#00B359',
+  txt: '#F2F7F3',
+  dim: '#89958D',
+  dim2: '#526056',
+  profit: '#00E676',
+  loss: '#FF5252',
+  blue: '#00E5FF',
+  orange: '#00E676', // Mapped to Neon Green (Strict No Orange rule)
+  warn: '#39FF14',   // Mapped to Neon Green
+  purple: '#B388FF',
 };
 
 export const S = {
@@ -33,8 +39,8 @@ export const S = {
   h1: { fontSize: 22, fontWeight: '800' as const, color: C.txt },
   h2: { fontSize: 16, fontWeight: '700' as const, color: C.txt },
   num: { fontSize: 20, fontWeight: '800' as const, color: C.txt } as const,
-  goldText: { color: C.gold, fontWeight: '800' as const },
-  sep: { height: 1, backgroundColor: 'rgba(212,175,55,0.10)', marginVertical: 10 } as const,
+  goldText: { color: C.neon2, fontWeight: '800' as const },
+  sep: { height: 1, backgroundColor: 'rgba(0, 230, 118, 0.12)', marginVertical: 10 } as const,
 };
 
 export const money = (v: number | null | undefined, sign = false) => {

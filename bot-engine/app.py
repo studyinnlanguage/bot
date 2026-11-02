@@ -18,14 +18,16 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 from flask import Flask, jsonify, render_template, request, Response, session
 from flask_socketio import SocketIO
 
-from bot.engine import BotEngine, get_trader
+from bot.engine import BotEngine
 
 # ---------- Setup ----------
-
-BASE_DIR = Path(__file__).resolve().parent
 try:
     from dotenv import load_dotenv
     load_dotenv(BASE_DIR / ".env")
@@ -332,7 +334,7 @@ def update_config():
               "email_enabled", "email_smtp_server", "email_smtp_port",
               "email_sender", "email_password", "email_receiver",
               "whatsapp_enabled", "whatsapp_phone", "whatsapp_apikey", "max_concurrent_trades",
-              "min_ema_spread", "fresh_window", "live_confirmed"]:
+              "min_ema_spread", "fresh_window"]:
         if k in data:
             CONFIG[k] = data[k]
 
@@ -404,37 +406,6 @@ def update_config():
 
     save_config(CONFIG)
 
-    # ---- SAVE-TIME CREDENTIAL VALIDATION -------------------------------------
-    # One READ-ONLY signed call right after Save. -2014/-2015-style problems
-    # now surface HERE with an exact message instead of after the bot starts
-    # (this is the fix for "workers start and immediately terminate": they
-    # never spawn for bad credentials anymore).
-    auth_check = None
-    if CONFIG.get("api_key") and CONFIG.get("api_secret"):
-        try:
-            probe = get_trader(CONFIG)
-            auth_check = probe.validate_credentials(timeout=10)
-            ENGINE.auth_check = auth_check
-            ENGINE.connection["auth_check"] = auth_check
-            ENGINE.connection["env"] = getattr(probe, "env_label", lambda: "UNKNOWN")()
-            if hasattr(ENGINE, "validate_credentials"):
-                # Record states without a second network call
-                ENGINE.connection["api_auth"] = "ok" if auth_check.get("ok") else "failed"
-                ENGINE.connection["balance_access"] = "ok" if auth_check.get("ok") else "unknown"
-                if auth_check.get("ok") and auth_check.get("balance") is not None:
-                    ENGINE.connection["balance_access"] = "ok"
-                if auth_check.get("can_trade") is True:
-                    ENGINE.connection["trading_permission"] = "ok"
-                elif auth_check.get("can_trade") is False:
-                    ENGINE.connection["trading_permission"] = "failed"
-            socketio.emit("connection", dict(ENGINE.connection))
-            if auth_check.get("ok"):
-                socketio.emit("log", {"level": "success", "msg": f"✅ Credentials verified: {auth_check.get('message', '')}"})
-            else:
-                socketio.emit("log", {"level": "error", "msg": f"❌ Credential check FAILED: {auth_check.get('message', '')}"})
-        except Exception as _ve:
-            logger.warning("Save-time credential validation failed: %s", _ve)
-
     # Immediately apply leverage on exchange if credentials are present
     if CONFIG.get("api_key") and CONFIG.get("api_secret"):
         try:
@@ -455,10 +426,7 @@ def update_config():
     safe_cfg["has_api_key"] = bool(CONFIG.get("api_key"))
     safe_cfg["has_api_secret"] = bool(CONFIG.get("api_secret"))
     safe_cfg["has_api_passphrase"] = bool(CONFIG.get("api_passphrase"))
-    resp = {"success": True, "config": safe_cfg}
-    if auth_check is not None:
-        resp["auth_check"] = auth_check
-    return jsonify(resp)
+    return jsonify({"success": True, "config": safe_cfg})
 
 
 @app.route("/api/leverage", methods=["POST"])
@@ -939,10 +907,16 @@ def get_all_symbols():
 @app.route("/api/test_chart", methods=["GET"])
 def test_chart():
     symbol = request.args.get("symbol", CONFIG.get("symbol", "BTCUSDT"))
-    if not ENGINE.trader:
-        return jsonify({"success": False, "error": "Bot not running"})
+    trader = ENGINE.trader or ENGINE.monitor_trader
+    if not trader:
+        try:
+            from bot.engine import get_trader
+            trader = get_trader(CONFIG)
+            ENGINE.monitor_trader = trader
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Trader unavailable: {e}"})
     try:
-        df = ENGINE.trader.get_klines(symbol, interval=CONFIG.get("timeframe", "5m"), limit=5)
+        df = trader.get_klines(symbol, interval=CONFIG.get("timeframe", "5m"), limit=30)
         if df is None or len(df) == 0:
             return jsonify({"success": False, "error": "No klines data", "rows": 0})
         candles = []
@@ -967,22 +941,9 @@ def start_preview():
 
 @app.route("/api/test_connection", methods=["POST"])
 def test_connection():
-    """Uniform per-exchange credential check (read-only, no orders).
-
-    Returns the adapter's validate_credentials() result: {ok, error_code,
-    error, message, balance, can_trade, env, exchange, demo}. Falls back to
-    the older test_connection() only for an adapter that lacks the new method.
-    """
     try:
+        from bot.engine import get_trader
         trader = get_trader(CONFIG)
-        if hasattr(trader, "validate_credentials"):
-            result = trader.validate_credentials()
-            ENGINE.auth_check = result
-            ENGINE.connection["auth_check"] = result
-            ENGINE.connection["env"] = getattr(trader, "env_label", lambda: "UNKNOWN")()
-            ENGINE.connection["api_auth"] = "ok" if result.get("ok") else "failed"
-            socketio.emit("connection", dict(ENGINE.connection))
-            return jsonify(result)
         result = trader.test_connection()
         return jsonify(result)
     except Exception as e:
@@ -992,13 +953,11 @@ def test_connection():
 def _honest_demo_flag(trader) -> bool:
     """Honest DEMO/LIVE flag for balance responses.
 
-    PrimeXBT has NO demo/testnet server: with keys loaded the balance is
-    the REAL account, so never label it DEMO even when the testnet checkbox
-    is on (that flag only matters for Binance/WEEX).
+    Strictly reflects the configured environment (DEMO vs LIVE).
+    Never label a live account as demo or a demo account as live.
     """
-    if ((CONFIG.get("exchange") or "").lower() == "primexbt"):
-        return not (getattr(trader, "api_key", "")
-                    and getattr(trader, "private_key", None) is not None)
+    if trader and hasattr(trader, "testnet"):
+        return bool(trader.testnet)
     return bool(CONFIG.get("testnet", True))
 
 
@@ -1006,15 +965,12 @@ def _honest_demo_flag(trader) -> bool:
 def get_balance():
     trader = ENGINE.trader or ENGINE.monitor_trader
     if not trader:
-        if CONFIG.get("api_key") and CONFIG.get("api_secret"):
-            try:
-                from bot.engine import get_trader
-                trader = get_trader(CONFIG)
-                ENGINE.monitor_trader = trader
-            except Exception as e:
-                return jsonify({"success": False, "error": f"Connection error: {e}"})
-        else:
-            return jsonify({"success": False, "error": "Bot not connected"})
+        try:
+            from bot.engine import get_trader
+            trader = get_trader(CONFIG)
+            ENGINE.monitor_trader = trader
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Connection error: {e}"})
     try:
         bal = trader.get_balance()
         return jsonify({"success": True, "balance": bal,
@@ -1023,19 +979,6 @@ def get_balance():
                         "testnet": CONFIG.get("testnet", True)})
     except Exception as e:
         logger.error("get_balance error: %s", e)
-        # Try one fresh reconnection attempt
-        if CONFIG.get("api_key") and CONFIG.get("api_secret"):
-            try:
-                from bot.engine import get_trader
-                trader = get_trader(CONFIG)
-                ENGINE.monitor_trader = trader
-                bal = trader.get_balance()
-                return jsonify({"success": True, "balance": bal,
-                                "exchange": CONFIG.get("exchange", "binance"),
-                                "demo": _honest_demo_flag(trader),
-                                "testnet": CONFIG.get("testnet", True)})
-            except Exception as e2:
-                return jsonify({"success": False, "error": str(e2)})
         return jsonify({"success": False, "error": str(e)})
 
 

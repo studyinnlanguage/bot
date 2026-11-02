@@ -6,6 +6,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -27,9 +28,9 @@ def _free_port():
 @pytest.fixture(scope="module")
 def engine():
     port = _free_port()
-    tmp = Path("/tmp/wx_engine_test")
+    tmp = Path(tempfile.gettempdir()) / "wx_engine_test"
     if tmp.exists():
-        shutil.rmtree(tmp)
+        shutil.rmtree(tmp, ignore_errors=True)
     shutil.copytree(ENGINE_SRC, tmp, ignore=shutil.ignore_patterns(
         "logs", "data", "__pycache__", "*.pyc", "user_instances", "venv", ".git"))
     cfg = {
@@ -48,9 +49,11 @@ def engine():
     }
     (tmp / "config.json").write_text(json.dumps(cfg))
     env = {**os.environ, "PORT": str(port), "HOST": "127.0.0.1",
-           "BOT_ENGINE_TOKEN": "test-token-123"}
+           "BOT_ENGINE_TOKEN": "test-token-123",
+           "PYTHONPATH": str(tmp)}
+    log_file = open(tmp / "test_engine.log", "w", encoding="utf-8")
     proc = subprocess.Popen([sys.executable, "app.py"], cwd=tmp, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                            stdout=log_file, stderr=subprocess.STDOUT)
     base = f"http://127.0.0.1:{port}"
     hdr = {"X-Bot-Token": "test-token-123"}
     # wait for boot
@@ -66,6 +69,7 @@ def engine():
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
+    log_file.close()
 
 
 def _get(base, path, hdr):

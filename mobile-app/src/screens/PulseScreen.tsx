@@ -43,7 +43,7 @@ export function PulseScreen() {
   }, []);
 
   const colorFor = (lvl: string) =>
-    lvl === 'error' ? C.loss : lvl === 'warn' ? C.orange : lvl === 'success' ? C.profit : C.dim;
+    lvl === 'error' ? C.loss : lvl === 'warn' ? C.neon2 : lvl === 'success' ? C.profit : C.dim;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, padding: 14, paddingTop: 16 }}>
@@ -60,7 +60,7 @@ export function PulseScreen() {
             keyExtractor={i => String(i.id)}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             renderItem={({ item }) => (
-              <View style={{ paddingVertical: 4, borderBottomColor: 'rgba(212,175,55,0.05)', borderBottomWidth: 1 }}>
+              <View style={{ paddingVertical: 4, borderBottomColor: 'rgba(0,230,118,0.06)', borderBottomWidth: 1 }}>
                 <Text style={{ color: C.dim2, fontSize: 9 }}>{item.ts}</Text>
                 <Text style={{ color: colorFor(item.level), fontSize: 11.5, lineHeight: 16 }}>{item.msg}</Text>
               </View>
