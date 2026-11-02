@@ -199,6 +199,57 @@ class WEEXFuturesTrader:
                     logger.error('WEEX API call failed after %d attempts: %s', max_retries, e)
         raise last_error
 
+    def env_label(self) -> str:
+        return "DEMO" if self.demo else "LIVE"
+
+    def validate_credentials(self, timeout: int = 15) -> dict:
+        """WEEX pre-flight check (read-only signed account call, no orders).
+
+        Uniform structure shared with the Binance and PrimeXBT validators.
+        """
+        result = {
+            "ok": False,
+            "error_code": None,
+            "error": None,
+            "message": "",
+            "balance": None,
+            "can_trade": None,   # WEEX exposes no read-only canTrade flag
+            "env": self.env_label(),
+            "exchange": "weex",
+            "demo": self.demo,
+        }
+        if not (self.api_key and self.api_secret and self.passphrase):
+            result["message"] = ("WEEX credentials incomplete: API Key, Secret aur "
+                                 "Passphrase teeno chahiye (Passphrase wahi jo API key "
+                                 "banate waqt tumne khud set ki thi).")
+            return result
+        try:
+            bal = self.get_balance()
+            err = getattr(self, "_last_balance_error", None)
+            if err:
+                err_str = str(err)
+                result["error"] = err_str
+                if "-1044" in err_str or "Invalid ACCESS_KEY" in err_str:
+                    result["error_code"] = -1044
+                    result["message"] = ("WEEX API Key invalid (-1044). weex.com -> "
+                                         "User Center -> API Management se sahi Key copy karo.")
+                elif "authentication failed" in err_str.lower() or "sign" in err_str.lower():
+                    result["error_code"] = 401
+                    result["message"] = ("WEEX signature authentication failed: Secret ya "
+                                         "Passphrase galat hai. Dono dobara sahi se paste karo "
+                                         "(Passphrase account password nahi hota).")
+                else:
+                    result["message"] = f"WEEX auth failed: {err_str[:200]}"
+                return result
+            result["ok"] = True
+            result["balance"] = bal
+            result["message"] = f"Auth OK ({result['env']}) - Balance ${bal:,.2f}"
+            return result
+        except Exception as e:
+            result["error"] = str(e)
+            result["message"] = f"WEEX validation error: {str(e)[:200]}"
+            return result
+
     def test_connection(self) -> dict:
         """Test API connection by fetching balance. Returns detailed result.
 

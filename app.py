@@ -211,6 +211,12 @@ if not _ENCRYPTION_RAW:
             _enc_key_file.write_text(_ENCRYPTION_RAW)
             logger.warning("[SECURITY] ENCRYPTION_KEY not set — generated and persisted a new "
                            "random key at .encryption_key. Back it up with your secrets.")
+            logger.warning("[SECURITY] EPHEMERAL-HOSTING WARNING: Railway/Coolify containers "
+                           "are wiped on every redeploy. If this file is not on a persistent "
+                           "volume a NEW key is generated each boot and every saved API key "
+                           "becomes unreadable -> Binance 401/-2014 'API-key format invalid' "
+                           "for all users. FIX: set ENCRYPTION_KEY as an environment variable "
+                           "in your hosting dashboard, then re-save each user's API key once.")
     except Exception:
         logger.critical("[SECURITY] Could not persist encryption key — refusing to use an "
                         "insecure default. Set ENCRYPTION_KEY env var.")
@@ -373,15 +379,30 @@ def encrypt(plain_text: str) -> str:
         logger.error("Encryption failed: %s", e)
         return ""
 
+def decrypt_checked(cipher_text: str) -> tuple:
+    """Decrypt with an explicit success flag — NEVER silently return "".
+
+    Root cause of the -2014 outage: decrypt() returned "" on any failure
+    (e.g. ENCRYPTION_KEY regenerated after a redeploy on an ephemeral
+    filesystem), so an EMPTY key was pushed into the engine and Binance
+    answered 401/-2014 'API-key format invalid' for every symbol.
+    Returns (ok, value). ok=False means the ciphertext exists but cannot be
+    read with the current key — the user MUST re-save the credential.
+    """
+    if not cipher_text:
+        return True, ""  # nothing stored — not an error
+    try:
+        f = _get_fernet()
+        return True, f.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
+    except Exception as e:
+        logger.error("Decryption FAILED (key changed or ciphertext corrupt): %s", e)
+        return False, ""
+
 def decrypt(cipher_text: str) -> str:
     if not cipher_text:
         return ""
-    try:
-        f = _get_fernet()
-        return f.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
-    except Exception as e:
-        logger.error("Decryption failed: %s", e)
-        return ""
+    ok, val = decrypt_checked(cipher_text)
+    return val if ok else ""
 
 # Fix 6: Upgrade password hashing to PBKDF2-SHA256 via Werkzeug
 def hash_password(password: str) -> str:
@@ -1190,29 +1211,49 @@ def write_user_bot_config(user_id: str) -> str:
 
     if existing and isinstance(existing, dict):
         bot_config = existing
-        # Ensure credentials from DB take precedence if engine has empty or stale keys
-        if not bot_config.get("api_key") and config.get("api_key_enc"):
-            bot_config["api_key"] = decrypt(config.get("api_key_enc", "")).strip().strip('"').strip("'")
-        if not bot_config.get("api_secret") and config.get("api_secret_enc"):
-            bot_config["api_secret"] = decrypt(config.get("api_secret_enc", "")).strip().strip('"').strip("'")
-        if not bot_config.get("api_passphrase") and config.get("api_passphrase_enc"):
-            bot_config["api_passphrase"] = decrypt(config.get("api_passphrase_enc", "")).strip().strip('"').strip("'")
-        # Sanitize existing keys if present
+        # Ensure credentials from DB take precedence if engine has empty or stale keys.
+        # decrypt_checked(): an unreadable ciphertext (ENCRYPTION_KEY changed after a
+        # redeploy) must NEVER push an empty string into the engine config — that is
+        # the exact mechanism that produced Binance -2014 on all symbols. Instead we
+        # keep whatever the engine already has and flag api_key_invalid so the UI
+        # tells the user to re-save the key.
+        _creds_invalid = False
+        for _plain_key, _enc_key in (("api_key", "api_key_enc"),
+                                     ("api_secret", "api_secret_enc"),
+                                     ("api_passphrase", "api_passphrase_enc")):
+            if not bot_config.get(_plain_key) and config.get(_enc_key):
+                ok, val = decrypt_checked(config.get(_enc_key, ""))
+                if ok:
+                    bot_config[_plain_key] = val.strip().strip('"').strip("'")
+                else:
+                    _creds_invalid = True
+                    logger.error("Credential %s unreadable with current ENCRYPTION_KEY "
+                                 "(key changed after redeploy?). User must re-save it.", _enc_key)
         if bot_config.get("api_key"):
             bot_config["api_key"] = str(bot_config["api_key"]).strip().strip('"').strip("'")
         if bot_config.get("api_secret"):
             bot_config["api_secret"] = str(bot_config["api_secret"]).strip().strip('"').strip("'")
         if bot_config.get("api_passphrase"):
             bot_config["api_passphrase"] = str(bot_config["api_passphrase"]).strip().strip('"').strip("'")
+        bot_config["api_key_invalid"] = _creds_invalid
     else:
-        api_key = decrypt(config.get("api_key_enc", "")).strip().strip('"').strip("'")
-        api_secret = decrypt(config.get("api_secret_enc", "")).strip().strip('"').strip("'")
-        api_passphrase = decrypt(config.get("api_passphrase_enc", "")).strip().strip('"').strip("'")
+        bot_config = {}
+        _creds_invalid = False
+        for _plain_key, _enc_key in (("api_key", "api_key_enc"),
+                                     ("api_secret", "api_secret_enc"),
+                                     ("api_passphrase", "api_passphrase_enc")):
+            if config.get(_enc_key):
+                ok, val = decrypt_checked(config.get(_enc_key, ""))
+                if ok:
+                    bot_config[_plain_key] = val.strip().strip('"').strip("'")
+                else:
+                    _creds_invalid = True
+                    logger.error("Credential %s unreadable with current ENCRYPTION_KEY "
+                                 "(key changed after redeploy?). User must re-save it.", _enc_key)
+            else:
+                bot_config[_plain_key] = ""
 
-        bot_config = {
-            "api_key": api_key,
-            "api_secret": api_secret,
-            "api_passphrase": api_passphrase,
+        bot_config.update({
             "exchange": config.get("exchange", "binance"),
             "testnet": config.get("testnet", True),
             "symbol": (config.get("symbols_list", ["BTCUSDT"]) or ["BTCUSDT"])[0],
@@ -1240,7 +1281,8 @@ def write_user_bot_config(user_id: str) -> str:
             "whatsapp_enabled": config.get("whatsapp_enabled", False),
             "whatsapp_phone": config.get("whatsapp_phone", ""),
             "whatsapp_apikey": decrypt(config.get("whatsapp_apikey_enc", "")),
-        }
+        })
+        bot_config["api_key_invalid"] = _creds_invalid
     if "auto_start" not in bot_config:
         bot_config["auto_start"] = False
 

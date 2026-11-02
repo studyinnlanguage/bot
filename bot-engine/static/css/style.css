@@ -1044,3 +1044,24 @@ footer a:hover { color: var(--gold-mid) !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ===== Connection state chips (separate statuses, never fake "Connected") ===== */
+.conn-states {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-left: 10px;
+}
+.conn-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+  padding: 3px 8px; border-radius: 999px;
+  color: var(--text-secondary, #9aa4b2);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.09));
+  white-space: nowrap;
+}
+.conn-chip b { font-weight: 800; color: inherit; }
+.conn-chip.ok { color: #0ecb81; background: rgba(14,203,129,0.10); border-color: rgba(14,203,129,0.35); }
+.conn-chip.fail { color: #f6465d; background: rgba(246,70,93,0.10); border-color: rgba(246,70,93,0.35); }
+.conn-chip.checking { color: #f0b90b; background: rgba(240,185,11,0.10); border-color: rgba(240,185,11,0.35); }
+.conn-chip.env-live { color: #ff9f43; background: rgba(255,159,67,0.12); border-color: rgba(255,159,67,0.45); }
+@media (max-width: 760px) { .conn-states { display: none; } }

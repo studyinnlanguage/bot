@@ -14,6 +14,7 @@ Functions:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -22,6 +23,17 @@ from typing import Optional
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def acct_code(resp) -> Optional[int]:
+    """Extract Binance-style numeric error code from a requests Response."""
+    try:
+        data = resp.json()
+        if isinstance(data, dict) and isinstance(data.get("code"), int):
+            return data["code"]
+    except Exception:
+        pass
+    return None
 
 # Try to import a Binance futures client.
 # Preferred: `binance-futures-connector` (official, v1.5.0+ or v4.x UMFutures).
@@ -969,6 +981,128 @@ class BinanceFuturesTrader:
             return ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
                     "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "MATICUSDT",
                     "DOTUSDT", "LTCUSDT", "TRXUSDT", "ATOMUSDT", "UNIUSDT"]
+
+    # ---------- Credential validation (read-only, no orders) ----------
+
+    def env_label(self) -> str:
+        return "TESTNET" if self.testnet else "MAINNET"
+
+    def validate_credentials(self, timeout: int = 15) -> dict:
+        """Prove the credentials actually work with ONE read-only signed call.
+
+        This is the authoritative pre-flight check used before workers spawn
+        and after settings are saved. It answers, separately:
+          - api_auth           (signature accepted?)
+          - balance_access     (can we read the wallet?)
+          - trading_permission (canTrade flag from /fapi/v2/account)
+        No order is ever placed by this method.
+
+        Returns a uniform structure:
+            {ok, error_code, error, message, balance, can_trade,
+             env, exchange, demo}
+        """
+        import hmac as _hmac
+        import time as _time
+        import requests as _requests
+
+        result = {
+            "ok": False,
+            "error_code": None,
+            "error": None,
+            "message": "",
+            "balance": None,
+            "can_trade": None,
+            "env": self.env_label(),
+            "exchange": "binance",
+            "demo": self.testnet,
+        }
+        base = "https://testnet.binancefuture.com" if self.testnet else "https://fapi.binance.com"
+        try:
+            ts = int(_time.time() * 1000)
+            query = f"timestamp={ts}&recvWindow=10000"
+            sig = _hmac.new(self.api_secret.encode("utf-8"), query.encode("utf-8"),
+                            hashlib.sha256).hexdigest()
+            r = _requests.get(
+                f"{base}/fapi/v2/balance",
+                params={"timestamp": ts, "recvWindow": 10000, "signature": sig},
+                headers={"X-MBX-APIKEY": self.api_key},
+                timeout=timeout,
+            )
+            try:
+                payload = r.json()
+            except Exception:
+                payload = {"raw": r.text[:200]}
+
+            if r.status_code == 200 and isinstance(payload, list):
+                usdt = 0.0
+                for item in payload:
+                    if isinstance(item, dict) and str(item.get("asset", "")).upper() == "USDT":
+                        try:
+                            usdt = float(item.get("availableBalance") or item.get("balance") or 0.0)
+                        except (TypeError, ValueError):
+                            usdt = 0.0
+                        break
+                result["ok"] = True
+                result["balance"] = usdt
+                result["message"] = f"Auth OK ({result['env']}) - Balance ${usdt:,.2f}"
+                # Trading permission (canTrade) — read-only account call.
+                try:
+                    ts2 = int(_time.time() * 1000)
+                    q2 = f"timestamp={ts2}&recvWindow=10000"
+                    sig2 = _hmac.new(self.api_secret.encode("utf-8"), q2.encode("utf-8"),
+                                     hashlib.sha256).hexdigest()
+                    r2 = _requests.get(
+                        f"{base}/fapi/v2/account",
+                        params={"timestamp": ts2, "recvWindow": 10000, "signature": sig2},
+                        headers={"X-MBX-APIKEY": self.api_key},
+                        timeout=timeout,
+                    )
+                    if r2.status_code == 200:
+                        acct = r2.json()
+                        result["can_trade"] = bool(acct.get("canTrade", False))
+                    else:
+                        code2 = acct_code(r2)
+                        if code2 == -2015:
+                            result["can_trade"] = False
+                except Exception:
+                    pass
+                if result["can_trade"] is False:
+                    result["message"] += " | WARNING: account canTrade=False (Futures permission missing)"
+                return result
+
+            code = payload.get("code") if isinstance(payload, dict) else None
+            msg = payload.get("msg") if isinstance(payload, dict) else str(payload)[:200]
+            result["error_code"] = code if isinstance(code, int) else r.status_code
+            result["error"] = f"HTTP {r.status_code}: {msg}"
+            if code == -2014:
+                result["message"] = (
+                    "API-key FORMAT invalid (-2014): key ka TEXT hi galat shape mein hai "
+                    "(empty, label, quote ya extra spaces). API Key aur SECRET alag-alag "
+                    "fields mein bilkul saaf paste karo.")
+            elif code == -2015:
+                if self.testnet:
+                    result["message"] = (
+                        "API Key REJECTED (-2015): Env=TESTNET hai to testnet.binancefuture.com "
+                        "ki TESTNET key chahiye (REAL key testnet pe kabhi nahi chalti). "
+                        "GitHub login karke testnet key lo, ya real trading ke liye Env=LIVE karo.")
+                else:
+                    result["message"] = (
+                        "API Key REJECTED (-2015): 1) Binance par 'Enable Futures' ON karo. "
+                        "2) IP restriction ho to is server ka IP whitelist karo. "
+                        "3) Futures (USDT-M) key ho, Spot nahi.")
+            elif code == -1022:
+                result["message"] = ("Signature invalid (-1022): SECRET galat hai. "
+                                     "Secret dobara sahi se paste karo.")
+            elif code == -1021:
+                result["message"] = ("Timestamp outside recvWindow (-1021): server ka time "
+                                     "sync nahi hai. Thodi der baad try karo.")
+            else:
+                result["message"] = f"Binance auth failed: HTTP {r.status_code} {msg}"
+            return result
+        except Exception as e:
+            result["error"] = str(e)
+            result["message"] = f"Network error while validating credentials: {e}"
+            return result
 
     def test_connection(self) -> dict:
         """Test API connection by fetching balance. Returns detailed result."""

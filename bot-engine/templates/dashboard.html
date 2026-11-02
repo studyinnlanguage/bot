@@ -42,6 +42,15 @@
                 <span class="dot"></span>
                 <span id="botStatusText">STOPPED</span>
             </div>
+            <!-- Separate connection states: market data / auth / balance / trading / env.
+                 These come from REAL exchange checks — never from "market data is flowing". -->
+            <div class="conn-states" id="connStates" title="Live connection states (read-only checks)">
+                <span class="conn-chip" id="connChipMarket" title="Public market data (klines / mark price)">MD <b>—</b></span>
+                <span class="conn-chip" id="connChipAuth" title="API key authentication (signed call)">AUTH <b>—</b></span>
+                <span class="conn-chip" id="connChipBalance" title="Account / balance access">BAL <b>—</b></span>
+                <span class="conn-chip" id="connChipTrade" title="Trading permission (canTrade)">TRADE <b>—</b></span>
+                <span class="conn-chip" id="connChipEnv" title="Current environment (DEMO/TESTNET/LIVE)">ENV <b>—</b></span>
+            </div>
             <button id="userAccountBtn" class="btn-account" onclick="openProfileModal()" title="My Account & Referral Portal">
                 <span class="account-icon">👤</span>
                 <span id="accountBtnText">Account & Referral</span>
@@ -650,6 +659,17 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                        </div>
+
+                        <!-- PROTECT REAL FUNDS: explicit unlock for live execution -->
+                        <div class="form-group hidden" id="liveConfirmGroup" style="border:1px solid rgba(246,70,93,0.35); border-radius:10px; padding:10px 12px; background:rgba(246,70,93,0.06);">
+                            <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; margin:0;">
+                                <input type="checkbox" id="liveConfirm" style="margin-top:3px;">
+                                <span style="font-size:12px; color:#f6465d; font-weight:600;">
+                                    I understand this bot will place REAL orders with REAL funds on Mainnet.
+                                    I have tested it on Demo/Testnet first.
+                                </span>
+                            </label>
                         </div>
 
                         <div class="form-group">
