@@ -4,22 +4,22 @@ export const C = {
   bg2: '#101613',
   bg3: '#141C17',
   card: '#101613',
-  cardBorder: 'rgba(0, 230, 118, 0.22)',
+  cardBorder: 'rgba(57, 255, 20, 0.20)',
   neon: '#39FF14',
   neon2: '#00E676',
   neonGlow: 'rgba(57, 255, 20, 0.25)',
-  // Backwards-compatible aliases for gold tokens across existing components:
-  gold: '#00E676',
-  goldB: '#39FF14',
-  goldD: '#00A854',
+  // Backwards-compatible aliases mapped strictly to Neon Green (No gold, yellow or orange):
+  gold: '#39FF14',
+  goldB: '#55FF38',
+  goldD: '#00B359',
   txt: '#F2F7F3',
   dim: '#89958D',
   dim2: '#526056',
   profit: '#00E676',
   loss: '#FF5252',
   blue: '#00E5FF',
-  orange: '#FFB74D',
-  warn: '#FFB74D',
+  orange: '#00E676', // Mapped to Neon Green (Strict No Orange rule)
+  warn: '#39FF14',   // Mapped to Neon Green
   purple: '#B388FF',
 };
 

@@ -88,7 +88,7 @@ export function CandleChart({ candles, emas }: { candles: Candle[]; emas?: Emas 
 
   const emaSeries: Array<[string | null, string]> = [
     [view.ema8, C.blue],
-    [view.ema13, C.orange],
+    [view.ema13, C.neon2],
     [view.ema21, C.purple],
     [view.ema55, C.loss],
   ];

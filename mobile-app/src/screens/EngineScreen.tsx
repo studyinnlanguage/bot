@@ -160,7 +160,7 @@ export function EngineScreen() {
             }}
           />
         </View>
-        <Text style={{ color: testnet ? C.orange : C.loss, fontSize: 11, marginBottom: 12, fontWeight: '700' }}>
+        <Text style={{ color: testnet ? C.neon : C.loss, fontSize: 11, marginBottom: 12, fontWeight: '700' }}>
           {testnet
             ? 'DEMO: Virtual simulated funds only. Completely isolated from live capital.'
             : '⚠️ LIVE TRADING ACTIVE: Every order executes with real money on the live exchange.'}

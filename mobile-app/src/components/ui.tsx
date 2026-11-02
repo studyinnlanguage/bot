@@ -40,7 +40,7 @@ export function NeonButton({
       disabled={disabled || loading}
       style={[
         {
-          backgroundColor: disabled || loading ? '#00A854' : C.neon2,
+          backgroundColor: disabled || loading ? '#00A854' : C.neon,
           borderRadius: 14,
           paddingVertical: 14,
           alignItems: 'center',
@@ -55,7 +55,7 @@ export function NeonButton({
       {loading ? (
         <ActivityIndicator color={C.bg} />
       ) : (
-        <Text style={{ color: C.bg, fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
+        <Text style={{ color: '#080B0A', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
           {title}
         </Text>
       )}
@@ -180,7 +180,7 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
           paddingVertical: 5,
           backgroundColor: 'rgba(0,0,0,0.3)',
         } as any}>
-        <Text style={{ color: testnet ? C.orange : C.neon2, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 }}>
+        <Text style={{ color: testnet ? C.neon : C.neon2, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 }}>
           {exchange?.toUpperCase()}{testnet ? ' · DEMO' : ' · LIVE'}
         </Text>
       </View>

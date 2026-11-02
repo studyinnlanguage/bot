@@ -70,7 +70,7 @@ export function AccountScreen() {
           </View>
           {user?.bot_config?.testnet ? (
             <View style={{ borderColor: 'rgba(255,183,77,0.4)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
-              <Text style={{ color: C.orange, fontSize: 11.5, fontWeight: '800' }}>DEMO</Text>
+              <Text style={{ color: C.neon, fontSize: 11.5, fontWeight: '800' }}>DEMO</Text>
             </View>
           ) : (
             <View style={{ borderColor: 'rgba(0,230,118,0.4)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
@@ -183,7 +183,7 @@ function PackagesTab() {
             <View key={o.id} style={{ paddingVertical: 8, borderBottomColor: 'rgba(0,230,118,0.08)', borderBottomWidth: 1 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: C.txt, fontSize: 12, fontWeight: '700' }}>{o.id}</Text>
-                <Text style={{ color: o.status === 'verified' ? C.profit : o.status === 'rejected' ? C.loss : C.orange, fontSize: 11.5, fontWeight: '800', textTransform: 'uppercase' }}>
+                <Text style={{ color: o.status === 'verified' ? C.profit : o.status === 'rejected' ? C.loss : C.neon2, fontSize: 11.5, fontWeight: '800', textTransform: 'uppercase' }}>
                   {o.status === 'submitted' ? 'PENDING VERIFICATION' : o.status}
                 </Text>
               </View>
@@ -425,7 +425,7 @@ function ReferralTab() {
       <Card style={{ marginTop: 6 }}>
         <SectionTitle>YOUR REFERRAL LINK</SectionTitle>
         <TouchableOpacity onPress={copyRef}>
-          <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)' }}>
+          <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(57,255,20,0.2)' }}>
             <Text style={{ color: C.goldB, fontSize: 11.5 }} selectable>
               {data?.referral_link || '…'}
             </Text>
@@ -467,7 +467,7 @@ function ReferralTab() {
           <Text style={{ color: C.dim2, fontSize: 12 }}>No referral earnings yet.</Text>
         ) : (
           data.referral_history.slice(0, 10).map((h: any, i: number) => (
-            <View key={i} style={{ paddingVertical: 7, borderBottomColor: 'rgba(212,175,55,0.07)', borderBottomWidth: 1 }}>
+            <View key={i} style={{ paddingVertical: 7, borderBottomColor: 'rgba(57,255,20,0.12)', borderBottomWidth: 1 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: C.txt, fontSize: 12 }}>{h.buyer_email || h.buyer_id}</Text>
                 <Text style={{ color: C.profit, fontWeight: '800', fontSize: 12.5 }}>{money(h.bonus_amount, true)}</Text>

@@ -43,7 +43,7 @@ export function PulseScreen() {
   }, []);
 
   const colorFor = (lvl: string) =>
-    lvl === 'error' ? C.loss : lvl === 'warn' ? C.orange : lvl === 'success' ? C.profit : C.dim;
+    lvl === 'error' ? C.loss : lvl === 'warn' ? C.neon2 : lvl === 'success' ? C.profit : C.dim;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, padding: 14, paddingTop: 16 }}>
