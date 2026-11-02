@@ -203,9 +203,9 @@ function renderEMAStack(data) {
             ruleEl.style.background = 'rgba(246, 70, 93, 0.08)';
             ruleEl.textContent = 'EMA55 is at TOP → SELL signal fires → Bot opens SHORT';
         } else if (ema55Idx === emas.length - 1) {
-            ruleEl.style.color = '#0ecb81';
-            ruleEl.style.borderColor = 'rgba(14, 203, 129, 0.5)';
-            ruleEl.style.background = 'rgba(14, 203, 129, 0.08)';
+            ruleEl.style.color = '#f0b90b';
+            ruleEl.style.borderColor = 'rgba(240, 185, 11, 0.5)';
+            ruleEl.style.background = 'rgba(240, 185, 11, 0.08)';
             ruleEl.textContent = 'EMA55 is at BOTTOM → BUY signal fires → Bot opens LONG';
         } else {
             ruleEl.style.color = '#f0b90b';
@@ -1127,7 +1127,7 @@ function updatePositionUI(data) {
     if (trailingEl) {
         if (data.side && data.side !== 'NONE' && data.tp_price) {
             trailingEl.textContent = `$${fmt(data.tp_price)} (1:1 Target)`;
-            trailingEl.style.color = '#0ecb81';
+            trailingEl.style.color = '#f0b90b';
         } else {
             trailingEl.textContent = '--';
             trailingEl.style.color = '#848e9c';

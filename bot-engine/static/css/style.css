@@ -1060,7 +1060,7 @@ footer a:hover { color: var(--gold-mid) !important; }
   white-space: nowrap;
 }
 .conn-chip b { font-weight: 800; color: inherit; }
-.conn-chip.ok { color: #0ecb81; background: rgba(14,203,129,0.10); border-color: rgba(14,203,129,0.35); }
+.conn-chip.ok { color: #f0b90b; background: rgba(240, 185, 11,0.10); border-color: rgba(240, 185, 11,0.35); }
 .conn-chip.fail { color: #f6465d; background: rgba(246,70,93,0.10); border-color: rgba(246,70,93,0.35); }
 .conn-chip.checking { color: #f0b90b; background: rgba(240,185,11,0.10); border-color: rgba(240,185,11,0.35); }
 .conn-chip.env-live { color: #ff9f43; background: rgba(255,159,67,0.12); border-color: rgba(255,159,67,0.45); }

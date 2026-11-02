@@ -28,30 +28,30 @@
         .form-group { margin-bottom: 12px; }
         .label { display: block; font-size: 11px; color: #848e9c; margin-bottom: 4px; text-transform: uppercase; }
         .input-sm { width: 100%; padding: 8px 10px; background: #0b0e11; border: 1px solid #2a2e36; color: #eaecef; border-radius: 6px; font-size: 13px; }
-        .btn-create { background: #0ecb81; color: #0b0e11; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 13px; }
+        .btn-create { background: #f0b90b; color: #0b0e11; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 13px; }
         .license-row { padding: 12px 20px; border-bottom: 1px solid #2a2e36; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
         .license-row:last-child { border-bottom: none; }
         .license-key { font-family: monospace; font-weight: 600; color: #f0b90b; }
         .user-row { padding: 12px 20px; border-bottom: 1px solid #2a2e36; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
         .user-row:last-child { border-bottom: none; }
         .badge { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-align: center; display: inline-block; }
-        .badge-active { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .badge-active { background: rgba(240, 185, 11,0.15); color: #f0b90b; }
         .badge-inactive { background: rgba(246,70,93,0.15); color: #f6465d; }
-        .badge-used { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .badge-used { background: rgba(240, 185, 11,0.15); color: #f0b90b; }
         .badge-unused { background: rgba(94,102,115,0.15); color: #848e9c; }
         .badge-revoked { background: rgba(246,70,93,0.15); color: #f6465d; }
-        .badge-running { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .badge-running { background: rgba(240, 185, 11,0.15); color: #f0b90b; }
         .badge-banned { background: rgba(246,70,93,0.15); color: #f6465d; }
         .badge-pending { background: rgba(240,185,11,0.15); color: #f0b90b; }
         .badge-submitted { background: rgba(84,174,255,0.15); color: #54aeff; }
-        .badge-verified { background: rgba(14,203,129,0.15); color: #0ecb81; }
+        .badge-verified { background: rgba(240, 185, 11,0.15); color: #f0b90b; }
         .btn-sm { padding: 5px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer; margin-left: 4px; }
         .btn-revoke { background: #f6465d; color: white; }
         .btn-delete { background: #2a2e36; color: #f6465d; border: 1px solid #f6465d; }
         .btn-ban { background: #f6465d; color: white; }
-        .btn-unban { background: #0ecb81; color: #0b0e11; }
+        .btn-unban { background: #f0b90b; color: #0b0e11; }
         .copy-btn { background: #2a2e36; color: #f0b90b; border: 1px solid #f0b90b; }
-        .btn-verify { background: #0ecb81; color: white; }
+        .btn-verify { background: #f0b90b; color: #0b0e11; }
         .btn-reject { background: #f6465d; color: white; }
         .btn-view { background: #2a2e36; color: #54aeff; border: 1px solid #54aeff; }
         .empty { text-align: center; padding: 40px; color: #848e9c; }
@@ -59,7 +59,7 @@
         .stat-card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 8px; padding: 16px; }
         .stat-label { font-size: 10px; color: #848e9c; text-transform: uppercase; margin-bottom: 4px; }
         .stat-value { font-size: 22px; font-weight: 700; }
-        .stat-value.green { color: #0ecb81; }
+        .stat-value.green { color: #f0b90b; }
         .stat-value.yellow { color: #f0b90b; }
         .stat-value.red { color: #f6465d; }
         .stat-value.blue { color: #54aeff; }
@@ -398,7 +398,7 @@
                     }
                     let licenseInfo = '';
                     if (o.status === 'verified' && o.license_key) {
-                        licenseInfo = '<div style="margin-top:6px;font-family:monospace;font-size:11px;color:#0ecb81;">License: ' + o.license_key + '</div>';
+                        licenseInfo = '<div style="margin-top:6px;font-family:monospace;font-size:11px;color:#f0b90b;">License: ' + o.license_key + '</div>';
                     }
                     let rejectInfo = '';
                     if (o.status === 'rejected') {
@@ -671,14 +671,14 @@
                     const dateStr = p.created_at ? new Date(p.created_at).toLocaleString() : '-';
                     const statusBadge = isPending ?
                         '<span class="badge" style="background:rgba(240,185,11,0.15);color:#f0b90b;">pending</span>' :
-                        '<span class="badge" style="background:rgba(14,203,129,0.15);color:#0ecb81;">paid</span>';
+                        '<span class="badge" style="background:rgba(240, 185, 11,0.15);color:#f0b90b;">paid</span>';
                     const actionBtn = isPending ?
                         '<button class="btn-sm btn-verify" onclick="approvePayout(\'' + p.id + '\', \'' + p.amount + '\')">✓ Mark as Paid</button>' :
-                        '<span style="color:#0ecb81;font-size:11px;">Paid ' + (p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '') + '</span>';
+                        '<span style="color:#f0b90b;font-size:11px;">Paid ' + (p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '') + '</span>';
                     return '<div class="order-row">'
                         + '<div class="order-top">'
                         + '  <div>'
-                        + '    <span class="order-id">' + p.id + '</span> &bull; <strong style="color:#0ecb81; font-size:14px;">$' + p.amount + ' USDT</strong>'
+                        + '    <span class="order-id">' + p.id + '</span> &bull; <strong style="color:#f0b90b; font-size:14px;">$' + p.amount + ' USDT</strong>'
                         + '    <div class="order-user" style="margin-top:4px;">User: <strong>' + esc(p.user_email) + '</strong> (' + esc(p.user_name || '') + ') &bull; Requested: ' + dateStr + '</div>'
                         + '  </div>'
                         + '  <div>' + statusBadge + '</div>'
@@ -688,7 +688,7 @@
                         + '  <span class="order-tx" style="max-width:400px;">' + esc(p.wallet_address || '-') + '</span>'
                         + '  <button class="btn-sm copy-btn" onclick="copyText(\'' + (p.wallet_address || '') + '\')">Copy Wallet</button>'
                         + '</div>'
-                        + (p.tx_hash ? '<div style="font-size:11px; color:#848e9c; margin-bottom:8px;">Tx Hash: <span style="font-family:monospace; color:#0ecb81;">' + esc(p.tx_hash) + '</span></div>' : '')
+                        + (p.tx_hash ? '<div style="font-size:11px; color:#848e9c; margin-bottom:8px;">Tx Hash: <span style="font-family:monospace; color:#f0b90b;">' + esc(p.tx_hash) + '</span></div>' : '')
                         + '<div class="order-actions">' + actionBtn + '</div>'
                         + '</div>';
                 }).join('');
@@ -728,7 +728,7 @@
                             }
                             if (badge) {
                                 badge.textContent = '🟢 Active';
-                                badge.style.color = '#0ecb81';
+                                badge.style.color = '#f0b90b';
                             }
                         } else {
                             if (pill) {
@@ -815,7 +815,7 @@
                     });
                     const data = await r.json();
                     if (data.success) {
-                        resultDiv.style.color = '#0ecb81';
+                        resultDiv.style.color = '#f0b90b';
                         resultDiv.textContent = '✅ ' + (data.message || ('Test email sent successfully to ' + to + '! Check inbox / spam.'));
                     } else {
                         resultDiv.style.color = '#f6465d';

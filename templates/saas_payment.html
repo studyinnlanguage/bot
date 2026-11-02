@@ -48,8 +48,8 @@
             width: 44px;
             height: 44px;
             border-radius: 50%;
-            border: 2px solid rgba(14, 203, 129, 0.7);
-            box-shadow: 0 0 16px rgba(14, 203, 129, 0.45);
+            border: 2px solid rgba(240, 185, 11, 0.7);
+            box-shadow: 0 0 16px rgba(240, 185, 11, 0.45);
             overflow: hidden;
             display: flex;
             align-items: center;
@@ -172,7 +172,7 @@
         .amount-highlight {
             font-size: 32px;
             font-weight: 800;
-            color: #0ecb81;
+            color: #f0b90b;
             font-family: 'SF Mono', 'Roboto Mono', monospace;
             display: flex;
             align-items: baseline;
@@ -228,9 +228,9 @@
             background: rgba(240,185,11,0.3);
         }
         .copy-btn.copied {
-            background: rgba(14,203,129,0.15);
-            border-color: rgba(14,203,129,0.4);
-            color: #0ecb81;
+            background: rgba(240, 185, 11,0.15);
+            border-color: rgba(240, 185, 11,0.4);
+            color: #f0b90b;
         }
 
         .meta-badges {
@@ -309,19 +309,19 @@
             display: none; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.5;
         }
         .msg-box.visible { display: flex; }
-        .msg-success { background: rgba(14,203,129,0.12); border: 1px solid rgba(14,203,129,0.3); color: #0ecb81; }
+        .msg-success { background: rgba(240, 185, 11,0.12); border: 1px solid rgba(240, 185, 11,0.3); color: #f0b90b; }
         .msg-error { background: rgba(246,70,93,0.12); border: 1px solid rgba(246,70,93,0.3); color: #f6465d; }
         .msg-info { background: rgba(240,185,11,0.12); border: 1px solid rgba(240,185,11,0.3); color: #f0b90b; }
 
         /* Verified Celebration Box */
         .celebration-box {
-            background: linear-gradient(135deg, rgba(14,203,129,0.15) 0%, rgba(14,203,129,0.05) 100%);
-            border: 2px solid #0ecb81; border-radius: 14px;
+            background: linear-gradient(135deg, rgba(240, 185, 11,0.15) 0%, rgba(240, 185, 11,0.05) 100%);
+            border: 2px solid #f0b90b; border-radius: 14px;
             padding: 28px 20px; text-align: center; display: none; margin-bottom: 24px;
         }
         .celebration-box.visible { display: block; }
         .celebration-icon { font-size: 48px; margin-bottom: 12px; }
-        .celebration-title { font-size: 20px; font-weight: 800; color: #0ecb81; margin-bottom: 6px; }
+        .celebration-title { font-size: 20px; font-weight: 800; color: #f0b90b; margin-bottom: 6px; }
         .celebration-sub { font-size: 13px; color: #eaecef; margin-bottom: 18px; }
 
         .back-link {
@@ -377,10 +377,10 @@
             <div class="celebration-sub" id="celebrationSub">
                 Your license has been issued and linked to your account. You can now launch and configure your trading bot.
             </div>
-            <div style="background:#0b0e11; border:1px solid #2a2e36; padding:12px; border-radius:8px; font-family:monospace; font-size:14px; color:#0ecb81; margin-bottom:16px; user-select:all;" id="licenseKeyDisplay">
+            <div style="background:#0b0e11; border:1px solid #2a2e36; padding:12px; border-radius:8px; font-family:monospace; font-size:14px; color:#f0b90b; margin-bottom:16px; user-select:all;" id="licenseKeyDisplay">
                 {{ order.license_key if (order and order.license_key) else 'LICENSE-KEY-ACTIVE' }}
             </div>
-            <a href="/bot/" class="submit-btn" style="background:linear-gradient(135deg, #0ecb81 0%, #059669 100%); color:#fff; font-size:16px;">
+            <a href="/bot/" class="submit-btn" style="background:linear-gradient(135deg, #f0b90b 0%, #d4a017 100%); color:#0b0e11; font-size:16px;">
                 🚀 Launch Trading Bot Now
             </a>
             <div style="font-size:12px; color:#848e9c; margin-top:12px;" id="redirectCountdownText"></div>
@@ -407,7 +407,7 @@
         <div class="card">
             <div class="card-title">
                 <span>Scan QR or Copy USDT Address</span>
-                <span style="font-size:12px; color:#0ecb81; font-weight:600;">Automated Verification Active</span>
+                <span style="font-size:12px; color:#f0b90b; font-weight:600;">Automated Verification Active</span>
             </div>
 
             <div class="deposit-qr-wrap">
