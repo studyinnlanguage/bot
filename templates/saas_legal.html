@@ -3,21 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- PWA: installable app (Add to Home screen -> fullscreen, no URL bar) -->
-    <link rel="manifest" href="/static/manifest.webmanifest">
-    <meta name="theme-color" content="#070a0f">
-    <link rel="apple-touch-icon" href="/static/img/weexionic-logo.png">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="WEEXIONIC">
-    <script>
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/static/sw.js').catch(function () {});
-        });
-    }
-    </script>
     <title>WEEXIONIC - Legal, Risk Disclaimer & Privacy Policy</title>
     <link rel="icon" type="image/png" href="/static/img/weexionic-logo.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -34,8 +19,8 @@
             --text-main: #f0f3f8;
             --text-muted: #8e9bb0;
             --text-dim: #5c687d;
-            --gold: #f0b90b;
-            --gold-glow: rgba(240, 185, 11, 0.2);
+            --gold: #39FF14;
+            --gold-glow: rgba(57, 255, 20, 0.2);
             --emerald: #0ecb81;
             --emerald-glow: rgba(14, 203, 129, 0.2);
             --crimson: #f6465d;
@@ -102,9 +87,9 @@
             text-transform: uppercase;
             padding: 3px 8px;
             border-radius: 6px;
-            background: rgba(240, 185, 11, 0.15);
+            background: rgba(57, 255, 20, 0.15);
             color: var(--gold);
-            border: 1px solid rgba(240, 185, 11, 0.3);
+            border: 1px solid rgba(57, 255, 20, 0.3);
             letter-spacing: 0.5px;
         }
         .nav-actions {
@@ -135,14 +120,14 @@
             background: var(--bg-hover);
         }
         .nav-btn-primary {
-            background: linear-gradient(135deg, var(--gold) 0%, #f8d12f 100%);
-            color: #0b0e11;
+            background: linear-gradient(135deg, var(--gold) 0%, #55FF38 100%);
+            color: #080B0A;
             border: none;
             box-shadow: 0 4px 14px var(--gold-glow);
         }
         .nav-btn-primary:hover {
             transform: translateY(-1px);
-            box-shadow: 0 6px 18px rgba(240, 185, 11, 0.35);
+            box-shadow: 0 6px 18px rgba(57, 255, 20, 0.35);
         }
 
         /* Container Layout */
@@ -168,7 +153,7 @@
             margin-bottom: 10px;
         }
         .hero-title span {
-            background: linear-gradient(135deg, #0ecb81 0%, #f0b90b 100%);
+            background: linear-gradient(135deg, #0ecb81 0%, #39FF14 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -338,8 +323,8 @@
         }
         .alert-crimson strong { color: #fff; }
         .alert-gold {
-            background: rgba(240, 185, 11, 0.08);
-            border: 1px solid rgba(240, 185, 11, 0.35);
+            background: rgba(57, 255, 20, 0.08);
+            border: 1px solid rgba(57, 255, 20, 0.35);
             color: #ffd86b;
         }
         .alert-gold strong { color: #fff; }

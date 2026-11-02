@@ -116,17 +116,17 @@ export function CockpitScreen({ navigation }: any) {
       refreshControl={<RefreshControl refreshing={false} onRefresh={pull} tintColor={C.gold} />}>
       <View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ color: C.gold, fontWeight: '900', fontSize: 17, letterSpacing: 2 }}>COCKPIT</Text>
+          <Text style={{ color: C.neon, fontWeight: '900', fontSize: 17, letterSpacing: 2 }}>COCKPIT</Text>
           {stale && engineRunning ? (
             <Text style={{ color: C.orange, fontSize: 10, letterSpacing: 1 }}>STALE</Text>
           ) : null}
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity onPress={() => navigation.navigate('Radar')} style={iconBtn}>
-            <Text style={{ color: C.goldB, fontSize: 12, fontWeight: '700' }}>RADAR</Text>
+            <Text style={{ color: C.neon2, fontSize: 12, fontWeight: '700' }}>RADAR</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('Pulse')} style={iconBtn}>
-            <Text style={{ color: C.goldB, fontSize: 12, fontWeight: '700' }}>PULSE</Text>
+            <Text style={{ color: C.neon2, fontSize: 12, fontWeight: '700' }}>PULSE</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -136,12 +136,17 @@ export function CockpitScreen({ navigation }: any) {
       <Card>
         <StatusPill running={engineRunning} testnet={testnet} exchange={exchange} />
         <View style={{ height: 12 }} />
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flex: 1 }}>
-            <Lbl>USDT BALANCE</Lbl>
-            <Text style={{ color: C.gold, fontSize: 24, fontWeight: '900', marginTop: 2 }}>
-              {balance == null ? '--' : money(balance)}
-            </Text>
+            <Lbl>{testnet ? 'DEMO BALANCE (SIMULATED)' : 'LIVE USDT BALANCE'}</Lbl>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+              {balance == null && engineRunning ? (
+                <ActivityIndicator size="small" color={C.neon2} style={{ marginRight: 6 }} />
+              ) : null}
+              <Text style={{ color: C.neon, fontSize: 24, fontWeight: '900' }}>
+                {balance == null ? (engineRunning ? 'SYNCING…' : '--') : money(balance)}
+              </Text>
+            </View>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Lbl>TRADES TODAY</Lbl>
@@ -266,7 +271,7 @@ export function CockpitScreen({ navigation }: any) {
 }
 
 const iconBtn = {
-  borderColor: 'rgba(212,175,55,0.3)',
+  borderColor: 'rgba(0,230,118,0.25)',
   borderWidth: 1,
   borderRadius: 10,
   paddingHorizontal: 10,

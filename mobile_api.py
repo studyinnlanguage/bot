@@ -60,7 +60,7 @@ _cfg = {
 def init_module(db, save_db, rate_limit, encrypt, decrypt, verify_password,
                 check_subscription, proxy_to_bot, ensure_bot, start_bot,
                 stop_bot, flask_secret, packages, verify_tx, activate_order,
-                payment_lock, payout_lock):
+                payment_lock, payout_lock, **kwargs):
     _cfg.update({
         "db": db, "save_db": save_db, "rate_limit": rate_limit,
         "encrypt": encrypt, "decrypt": decrypt, "verify_password": verify_password,
@@ -70,6 +70,7 @@ def init_module(db, save_db, rate_limit, encrypt, decrypt, verify_password,
         "verify_tx": verify_tx, "activate_order": activate_order,
         "payment_lock": payment_lock, "payout_lock": payout_lock,
     })
+    _cfg.update(kwargs)
 
 
 def _db():
@@ -315,7 +316,16 @@ def m_google():
         logger.warning("Google tokeninfo failed: %s", e)
         return jsonify({"success": False, "error": "Google verification failed"}), 401
 
-    if info.get("aud") != client_id:
+    allowed_audiences = {
+        cid for cid in [
+            os.environ.get("GOOGLE_CLIENT_ID", ""),
+            os.environ.get("GOOGLE_ANDROID_CLIENT_ID", ""),
+            os.environ.get("GOOGLE_WEB_CLIENT_ID", ""),
+        ] if cid
+    }
+    aud = info.get("aud", "")
+    azp = info.get("azp", "")
+    if allowed_audiences and (aud not in allowed_audiences and azp not in allowed_audiences):
         return jsonify({"success": False, "error": "Google token audience mismatch"}), 401
     email = (info.get("email") or "").lower().strip()
     if not email:
@@ -369,6 +379,43 @@ def m_google():
     if user.get("google_id") != info.get("sub", ""):
         user["google_id"] = info.get("sub", "")
         _save()
+    return jsonify({"success": True, "user": _user_snapshot(user), **_issue_tokens(user)})
+
+
+@mobile_bp.post("/auth/exchange-code")
+def m_exchange_code():
+    """Exchange a short-lived single-use authorization code for JWT tokens."""
+    data = request.get_json(force=True, silent=True) or {}
+    code = (data.get("code") or "").strip()
+    if not code:
+        return jsonify({"success": False, "error": "Authorization code is required"}), 400
+
+    db = _db()
+    oauth_codes = db.setdefault("oauth_codes", {})
+    code_record = oauth_codes.get(code)
+    if not code_record:
+        return jsonify({"success": False, "error": "Invalid or expired authorization code"}), 400
+
+    if code_record.get("used"):
+        return jsonify({"success": False, "error": "Authorization code has already been used"}), 400
+
+    now_ts = time.time()
+    if now_ts > float(code_record.get("expires_at", 0)):
+        oauth_codes.pop(code, None)
+        _save()
+        return jsonify({"success": False, "error": "Authorization code has expired"}), 400
+
+    # Single-use: mark used immediately
+    code_record["used"] = True
+    _save()
+
+    user_id = code_record.get("user_id")
+    user = db.get("users", {}).get(user_id)
+    if not user:
+        return jsonify({"success": False, "error": "User account not found"}), 404
+    if user.get("banned"):
+        return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
+
     return jsonify({"success": True, "user": _user_snapshot(user), **_issue_tokens(user)})
 
 
@@ -675,20 +722,13 @@ def m_bot_test_notification():
 # ---------------------------------------------------------------------------
 @mobile_bp.get("/packages")
 def m_packages():
-    # Wallets saved from the web Admin Panel live in DB settings (two shapes
-    # used over time); ENV vars are only the fallback. Previously ENV-only,
-    # so the app showed "Wallet address unavailable" even after saving.
-    try:
-        _db = _cfg.get("db") or {}
-        _st = _db.get("settings") or {}
-        _s = _st.get("payment_wallets") or {}
-        _w = _st.get("wallets") or {}
-    except Exception:
-        _s, _w = {}, {}
-    trc20 = _s.get("wallet_trc20") or _w.get("trc20") or os.environ.get("PAYMENT_WALLET_TRC20", "")
-    bep20 = _s.get("wallet_bep20") or _w.get("bep20") or os.environ.get("PAYMENT_WALLET_BEP20", "")
-    return jsonify({"success": True, "packages": _cfg["packages"],
-                    "wallets": {"trc20": trc20, "bep20": bep20}})
+    trc20 = os.environ.get("PAYMENT_WALLET_TRC20") or _cfg.get("wallet_trc20") or "TLponfWCPEqdv8CqbvXAZESQYnoNiw5Bpp"
+    bep20 = os.environ.get("PAYMENT_WALLET_BEP20") or _cfg.get("wallet_bep20") or "0xc53cd5f340bea5148ed657ca80ff51626901e609"
+    return jsonify({
+        "success": True,
+        "packages": _cfg["packages"],
+        "wallets": {"trc20": trc20, "bep20": bep20}
+    })
 
 
 @mobile_bp.post("/license/activate")
@@ -750,11 +790,17 @@ def m_order_create():
     sub = _cfg["check_subscription"](user)
     if sub.get("active"):
         return jsonify({"success": False, "error": "Your subscription is already active"}), 400
-    # one open order at a time
+    # One open order at a time — prevents duplicate payment submissions
     for o in db.get("orders", {}).values():
         if o["user_id"] == user["id"] and o.get("status") in ("pending", "submitted"):
-            return jsonify({"success": False, "error": "You already have a pending payment order",
-                            "order_id": o["id"]}), 409
+            return jsonify({
+                "success": False,
+                "error": "You already have a pending payment order",
+                "order_id": o["id"],
+                "package_id": o.get("package_id"),
+                "package_name": o.get("package_name"),
+                "amount": o.get("amount"),
+            }), 409
     order_id = "ORD-" + secrets.token_hex(4).upper()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     order = {

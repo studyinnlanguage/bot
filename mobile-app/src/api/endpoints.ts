@@ -43,6 +43,8 @@ export const authApi = {
     api.post('/api/mobile/auth/login', { email, password }) as Promise<AuthResponse>,
   googleExchange: (idToken: string) =>
     api.post('/api/mobile/auth/google', { id_token: idToken }) as Promise<AuthResponse>,
+  exchangeCode: (code: string) =>
+    api.post('/api/mobile/auth/exchange-code', { code }) as Promise<AuthResponse>,
   logout: (refreshToken: string) =>
     api.post('/api/mobile/auth/logout', { refresh_token: refreshToken }),
   me: () => api.get('/api/mobile/auth/me') as Promise<{ success: boolean; user: UserSnapshot; bot_running: boolean }>,

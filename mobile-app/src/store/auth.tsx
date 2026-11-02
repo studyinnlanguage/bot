@@ -37,39 +37,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const handleIncomingUrl = async (url: string | null) => {
+    if (!url) return;
+    try {
+      // Support both weexionic://oauth?... and https://weexionic.duckdns.org/app/oauth?...
+      const isOauthScheme = url.startsWith('weexionic://') || url.includes('/app/oauth') || url.includes('oauth');
+      if (!isOauthScheme) return;
+
+      const qIndex = url.indexOf('?');
+      if (qIndex === -1) return;
+      const queryStr = url.substring(qIndex + 1);
+      const params: Record<string, string> = {};
+      queryStr.split('&').forEach(part => {
+        const [k, v] = part.split('=');
+        if (k && v !== undefined) {
+          params[decodeURIComponent(k)] = decodeURIComponent(v);
+        }
+      });
+
+      if (params.code) {
+        setLoading(true);
+        const res = await authApi.exchangeCode(params.code);
+        if (res.access_token && res.refresh_token) {
+          await tokenStore.save(res.access_token, res.refresh_token);
+          setUser(res.user);
+        }
+      } else if (params.token && params.refresh_token) {
+        await applyTokens(params.token, params.refresh_token);
+      }
+    } catch (e) {
+      console.warn('OAuth deep link handling failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     load();
-    // Google OAuth deep-link round-trip: weexionic://oauth?token=..&refresh_token=..
+    // Google OAuth round-trip via single-use auth code or token
     const sub = Linking.addEventListener('url', ({ url }) => {
-      if (url.startsWith(DEEP_LINK_OAUTH)) {
-        try {
-          const q = Object.fromEntries(
-            url
-              .replace(DEEP_LINK_OAUTH + '://oauth?', '')
-              .split('&')
-              .map(kv => kv.split('=').map(decodeURIComponent) as [string, string]),
-          );
-          if (q.token && q.refresh_token) {
-            applyTokens(q.token, q.refresh_token);
-          }
-        } catch {
-          /* ignore malformed deep links */
-        }
-      }
+      handleIncomingUrl(url);
     });
     Linking.getInitialURL().then(url => {
-      if (url && url.startsWith(DEEP_LINK_OAUTH)) {
-        // cold-start deep link — same parsing
-        try {
-          const q = Object.fromEntries(
-            url
-              .replace(DEEP_LINK_OAUTH + '://oauth?', '')
-              .split('&')
-              .map(kv => kv.split('=').map(decodeURIComponent) as [string, string]),
-          );
-          if (q.token && q.refresh_token) applyTokens(q.token, q.refresh_token);
-        } catch {}
-      }
+      handleIncomingUrl(url);
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps

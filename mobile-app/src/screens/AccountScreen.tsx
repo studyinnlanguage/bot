@@ -57,22 +57,26 @@ export function AccountScreen() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 14, paddingBottom: 30 }}>
       <Card style={{ alignItems: 'center', paddingVertical: 18 }}>
-        <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#141210', borderWidth: 1.4, borderColor: 'rgba(212,175,55,0.6)', alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: C.gold, fontSize: 24, fontWeight: '900', fontStyle: 'italic' }}>W</Text>
+        <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#101613', borderWidth: 1.4, borderColor: 'rgba(0,230,118,0.6)', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: C.neon, fontSize: 24, fontWeight: '900', fontStyle: 'italic' }}>W</Text>
         </View>
         <Text style={{ color: C.txt, fontWeight: '900', fontSize: 17, marginTop: 10 }}>{user?.name}</Text>
         <Text style={{ color: C.dim, fontSize: 12.5 }}>{user?.email}</Text>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-          <View style={{ borderColor: 'rgba(212,175,55,0.3)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
-            <Text style={{ color: sub?.active ? C.goldB : C.dim, fontSize: 11.5, fontWeight: '800' }}>
+          <View style={{ borderColor: 'rgba(0,230,118,0.3)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+            <Text style={{ color: sub?.active ? C.neon2 : C.dim, fontSize: 11.5, fontWeight: '800' }}>
               {sub?.active ? `${String(sub.plan).toUpperCase()}${sub.days_left != null ? ` · ${sub.days_left}d LEFT` : ''}` : 'NO ACTIVE PLAN'}
             </Text>
           </View>
           {user?.bot_config?.testnet ? (
-            <View style={{ borderColor: 'rgba(240,160,60,0.4)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
-              <Text style={{ color: C.orange, fontSize: 11.5, fontWeight: '800' }}>TESTNET</Text>
+            <View style={{ borderColor: 'rgba(255,183,77,0.4)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+              <Text style={{ color: C.orange, fontSize: 11.5, fontWeight: '800' }}>DEMO</Text>
             </View>
-          ) : null}
+          ) : (
+            <View style={{ borderColor: 'rgba(0,230,118,0.4)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+              <Text style={{ color: C.neon2, fontSize: 11.5, fontWeight: '800' }}>LIVE</Text>
+            </View>
+          )}
         </View>
         {sub?.expires_at && sub.active ? (
           <Text style={{ color: C.dim2, fontSize: 10.5, marginTop: 8 }}>
@@ -83,8 +87,8 @@ export function AccountScreen() {
 
       <View style={{ flexDirection: 'row', marginTop: 14, marginBottom: 6 }}>
         {(['profile', 'packages', 'referral'] as const).map(t => (
-          <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 12, backgroundColor: tab === t ? 'rgba(212,175,55,0.14)' : 'transparent', marginRight: 6 }}>
-            <Text style={{ color: tab === t ? C.goldB : C.dim, fontWeight: '800', fontSize: 12 }}>
+          <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 12, backgroundColor: tab === t ? 'rgba(0,230,118,0.15)' : 'transparent', marginRight: 6 }}>
+            <Text style={{ color: tab === t ? C.neon : C.dim, fontWeight: '800', fontSize: 12 }}>
               {t === 'profile' ? 'ACCOUNT' : t === 'packages' ? 'PLANS' : 'REFERRALS'}
             </Text>
           </TouchableOpacity>
@@ -155,10 +159,10 @@ function PackagesTab() {
     <>
       <ErrorNote msg={err} />
       {Object.entries(packages).map(([id, p]: any) => (
-        <Card key={id} style={{ marginTop: 8, borderColor: p.popular ? 'rgba(212,175,55,0.55)' : C.cardBorder }}>
+        <Card key={id} style={{ marginTop: 8, borderColor: p.popular ? 'rgba(0,230,118,0.55)' : C.cardBorder }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View>
-              <Text style={{ color: C.goldB, fontWeight: '900', fontSize: 16 }}>{p.name}</Text>
+              <Text style={{ color: C.neon, fontWeight: '900', fontSize: 16 }}>{p.name}</Text>
               <Text style={{ color: C.dim, fontSize: 11.5, marginTop: 2 }}>
                 {p.days >= 9999 ? 'Never expires' : `${p.days} days`} · ${p.referral_bonus} referral bonus
               </Text>
@@ -176,19 +180,21 @@ function PackagesTab() {
           <Text style={{ color: C.dim2, fontSize: 12 }}>No orders yet.</Text>
         ) : (
           orders.slice(0, 8).map(o => (
-            <View key={o.id} style={{ paddingVertical: 8, borderBottomColor: 'rgba(212,175,55,0.07)', borderBottomWidth: 1 }}>
+            <View key={o.id} style={{ paddingVertical: 8, borderBottomColor: 'rgba(0,230,118,0.08)', borderBottomWidth: 1 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: C.txt, fontSize: 12, fontWeight: '700' }}>{o.id}</Text>
                 <Text style={{ color: o.status === 'verified' ? C.profit : o.status === 'rejected' ? C.loss : C.orange, fontSize: 11.5, fontWeight: '800', textTransform: 'uppercase' }}>
-                  {o.status}
+                  {o.status === 'submitted' ? 'PENDING VERIFICATION' : o.status}
                 </Text>
               </View>
               <Text style={{ color: C.dim2, fontSize: 10.5, marginTop: 2 }}>
                 {o.package_name} · {money(o.amount)} · {String(o.created_at).slice(0, 10)}
               </Text>
-              {o.status === 'submitted' ? (
+              {o.status === 'submitted' || o.status === 'pending' ? (
                 <TouchableOpacity onPress={() => setPaymentOrder(o)}>
-                  <Text style={{ color: C.goldB, fontSize: 11, marginTop: 4 }}>Track verification →</Text>
+                  <Text style={{ color: C.neon2, fontSize: 11, marginTop: 4 }}>
+                    {o.status === 'submitted' ? 'Track verification →' : 'Complete payment →'}
+                  </Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -241,6 +247,14 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
   const networkLabel = network === 'trc20' ? 'TRC-20 (Tron)' : 'BEP-20 (BNB Smart Chain)';
 
   const submit = async () => {
+    if (!address) {
+      setErr(`Wallet address unavailable for ${networkLabel}. Please select another network.`);
+      return;
+    }
+    if (!txHash.trim()) {
+      setErr('Please paste the transaction hash (TXID).');
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
@@ -259,8 +273,8 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
-        <View style={{ backgroundColor: C.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%' }}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: C.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%', borderColor: 'rgba(0,230,118,0.25)', borderWidth: 1 }}>
           {verified ? (
             <View style={{ alignItems: 'center', paddingVertical: 30 }}>
               <Text style={{ color: C.profit, fontSize: 40 }}>✓</Text>
@@ -273,24 +287,44 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
           ) : (
             <ScrollView>
               <SectionTitle right={<Text style={{ color: C.dim, fontSize: 11 }}>{order.id}</Text>}>
-                PAY {money(order.amount)} USDT
+                PAY {money(order.amount)} USDT ({order.package_name || 'Plan'})
               </SectionTitle>
               <View style={{ flexDirection: 'row', marginBottom: 12 }}>
                 {(['trc20', 'bep20'] as const).map(n => (
-                  <TouchableOpacity key={n} onPress={() => setNetwork(n)} style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12, marginRight: 8, backgroundColor: network === n ? 'rgba(212,175,55,0.14)' : 'rgba(0,0,0,0.3)', borderWidth: 1, borderColor: network === n ? C.gold : 'rgba(212,175,55,0.15)' }}>
-                    <Text style={{ color: network === n ? C.goldB : C.dim, fontWeight: '800', fontSize: 12 }}>
+                  <TouchableOpacity
+                    key={n}
+                    onPress={() => setNetwork(n)}
+                    style={{
+                      flex: 1,
+                      alignItems: 'center',
+                      paddingVertical: 10,
+                      borderRadius: 12,
+                      marginRight: 8,
+                      backgroundColor: network === n ? 'rgba(0,230,118,0.16)' : 'rgba(0,0,0,0.3)',
+                      borderWidth: 1,
+                      borderColor: network === n ? C.neon2 : 'rgba(0,230,118,0.15)',
+                    }}>
+                    <Text style={{ color: network === n ? C.neon : C.dim, fontWeight: '800', fontSize: 12 }}>
                       {n.toUpperCase()}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
               <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                {address ? <QRCode value={address} size={148} backgroundColor="#FFFFFF" color="#0A0908" /> : <ActivityIndicator color={C.gold} />}
+                {address ? (
+                  <QRCode value={address} size={148} backgroundColor="#FFFFFF" color="#080B0A" />
+                ) : (
+                  <View style={{ padding: 24, alignItems: 'center' }}>
+                    <Text style={{ color: C.warn, fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
+                      ⚠️ {networkLabel} wallet is temporarily unconfigured.{'\n'}Please select another network above.
+                    </Text>
+                  </View>
+                )}
                 <Text style={{ color: C.dim2, fontSize: 10.5, marginTop: 8 }}>{networkLabel}</Text>
               </View>
-              <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)' }}>
-                <Text style={{ color: C.goldB, fontSize: 11.5, fontFamily: undefined }} selectable>
-                  {address || 'Wallet address unavailable — contact support.'}
+              <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(0,230,118,0.2)' }}>
+                <Text style={{ color: address ? C.neon2 : C.warn, fontSize: 11.5 }} selectable>
+                  {address || 'Wallet address unavailable — select other network or contact support.'}
                 </Text>
               </View>
               <Text style={{ color: C.dim, fontSize: 11, marginTop: 10, lineHeight: 16 }}>
@@ -299,7 +333,12 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
               <View style={{ height: 10 }} />
               <ErrorNote msg={err} />
               <Field label="TRANSACTION HASH (TXID)" value={txHash} onChangeText={setTxHash} placeholder="0x… / Tron tx id" />
-              <GoldButton title="SUBMIT FOR VERIFICATION" onPress={submit} loading={busy} />
+              <GoldButton
+                title={!address ? 'SELECT ACTIVE NETWORK' : 'SUBMIT FOR VERIFICATION'}
+                onPress={submit}
+                loading={busy}
+                disabled={!address}
+              />
               <TouchableOpacity onPress={onClose}>
                 <Text style={{ color: C.dim2, textAlign: 'center', marginTop: 12, fontSize: 12 }}>Close</Text>
               </TouchableOpacity>

@@ -92,38 +92,6 @@ function fmt(n) {
     return Number(n).toFixed(6);
 }
 
-// ===== Separate connection states (never fake "Connected") =====
-// market_data / api_auth / balance_access / trading_permission / env
-let lastConn = {};
-function updateConnStates(conn) {
-    if (!conn) return;
-    lastConn = Object.assign({}, lastConn, conn);
-    const c = lastConn;
-    const label = { unknown: '—', checking: '…', ok: 'OK', failed: 'FAIL' };
-    const setChip = (id, v) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        const b = el.querySelector('b');
-        if (b) b.textContent = label[v] || (v || '—');
-        el.classList.remove('ok', 'fail', 'checking');
-        if (v === 'ok') el.classList.add('ok');
-        else if (v === 'failed') el.classList.add('fail');
-        else if (v === 'checking') el.classList.add('checking');
-    };
-    setChip('connChipMarket', c.market_data);
-    setChip('connChipAuth', c.api_auth);
-    setChip('connChipBalance', c.balance_access);
-    setChip('connChipTrade', c.trading_permission);
-    const envEl = document.getElementById('connChipEnv');
-    if (envEl) {
-        const b = envEl.querySelector('b');
-        if (b) b.textContent = c.env || '—';
-        const envStr = String(c.env || '').toUpperCase();
-        const isReal = envStr === 'MAINNET' || envStr === 'LIVE';
-        envEl.classList.toggle('env-live', isReal);
-    }
-}
-
 // ===== Engine Workers telemetry strip =====
 function updateWorkersUI(status) {
     const list = $('workersList');
@@ -925,12 +893,9 @@ function initSocket() {
 
         socket.on('log', (data) => log(data.level || 'info', data.msg));
 
-        socket.on('connection', (data) => updateConnStates(data));
-
         socket.on('status', (data) => {
             setBotRunning(!!data.running);
             updateWorkersUI(data);
-            updateConnStates(data.connection);
             if (data.message) log('info', data.message);
             if (data.symbols) {
                 // update coins from server if running
@@ -1799,9 +1764,6 @@ async function loadSettings() {
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
         if ($('mode')) $('mode').value = cfg.mode || 'both';
         if ($('testnet')) $('testnet').value = String(cfg.testnet ?? true);
-        // Restore the live-trading confirmation state from saved config
-        if ($('liveConfirm')) $('liveConfirm').checked = !!cfg.live_confirmed;
-        updateLiveConfirmVisibility();
         if (cfg.has_api_key && $('apiKey')) $('apiKey').placeholder = cfg.api_key_masked || 'Saved';
         // Advanced engine tuning fields
         if ($('minEmaSpread')) $('minEmaSpread').value = (cfg.min_ema_spread != null) ? cfg.min_ema_spread : 0;
@@ -2040,8 +2002,6 @@ async function saveSettings() {
         telegram_enabled: $('telegramEnabled')?.checked || false,
         telegram_bot_token: $('telegramBotToken')?.value || undefined,
         telegram_chat_id: $('telegramChatId')?.value || undefined,
-        // PROTECT REAL FUNDS: live execution needs the explicit confirmation tick
-        live_confirmed: $('liveConfirm')?.checked || false,
         email_enabled: $('emailEnabled')?.checked || false,
         email_sender: $('emailSender')?.value || undefined,
         email_password: $('emailPassword')?.value || undefined,
@@ -2083,16 +2043,6 @@ async function saveSettings() {
             if ($('emailPassword')) { $('emailPassword').value = ''; $('emailPassword').placeholder = 'Saved'; }
             if ($('whatsappApikey')) { $('whatsappApikey').value = ''; $('whatsappApikey').placeholder = 'Saved'; }
             updateEnvBadge(cfg.testnet, exchange);
-            // Immediate chip feedback from the save-time credential check
-            if (data.auth_check) {
-                const ac = data.auth_check;
-                updateConnStates({
-                    api_auth: ac.ok ? 'ok' : 'failed',
-                    balance_access: ac.ok ? 'ok' : 'unknown',
-                    trading_permission: (ac.can_trade === true) ? 'ok' : ((ac.can_trade === false) ? 'failed' : 'unknown'),
-                    env: ac.env,
-                });
-            }
             if (cfg.stop_loss_pct > 0) log('info', `Stop Loss ACTIVE: ${cfg.stop_loss_pct}%`);
             else log('info', `Stop Loss OFF`);
             if (cfg.take_profit_pct > 0) log('info', `Take Profit ACTIVE: ${cfg.take_profit_pct}%`);
@@ -2288,7 +2238,6 @@ async function refreshStatus() {
         const s = await r.json();
         setBotRunning(!!s.running);
         updateWorkersUI(s);
-        updateConnStates(s.connection);
         let totalTrades = s.trades_today != null ? s.trades_today : null;
         if (totalTrades === null && s.workers) {
             totalTrades = 0;
@@ -2699,27 +2648,12 @@ function attachListeners() {
         });
     }
 
-    // Testnet badge + live confirmation visibility
+    // Testnet badge
     const tn = $('testnet');
     if (tn) tn.addEventListener('change', () => {
         const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
         updateEnvBadge(tn.value === 'true', exchange);
-        updateLiveConfirmVisibility();
     });
-    updateLiveConfirmVisibility();
-}
-
-// Show the red "REAL funds" confirmation box ONLY when Mainnet is selected.
-function updateLiveConfirmVisibility() {
-    const grp = $('liveConfirmGroup');
-    const tn = $('testnet');
-    if (!grp || !tn) return;
-    if (tn.value === 'true') {
-        grp.classList.add('hidden');
-        if ($('liveConfirm')) $('liveConfirm').checked = false;
-    } else {
-        grp.classList.remove('hidden');
-    }
 }
 
 // ===== Mobile Navigation & Live Clock =====

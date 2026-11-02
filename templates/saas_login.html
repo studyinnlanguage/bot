@@ -18,19 +18,21 @@
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg-void: #060503;
-            --gold: #D4AF37;
-            --gold-hi: #F6E7A8;
-            --gold-mid: #E9CB5F;
-            --gold-deep: #8C6D1F;
-            --gold-gradient: linear-gradient(135deg, #F6E7A8 0%, #E9CB5F 34%, #D4AF37 62%, #A07E22 100%);
-            --txt: #F3ECDA;
-            --txt-2: #B4A98B;
-            --txt-3: #7D7560;
-            --green: #2FD58C;
-            --red: #FF4D5E;
-            --stroke: rgba(212,175,55,.15);
-            --glass: rgba(255,243,210,.03);
+            --bg-void: #080B0A;
+            --bg-card: #101613;
+            --gold: #39FF14;
+            --gold-hi: #55FF38;
+            --gold-mid: #00E676;
+            --gold-deep: #00B050;
+            --gold-gradient: linear-gradient(135deg, #55FF38 0%, #39FF14 50%, #00E676 100%);
+            --txt: #F2F7F3;
+            --txt-2: #B0BEB4;
+            --txt-3: #89958D;
+            --green: #00E676;
+            --red: #FF5252;
+            --stroke: rgba(57, 255, 20, 0.22);
+            --glass: rgba(57, 255, 20, 0.04);
+            --neon-glow: 0 0 25px rgba(57, 255, 20, 0.3);
         }
         body {
             font-family: 'InterLocal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -259,22 +261,6 @@
             const refInput = document.getElementById('signupReferral');
             const urlParams = new URLSearchParams(window.location.search);
             const refParam = urlParams.get('ref');
-            const errParam = urlParams.get('error');
-            if (errParam) {
-                const ERRMAP = {
-                    google_not_configured: 'Google sign-in server par configured nahi hai. /auth/google/diag kholo.',
-                    invalid_state: 'Login session expire ho gaya. Dobara Google se sign-in karo.',
-                    google_auth_failed: 'Google ne sign-in poora nahi kiya. Dobara try karo.',
-                    no_code: 'Google sign-in incomplete. Dobara try karo.',
-                    token_exchange_failed: 'Server-Google setup mismatch. /auth/google/diag mein exact fix dekho.',
-                    no_email_from_google: 'Google ne email share nahi ki. Dobara try karo.',
-                    oauth_failed: 'Google sign-in fail. Dobara try karo; detail: /auth/google/diag.'
-                };
-                if (ERRMAP[errParam]) {
-                    try { switchTab('login'); } catch (err) {}
-                    showError(ERRMAP[errParam]);
-                }
-            }
             if (refParam && refInput && !refInput.value) {
                 refInput.value = refParam.toUpperCase();
             }

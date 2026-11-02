@@ -1,18 +1,26 @@
-# TradeBot Cloud SaaS - Dependencies
+# TradeBot Cloud SaaS & Trading Bot Engine Dependencies
 # Install with: pip install -r requirements.txt
 
-# Web framework
+# Web framework & Real-time WebSockets
 Flask>=3.0.3,<4.0
+Flask-SocketIO>=5.3.6,<6.0
+python-socketio>=5.11.4,<6.0
+python-engineio>=4.9.1,<5.0
+simple-websocket>=1.0.0,<2.0
 gunicorn>=21.2.0
+
+# Exchange API connectors & Networking
 requests>=2.25.1
 cryptography>=41.0.0
+python-binance>=1.0.19
+binance-futures-connector>=1.5.0
 
-# Data / math
+# Data / Math & Analytics
 pandas>=2.0.0
 numpy>=1.24.0
 
 # Database (PostgreSQL primary when DATABASE_URL is set)
 psycopg2-binary>=2.9.9
 
-# Environment variables
+# Environment variables & runtime
 python-dotenv>=1.0.1

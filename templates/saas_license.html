@@ -3,28 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- PWA: installable app (Add to Home screen -> fullscreen, no URL bar) -->
-    <link rel="manifest" href="/static/manifest.webmanifest">
-    <meta name="theme-color" content="#070a0f">
-    <link rel="apple-touch-icon" href="/static/img/weexionic-logo.png">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="WEEXIONIC">
-    <script>
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/static/sw.js').catch(function () {});
-        });
-    }
-    </script>
     <title>TradeBot SaaS - Activate License</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-               background: linear-gradient(135deg, #0b0e11 0%, #1a1d24 100%);
+               background: linear-gradient(135deg, #080B0A 0%, #101613 100%);
                min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #eaecef; padding: 20px; }
-        .card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 16px;
+        .card { background: #101613; border: 1px solid #2a2e36; border-radius: 16px;
                 padding: 40px; width: 100%; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
         .logo { width: 64px; height: 64px; border-radius: 50%;
                 border: 2px solid rgba(14, 203, 129, 0.7);
@@ -35,19 +20,19 @@
         h1 { text-align: center; font-size: 20px; margin-bottom: 6px; }
         p { text-align: center; color: #848e9c; font-size: 13px; margin-bottom: 24px; }
         .info { padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; line-height: 1.6; }
-        .info-new { background: rgba(240,185,11,0.08); border: 1px dashed rgba(240,185,11,0.4);
-                   color: #f0b90b; }
+        .info-new { background: rgba(57,255,20,0.08); border: 1px dashed rgba(57,255,20,0.4);
+                   color: #39FF14; }
         .info-expired { background: rgba(246,70,93,0.1); border: 1px solid rgba(246,70,93,0.3);
                         color: #f6465d; }
         .info-revoked { background: rgba(246,70,93,0.1); border: 1px solid rgba(246,70,93,0.3);
                          color: #f6465d; }
         label { display: block; font-size: 12px; color: #848e9c; margin-bottom: 6px; text-transform: uppercase; }
-        input { width: 100%; padding: 14px; background: #0b0e11; border: 1px solid #2a2e36;
+        input { width: 100%; padding: 14px; background: #080B0A; border: 1px solid #2a2e36;
                 color: #eaecef; border-radius: 10px; font-size: 16px; text-align: center;
                 font-family: monospace; letter-spacing: 1px; margin-bottom: 16px; }
-        input:focus { outline: none; border-color: #f0b90b; }
-        .btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #f0b90b, #f8d12f);
-               color: #0b0e11; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
+        input:focus { outline: none; border-color: #39FF14; }
+        .btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #39FF14, #55FF38);
+               color: #080B0A; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
         .btn:hover { transform: translateY(-1px); }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .logout { display: block; text-align: center; margin-top: 16px; color: #848e9c;
@@ -76,19 +61,19 @@
             <strong>Welcome to TradeBot Cloud!</strong><br><br>
             You are a new user. To start trading, choose a plan below.<br>
             After payment & admin verification, you will receive a license key.<br><br>
-            <em><a href="/packages" style="color:#f0b90b;text-decoration:none;font-weight:700;">>> Choose a Package & Start Trading -></a></em>
+            <em><a href="/packages" style="color:#39FF14;text-decoration:none;font-weight:700;">>> Choose a Package & Start Trading -></a></em>
         </div>
         {% elif sub.status == 'expired' %}
         <div class="info info-expired">
             <strong>Your license has expired.</strong><br>
             Days remaining: {{ sub.days_left if sub.days_left else 0 }}<br><br>
-            <em><a href="/packages" style="color:#f0b90b;text-decoration:none;font-weight:700;">>> Renew Your Plan -></a></em>
+            <em><a href="/packages" style="color:#39FF14;text-decoration:none;font-weight:700;">>> Renew Your Plan -></a></em>
         </div>
         {% else %}
         <div class="info info-revoked">
             <strong>No active license found.</strong><br>
             You need a license to use TradeBot Cloud.<br><br>
-            <em><a href="/packages" style="color:#f0b90b;text-decoration:none;font-weight:700;">>> Get a License -></a></em>
+            <em><a href="/packages" style="color:#39FF14;text-decoration:none;font-weight:700;">>> Get a License -></a></em>
         </div>
         {% endif %}
 
@@ -116,7 +101,7 @@
 
             btn.disabled = true;
             btn.textContent = 'Activating...';
-            result.innerHTML = '<span style="color:#f0b90b;">Please wait...</span>';
+            result.innerHTML = '<span style="color:#39FF14;">Please wait...</span>';
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);

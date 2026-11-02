@@ -50,7 +50,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, render_template, render_template_string, request, Response, session, redirect, url_for
+from flask import Flask, jsonify, render_template, request, Response, session, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 import urllib.request
 import urllib.error
@@ -211,12 +211,6 @@ if not _ENCRYPTION_RAW:
             _enc_key_file.write_text(_ENCRYPTION_RAW)
             logger.warning("[SECURITY] ENCRYPTION_KEY not set — generated and persisted a new "
                            "random key at .encryption_key. Back it up with your secrets.")
-            logger.warning("[SECURITY] EPHEMERAL-HOSTING WARNING: Railway/Coolify containers "
-                           "are wiped on every redeploy. If this file is not on a persistent "
-                           "volume a NEW key is generated each boot and every saved API key "
-                           "becomes unreadable -> Binance 401/-2014 'API-key format invalid' "
-                           "for all users. FIX: set ENCRYPTION_KEY as an environment variable "
-                           "in your hosting dashboard, then re-save each user's API key once.")
     except Exception:
         logger.critical("[SECURITY] Could not persist encryption key — refusing to use an "
                         "insecure default. Set ENCRYPTION_KEY env var.")
@@ -379,30 +373,15 @@ def encrypt(plain_text: str) -> str:
         logger.error("Encryption failed: %s", e)
         return ""
 
-def decrypt_checked(cipher_text: str) -> tuple:
-    """Decrypt with an explicit success flag — NEVER silently return "".
-
-    Root cause of the -2014 outage: decrypt() returned "" on any failure
-    (e.g. ENCRYPTION_KEY regenerated after a redeploy on an ephemeral
-    filesystem), so an EMPTY key was pushed into the engine and Binance
-    answered 401/-2014 'API-key format invalid' for every symbol.
-    Returns (ok, value). ok=False means the ciphertext exists but cannot be
-    read with the current key — the user MUST re-save the credential.
-    """
-    if not cipher_text:
-        return True, ""  # nothing stored — not an error
-    try:
-        f = _get_fernet()
-        return True, f.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
-    except Exception as e:
-        logger.error("Decryption FAILED (key changed or ciphertext corrupt): %s", e)
-        return False, ""
-
 def decrypt(cipher_text: str) -> str:
     if not cipher_text:
         return ""
-    ok, val = decrypt_checked(cipher_text)
-    return val if ok else ""
+    try:
+        f = _get_fernet()
+        return f.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
+    except Exception as e:
+        logger.error("Decryption failed: %s", e)
+        return ""
 
 # Fix 6: Upgrade password hashing to PBKDF2-SHA256 via Werkzeug
 def hash_password(password: str) -> str:
@@ -567,12 +546,12 @@ def _pg_init():
         logger.error("PostgreSQL init failed: %s", e)
 
 def _load_json_db() -> dict:
-    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "settings": {}}
+    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}}
     if DB_FILE.exists():
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            for section in ("users", "licenses", "orders", "settings"):
+            for section in ("users", "licenses", "orders"):
                 db[section] = data.get(section, {})
             logger.info("Loaded database.json (%d users)", len(db["users"]))
         except (json.JSONDecodeError, OSError) as e:
@@ -666,46 +645,11 @@ def _load_pg_db() -> dict:
                 len(db["users"]), len(db["licenses"]), len(db["orders"]))
     return db
 
-def _attach_file_settings(db: dict):
-    """settings{} lives in database.json even when PostgreSQL is primary."""
-    try:
-        s = {}
-        if DB_FILE.exists():
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                s = (json.load(f) or {}).get("settings") or {}
-        db["settings"] = s
-    except Exception as e:
-        logger.debug("settings sidecar load skipped: %s", e)
-        db.setdefault("settings", {})
-
-
-def _write_settings_sidecar(db: dict):
-    """Persist settings{} to database.json even when PostgreSQL is primary."""
-    try:
-        data = {}
-        if DB_FILE.exists():
-            try:
-                with open(DB_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f) or {}
-            except Exception:
-                data = {}
-        data["settings"] = db.get("settings") or {}
-        tmp = DB_FILE.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, DB_FILE)
-    except OSError as e:
-        logger.error("settings sidecar save failed: %s", e)
-
-
 def load_db() -> dict:
     """Load the DB — PostgreSQL when available, else database.json."""
     if PG_ENABLED:
         try:
             db = _load_pg_db()
-            _attach_file_settings(db)
             if db["users"] or db["licenses"] or db["orders"]:
                 return db
             # Empty Postgres → one-time seed from the existing database.json.
@@ -869,7 +813,6 @@ def save_db(db: dict):
                     raise e
                 finally:
                     conn.close()
-                _write_settings_sidecar(db)
                 return
             except Exception as e:
                 logger.error("PostgreSQL save failed (%s) — writing database.json fallback", e)
@@ -886,143 +829,16 @@ def save_db(db: dict):
 
 DB = load_db()
 
-def _load_wallet_settings():
-    """Restore admin-saved payment wallets after a restart/redeploy.
-
-    Priority: DB settings (saved from Admin Panel) -> ENV -> defaults.
-    Reads BOTH storage shapes: settings.payment_wallets (wallet_trc20/...)
-    and settings.wallets (trc20/...), so a wallet saved by either version
-    of the Admin Panel is restored.
-    """
-    global WALLET_TRC20, WALLET_BEP20, WALLET_ADDRESS, WALLET_NETWORK
-    try:
-        s = (DB.get("settings") or {}).get("payment_wallets") or {}
-        w = (DB.get("settings") or {}).get("wallets") or {}
-    except Exception:
-        s, w = {}, {}
-    trc20 = s.get("wallet_trc20") or w.get("trc20")
-    bep20 = s.get("wallet_bep20") or w.get("bep20")
-    network = s.get("network") or w.get("network")
-    if trc20:
-        WALLET_TRC20 = str(trc20).strip()
-        WALLET_ADDRESS = WALLET_TRC20
-    if bep20:
-        WALLET_BEP20 = str(bep20).strip()
-    if network:
-        WALLET_NETWORK = str(network).strip()
-
-
-_load_wallet_settings()
-
-
-def _wallet_payload():
-    """Unified wallet info for order/payment API responses."""
-    return {
-        "wallet": WALLET_ADDRESS,
-        "wallet_address": WALLET_ADDRESS,
-        "network": WALLET_NETWORK,
-        "trc20": WALLET_TRC20,
-        "bep20": WALLET_BEP20,
-        "wallet_trc20": WALLET_TRC20,
-        "wallet_bep20": WALLET_BEP20,
-        "networks": ["TRC20", "BEP20"],
-    }
-
-
-@app.route("/api/payment/wallets", methods=["GET", "OPTIONS"])
-@app.route("/api/payment/address", methods=["GET", "OPTIONS"])
-@app.route("/api/payment/info", methods=["GET", "OPTIONS"])
-@app.route("/api/wallet/address", methods=["GET", "OPTIONS"])
-def api_payment_wallets():
-    """User-facing payment wallet endpoint (login required)."""
-    _origin = request.headers.get("Origin", "*")
-    if request.method == "OPTIONS":
-        resp = jsonify({})
-        resp.status_code = 204
-    elif not is_logged_in():
-        resp = jsonify({"success": False,
-                        "error": "Not logged in - login first, then retry payment"})
-        resp.status_code = 401
-    else:
-        resp = jsonify({"success": True, **_wallet_payload()})
-    resp.headers["Access-Control-Allow-Origin"] = _origin
-    resp.headers["Access-Control-Allow-Credentials"] = "true"
-    if request.method == "OPTIONS":
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-App-Client"
-        resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-    return resp
-
-
-def _google_redirect_uri_for_page():
-    """The EXACT redirect URI that must be registered in Google Cloud Console."""
-    if GOOGLE_REDIRECT_URI:
-        return GOOGLE_REDIRECT_URI
-    try:
-        return request.url_root.rstrip("/") + "/auth/google/callback"
-    except Exception:
-        return "https://YOUR-DOMAIN/auth/google/callback"
-
-
-_OAUTH_PAGE_STYLE = (
-    "body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0b0e11;"
-    "color:#eaecef;display:flex;align-items:center;justify-content:center;min-height:100vh;"
-    "margin:0;padding:24px}"
-    ".card{max-width:640px;width:100%;background:#14181d;border:1px solid #2b3139;"
-    "border-radius:14px;padding:28px}"
-    "h1{margin:0 0 10px;font-size:21px;color:#f0b90b}"
-    "p{line-height:1.55;margin:8px 0;color:#b7bdc6}"
-    ".fix{background:rgba(240,185,11,.07);border:1px solid rgba(240,185,11,.35);"
-    "border-radius:10px;padding:14px 16px;margin:14px 0;line-height:1.6;color:#eaecef}"
-    "code{background:#0b0e11;border:1px solid #2b3139;border-radius:6px;padding:2px 6px;"
-    "color:#f0b90b;word-break:break-all}"
-    "a.btn{display:inline-block;margin-top:14px;background:#f0b90b;color:#111;font-weight:700;"
-    "padding:10px 18px;border-radius:8px;text-decoration:none}"
-    "ul{padding-left:20px;line-height:1.7;color:#b7bdc6}"
-    "table{font-size:14px}td{padding:6px 10px}"
-)
-
-
-def _oauth_error_page(title, message, fix_html):
-    """Visible OAuth failure page - replaces the old silent ?error= redirects."""
-    return render_template_string(
-        """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ title }}</title><style>{{ style }}</style></head><body>
-<div class="card"><h1>{{ title }}</h1><p>{{ message }}</p>
-<div class="fix">{{ fix|safe }}</div>
-<a class="btn" href="/auth/google">Retry Google Sign-In</a>
-&nbsp;&nbsp;<a href="/auth/google/diag" style="color:#f0b90b">Open /auth/google/diag</a>
-</div></body></html>""",
-        title=title, style=_OAUTH_PAGE_STYLE, fix=fix_html, message=message)
-
-
-@app.route("/auth/google/diag")
-def google_diag():
-    """Public diagnostic page for the Google OAuth setup."""
-    cid = GOOGLE_CLIENT_ID or ""
-    rows = [
-        ("GOOGLE_CLIENT_ID", ("SET &mdash; " + cid) if cid else "NOT SET"),
-        ("GOOGLE_CLIENT_SECRET", "SET" if GOOGLE_CLIENT_SECRET else
-         "NOT SET &mdash; set env var GOOGLE_CLIENT_SECRET and restart"),
-        ("Redirect URI used by server", _google_redirect_uri_for_page()),
-    ]
-    trs = "".join(
-        "<tr><td style='color:#f0b90b'><b>%s</b></td><td style='word-break:break-all'>%s</td></tr>"
-        % (k, v) for k, v in rows)
-    fix = ("<ul>"
-           "<li>Google Cloud Console &rarr; APIs &amp; Services &rarr; <b>Credentials</b> &rarr; your OAuth Client.</li>"
-           "<li>Under <b>Authorized redirect URIs</b> add EXACTLY: "
-           "<code><b>" + _google_redirect_uri_for_page() + "</b></code></li>"
-           "<li>Save, wait ~5 minutes, then retry.</li>"
-           "</ul>")
-    return ("<!doctype html><html><head><meta charset='utf-8'>"
-            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>Google Sign-In Setup</title><style>" + _OAUTH_PAGE_STYLE + "</style></head><body>"
-            "<div class='card'><h1>Google Sign-In &mdash; Setup Status</h1>"
-            "<table style='width:100%'>" + trs + "</table>"
-            "<div class='fix'>" + fix + "</div>"
-            "<a class='btn' href='/auth/google'>Retry Google Sign-In</a>"
-            "</div></body></html>")
+# Restore admin-configured payment wallets (persisted; were previously runtime-only
+# and silently reverted on every restart, letting users pay a stale address)
+_settings_wallets = (DB.get("settings") or {}).get("wallets") or {}
+if _settings_wallets.get("trc20"):
+    WALLET_TRC20 = _settings_wallets["trc20"]
+    WALLET_ADDRESS = WALLET_TRC20
+if _settings_wallets.get("bep20"):
+    WALLET_BEP20 = _settings_wallets["bep20"]
+if _settings_wallets.get("network"):
+    WALLET_NETWORK = _settings_wallets["network"]
 
 # ============================================================
 # Database Migration (runs once at startup)
@@ -1211,49 +1027,45 @@ def write_user_bot_config(user_id: str) -> str:
 
     if existing and isinstance(existing, dict):
         bot_config = existing
-        # Ensure credentials from DB take precedence if engine has empty or stale keys.
-        # decrypt_checked(): an unreadable ciphertext (ENCRYPTION_KEY changed after a
-        # redeploy) must NEVER push an empty string into the engine config — that is
-        # the exact mechanism that produced Binance -2014 on all symbols. Instead we
-        # keep whatever the engine already has and flag api_key_invalid so the UI
-        # tells the user to re-save the key.
-        _creds_invalid = False
-        for _plain_key, _enc_key in (("api_key", "api_key_enc"),
-                                     ("api_secret", "api_secret_enc"),
-                                     ("api_passphrase", "api_passphrase_enc")):
-            if not bot_config.get(_plain_key) and config.get(_enc_key):
-                ok, val = decrypt_checked(config.get(_enc_key, ""))
-                if ok:
-                    bot_config[_plain_key] = val.strip().strip('"').strip("'")
-                else:
-                    _creds_invalid = True
-                    logger.error("Credential %s unreadable with current ENCRYPTION_KEY "
-                                 "(key changed after redeploy?). User must re-save it.", _enc_key)
+        # Synchronize exchange and trading parameters from DB if updated
+        if "exchange" in config and config["exchange"]:
+            bot_config["exchange"] = config["exchange"].lower()
+        if "testnet" in config:
+            bot_config["testnet"] = bool(config["testnet"])
+        if "symbols_list" in config and config["symbols_list"]:
+            bot_config["symbols_list"] = config["symbols_list"]
+            bot_config["symbol"] = config["symbols_list"][0]
+
+        # Ensure credentials from DB take precedence if engine has empty or stale keys
+        if config.get("api_key_enc"):
+            dec_k = decrypt(config.get("api_key_enc", "")).strip().strip('"').strip("'")
+            if dec_k:
+                bot_config["api_key"] = dec_k
+        if config.get("api_secret_enc"):
+            dec_s = decrypt(config.get("api_secret_enc", "")).strip().strip('"').strip("'")
+            if dec_s:
+                bot_config["api_secret"] = dec_s
+        if config.get("api_passphrase_enc"):
+            dec_p = decrypt(config.get("api_passphrase_enc", "")).strip().strip('"').strip("'")
+            if dec_p:
+                bot_config["api_passphrase"] = dec_p
+
+        # Sanitize existing keys if present
         if bot_config.get("api_key"):
             bot_config["api_key"] = str(bot_config["api_key"]).strip().strip('"').strip("'")
         if bot_config.get("api_secret"):
             bot_config["api_secret"] = str(bot_config["api_secret"]).strip().strip('"').strip("'")
         if bot_config.get("api_passphrase"):
             bot_config["api_passphrase"] = str(bot_config["api_passphrase"]).strip().strip('"').strip("'")
-        bot_config["api_key_invalid"] = _creds_invalid
     else:
-        bot_config = {}
-        _creds_invalid = False
-        for _plain_key, _enc_key in (("api_key", "api_key_enc"),
-                                     ("api_secret", "api_secret_enc"),
-                                     ("api_passphrase", "api_passphrase_enc")):
-            if config.get(_enc_key):
-                ok, val = decrypt_checked(config.get(_enc_key, ""))
-                if ok:
-                    bot_config[_plain_key] = val.strip().strip('"').strip("'")
-                else:
-                    _creds_invalid = True
-                    logger.error("Credential %s unreadable with current ENCRYPTION_KEY "
-                                 "(key changed after redeploy?). User must re-save it.", _enc_key)
-            else:
-                bot_config[_plain_key] = ""
+        api_key = decrypt(config.get("api_key_enc", "")).strip().strip('"').strip("'")
+        api_secret = decrypt(config.get("api_secret_enc", "")).strip().strip('"').strip("'")
+        api_passphrase = decrypt(config.get("api_passphrase_enc", "")).strip().strip('"').strip("'")
 
-        bot_config.update({
+        bot_config = {
+            "api_key": api_key,
+            "api_secret": api_secret,
+            "api_passphrase": api_passphrase,
             "exchange": config.get("exchange", "binance"),
             "testnet": config.get("testnet", True),
             "symbol": (config.get("symbols_list", ["BTCUSDT"]) or ["BTCUSDT"])[0],
@@ -1281,8 +1093,7 @@ def write_user_bot_config(user_id: str) -> str:
             "whatsapp_enabled": config.get("whatsapp_enabled", False),
             "whatsapp_phone": config.get("whatsapp_phone", ""),
             "whatsapp_apikey": decrypt(config.get("whatsapp_apikey_enc", "")),
-        })
-        bot_config["api_key_invalid"] = _creds_invalid
+        }
     if "auto_start" not in bot_config:
         bot_config["auto_start"] = False
 
@@ -1662,7 +1473,18 @@ def proxy_to_bot(user_id: str, method: str, path: str, body=None) -> dict:
     """Proxy a request to user's bot-engine instance."""
     status = get_bot_status(user_id)
     if not status["running"] or not status.get("port"):
-        return {"success": False, "error": "Bot is not running"}
+        # Auto-start bot-engine instance if user has an active subscription
+        user = DB.get("users", {}).get(user_id, {})
+        sub = check_subscription(user)
+        if sub.get("active"):
+            try:
+                start_res = start_user_bot(user_id)
+                if start_res.get("success"):
+                    status = get_bot_status(user_id)
+            except Exception as _se:
+                logger.warning("Auto-start bot for user %s failed: %s", user_id, _se)
+        if not status["running"] or not status.get("port"):
+            return {"success": False, "error": "Bot is not running"}
 
     try:
         url = f"http://127.0.0.1:{status['port']}{path}"
@@ -2977,13 +2799,15 @@ def _send_license_email(to_email: str, license_key: str, package_name: str, days
 def google_auth():
     """Redirect to Google OAuth consent screen."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-        return redirect("/auth/google/diag")
+        return redirect("/?error=google_not_configured")
     import urllib.parse
-    # Mobile clients come back to the app via the weexionic:// deep link
-    if request.args.get("client") == "mobile":
+    # Mobile clients come back to the app via verified App Link / native intent
+    is_mobile = request.args.get("client") == "mobile"
+    if is_mobile:
         session["oauth_client"] = "mobile"
-    # Fix 10: Generate and store OAuth state to prevent CSRF on OAuth flow
-    oauth_state = secrets.token_hex(16)
+    # Generate and store OAuth state (prefix with 'm:' for mobile clients to persist across browser tabs)
+    state_token = secrets.token_hex(16)
+    oauth_state = f"m:{state_token}" if is_mobile else state_token
     session["oauth_state"] = oauth_state
     params = {
         "client_id": GOOGLE_CLIENT_ID,
@@ -3003,27 +2827,24 @@ def google_callback():
     """Handle Google OAuth callback - create or login user."""
     code = request.args.get("code")
     error = request.args.get("error")
-    # Fix 10: Verify OAuth state to prevent CSRF attacks
+    # Verify OAuth state to prevent CSRF attacks
     returned_state = request.args.get("state", "")
     expected_state = session.pop("oauth_state", None)
-    if not expected_state or not secrets.compare_digest(returned_state, expected_state):
+    is_mobile = bool(
+        session.get("oauth_client") == "mobile"
+        or returned_state.startswith("m:")
+        or request.args.get("client") == "mobile"
+    )
+    is_valid_state = bool(expected_state and secrets.compare_digest(returned_state, expected_state))
+    if not is_valid_state and not (is_mobile and returned_state.startswith("m:") and len(returned_state) >= 18):
         logger.warning("Google OAuth state mismatch — possible CSRF attack. IP=%s", request.remote_addr)
-        return _oauth_error_page(
-            "Session Expired",
-            "The sign-in session expired or failed its security check (state mismatch).",
-            "Dobara Google Sign-In button dabao - naya session ban jayega.")
+        return redirect("/?error=invalid_state")
 
     if error:
         logger.warning("Google OAuth error: %s", error)
-        return _oauth_error_page(
-            "Google Sign-In Cancelled",
-            "Google returned: " + str(error) + ".",
-            "Agar aapne khud Cancel dabaya tha to bas dobara try karo. Baar-baar aaye to pop-up blocker check karo.")
+        return redirect("/?error=google_auth_failed")
     if not code:
-        return _oauth_error_page(
-            "Google Sign-In Incomplete",
-            "Google did not return an authorization code.",
-            "Temporary ho sakta hai - Retry dabao. Repeat ho to /auth/google/diag kholo.")
+        return redirect("/?error=no_code")
 
     try:
         # Exchange code for access token
@@ -3039,11 +2860,7 @@ def google_callback():
         access_token = tokens.get("access_token")
         if not access_token:
             logger.error("Google token exchange failed: %s", tokens)
-            return _oauth_error_page(
-                "Google token exchange failed",
-                "Google accepted the sign-in but rejected the token exchange.",
-                "Server ka redirect URI Google Cloud mein registered URI se match nahi karta. Is EXACT URI ko Google Cloud Console &rarr; Credentials &rarr; Authorized redirect URIs mein add karo, save karo, 5 minute wait karo, phir retry:"
-                "<br><code><b>" + _google_redirect_uri_for_page() + "</b></code>")
+            return redirect("/?error=token_exchange_failed")
 
         # Get user info from Google
         userinfo_resp = req_lib.get(
@@ -3058,10 +2875,7 @@ def google_callback():
         google_id = userinfo.get("id", "")
 
         if not google_email:
-            return _oauth_error_page(
-                "No Email From Google",
-                "Google did not share an email address for this account.",
-                "Google account mein verified email hona chahiye. Dobara try karo.")
+            return redirect("/?error=no_email_from_google")
 
         # SECURITY: only trust Google accounts whose email Google has verified,
         # otherwise an attacker with an unverified lookalike email could be
@@ -3137,20 +2951,79 @@ def google_callback():
         session.permanent = True
         logger.info("Google login: %s", google_email)
 
-        # Mobile OAuth round-trip: hand the app its own JWT via deep link
-        if session.pop("oauth_client", None) == "mobile":
-            from mobile_api import jwt_encode
-            token = jwt_encode({"uid": user["id"], "role": user.get("role", "user"), "typ": "access"}, 12 * 3600)
-            refresh = jwt_encode({"uid": user["id"], "typ": "refresh"}, 30 * 86400)
-            return redirect(f"weexionic://oauth?token={token}&refresh_token={refresh}")
+        # Mobile OAuth round-trip: return securely via single-use auth code and native intent
+        if is_mobile:
+            session.pop("oauth_client", None)
+            auth_code = f"wx_{secrets.token_urlsafe(32)}"
+            now_ts = time.time()
+            DB.setdefault("oauth_codes", {})[auth_code] = {
+                "user_id": user["id"],
+                "created_at": now_ts,
+                "expires_at": now_ts + 180,  # 3 minutes TTL
+                "used": False,
+            }
+            save_db(DB)
+            intent_url = f"intent://oauth?code={auth_code}#Intent;scheme=weexionic;package=com.weexionic.app;end"
+            handoff_url = f"weexionic://oauth?code={auth_code}"
+            applink_url = f"https://weexionic.duckdns.org/app/oauth?code={auth_code}"
+            return render_template(
+                "saas_oauth_handoff.html",
+                user=user,
+                auth_code=auth_code,
+                intent_url=intent_url,
+                handoff_url=handoff_url,
+                applink_url=applink_url,
+            )
         return redirect("/")
 
     except Exception as e:
         logger.error("Google OAuth error: %s", e)
-        return _oauth_error_page(
-            "Google Sign-In Failed",
-            "Something went wrong during sign-in.",
-            "Details: <code>" + str(e)[:200] + "</code><br>Retry karo; repeat ho to /auth/google/diag kholo.")
+        return redirect("/?error=oauth_failed")
+
+
+@app.route("/.well-known/assetlinks.json")
+def assetlinks():
+    """Digital Asset Links for verified Android App Links."""
+    return jsonify([
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.weexionic.app",
+                "sha256_cert_fingerprints": [
+                    "15:02:DF:D3:5F:B6:33:DE:6B:EB:98:C0:59:7C:1E:5C:A0:A6:45:C7:A9:7F:A7:20:94:3B:56:45:21:8B:E7:F4",
+                    "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C",
+                ],
+            },
+        },
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.exionic.trader",
+                "sha256_cert_fingerprints": [
+                    "15:02:DF:D3:5F:B6:33:DE:6B:EB:98:C0:59:7C:1E:5C:A0:A6:45:C7:A9:7F:A7:20:94:3B:56:45:21:8B:E7:F4",
+                    "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C",
+                ],
+            },
+        },
+    ])
+
+
+@app.route("/app/oauth")
+def app_oauth_handoff():
+    """Verified App Link endpoint for mobile authentication handoff."""
+    code = request.args.get("code", "")
+    intent_url = f"intent://oauth?code={code}#Intent;scheme=weexionic;package=com.weexionic.app;end"
+    handoff_url = f"weexionic://oauth?code={code}"
+    applink_url = f"https://weexionic.duckdns.org/app/oauth?code={code}"
+    return render_template(
+        "saas_oauth_handoff.html",
+        auth_code=code,
+        intent_url=intent_url,
+        handoff_url=handoff_url,
+        applink_url=applink_url,
+    )
 
 # ============================================================
 # Package / Payment Routes
@@ -3363,13 +3236,8 @@ def api_create_order():
     # Check if user already has a pending/submitted order
     for oid, o in DB.get("orders", {}).items():
         if o["user_id"] == user["id"] and o["status"] in ("pending", "submitted"):
-            _pl = {"success": True, "order_id": oid,
-                   "message": "You already have an active order", "existing": True}
-            try:
-                _pl.update({k: v for k, v in _wallet_payload().items() if k != "success"})
-            except Exception:
-                pass
-            return jsonify(_pl)
+            return jsonify({"success": True, "order_id": oid,
+                           "message": "You already have an active order", "existing": True})
 
     data = request.get_json(force=True)
     package_id = data.get("package")
@@ -3404,12 +3272,7 @@ def api_create_order():
     save_db(DB)
 
     logger.info("Order %s created: %s by %s ($%d)", order_id, pkg["name"], user["email"], pkg["price"])
-    _pl = {"success": True, "order_id": order_id, "order": order}
-    try:
-        _pl.update({k: v for k, v in _wallet_payload().items() if k != "success"})
-    except Exception:
-        pass
-    return jsonify(_pl)
+    return jsonify({"success": True, "order_id": order_id, "order": order})
 
 
 @app.route("/api/orders/quick-buy", methods=["POST"])
@@ -3524,12 +3387,7 @@ def api_quick_buy():
     # Check for existing pending/submitted order for this user
     for oid, o in DB.get("orders", {}).items():
         if o["user_id"] == user["id"] and o["status"] in ("pending", "submitted"):
-            _pl = {"success": True, "order_id": oid, "redirect": f"/payment/{oid}", "existing": True}
-            try:
-                _pl.update({k: v for k, v in _wallet_payload().items() if k != "success"})
-            except Exception:
-                pass
-            return jsonify(_pl)
+            return jsonify({"success": True, "order_id": oid, "redirect": f"/payment/{oid}", "existing": True})
 
     order_id = "ORD-" + secrets.token_hex(4).upper()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -3555,12 +3413,7 @@ def api_quick_buy():
     DB.setdefault("orders", {})[order_id] = order
     save_db(DB)
     logger.info("Quick buy order %s created: %s for %s ($%d)", order_id, pkg["name"], user["email"], pkg["price"])
-    _pl = {"success": True, "order_id": order_id, "redirect": f"/payment/{order_id}"}
-    try:
-        _pl.update({k: v for k, v in _wallet_payload().items() if k != "success"})
-    except Exception:
-        pass
-    return jsonify(_pl)
+    return jsonify({"success": True, "order_id": order_id, "redirect": f"/payment/{order_id}"})
 
 
 @app.route("/api/orders/submit", methods=["POST"])
@@ -3954,15 +3807,9 @@ def api_admin_wallet():
         WALLET_NETWORK = data["network"].strip()
     # Persist wallets so they survive restarts (previously runtime-only globals:
     # a wallet change was lost on restart and users could pay a stale address)
-    # Written in BOTH storage shapes so every reader (old/new) finds its format.
     DB.setdefault("settings", {})["wallets"] = {
         "trc20": WALLET_TRC20,
         "bep20": WALLET_BEP20,
-        "network": WALLET_NETWORK,
-    }
-    DB["settings"]["payment_wallets"] = {
-        "wallet_trc20": WALLET_TRC20,
-        "wallet_bep20": WALLET_BEP20,
         "network": WALLET_NETWORK,
     }
     save_db(DB)
@@ -4161,6 +4008,8 @@ mobile_init(
     activate_order=_activate_order_and_credit_referral,
     payment_lock=_payment_lock,
     payout_lock=_payout_lock,
+    wallet_trc20=WALLET_TRC20,
+    wallet_bep20=WALLET_BEP20,
 )
 app.register_blueprint(mobile_bp)
 logger.info("Mobile API registered: /api/mobile/* (JWT bearer, admin-free)")

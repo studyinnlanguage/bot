@@ -1,4 +1,4 @@
-// Shared premium UI components — gold-dark design system.
+// Shared premium UI components — neon-green dark design system.
 import React from 'react';
 import {
   ActivityIndicator,
@@ -20,7 +20,7 @@ export function Lbl({ children, style }: { children: React.ReactNode; style?: Te
   return <Text style={[S.lbl, style]}>{children}</Text>;
 }
 
-export function GoldButton({
+export function NeonButton({
   title,
   onPress,
   loading,
@@ -40,24 +40,31 @@ export function GoldButton({
       disabled={disabled || loading}
       style={[
         {
-          backgroundColor: disabled || loading ? C.goldD : C.gold,
+          backgroundColor: disabled || loading ? '#00A854' : C.neon2,
           borderRadius: 14,
           paddingVertical: 14,
           alignItems: 'center',
           justifyContent: 'center',
+          shadowColor: C.neon,
+          shadowOpacity: disabled || loading ? 0 : 0.28,
+          shadowRadius: 10,
+          elevation: disabled || loading ? 0 : 4,
         },
         style,
       ]}>
       {loading ? (
         <ActivityIndicator color={C.bg} />
       ) : (
-        <Text style={{ color: C.bg, fontWeight: '800', fontSize: 14, letterSpacing: 1.2 }}>
+        <Text style={{ color: C.bg, fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
           {title}
         </Text>
       )}
     </TouchableOpacity>
   );
 }
+
+// Backward-compatible alias for existing screens
+export const GoldButton = NeonButton;
 
 export function GlassButton({
   title,
@@ -80,12 +87,12 @@ export function GlassButton({
           paddingVertical: 13,
           alignItems: 'center',
           borderWidth: 1,
-          borderColor: danger ? 'rgba(234,57,67,0.45)' : 'rgba(212,175,55,0.35)',
-          backgroundColor: danger ? 'rgba(234,57,67,0.08)' : 'rgba(212,175,55,0.06)',
+          borderColor: danger ? 'rgba(255,82,82,0.45)' : 'rgba(0,230,118,0.35)',
+          backgroundColor: danger ? 'rgba(255,82,82,0.08)' : 'rgba(0,230,118,0.06)',
         },
         style,
       ]}>
-      <Text style={{ color: danger ? C.loss : C.goldB, fontWeight: '700', fontSize: 13, letterSpacing: 0.6 }}>
+      <Text style={{ color: danger ? C.loss : C.neon2, fontWeight: '700', fontSize: 13, letterSpacing: 0.6 }}>
         {title}
       </Text>
     </TouchableOpacity>
@@ -127,8 +134,8 @@ export function Field({
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
         style={{
-          backgroundColor: 'rgba(0,0,0,0.35)',
-          borderColor: 'rgba(212,175,55,0.25)',
+          backgroundColor: 'rgba(0,0,0,0.45)',
+          borderColor: 'rgba(0,230,118,0.22)',
           borderWidth: 1,
           borderRadius: 12,
           color: C.txt,
@@ -154,7 +161,7 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
           flexDirection: 'row',
           alignItems: 'center',
           gap: 6,
-          borderColor: 'rgba(212,175,55,0.25)',
+          borderColor: 'rgba(0,230,118,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
@@ -166,15 +173,15 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
       </View>
       <View
         style={{
-          borderColor: 'rgba(212,175,55,0.25)',
+          borderColor: 'rgba(0,230,118,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
           paddingVertical: 5,
           backgroundColor: 'rgba(0,0,0,0.3)',
         } as any}>
-        <Text style={{ color: testnet ? C.orange : C.goldB, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 }}>
-          {exchange?.toUpperCase()}{testnet ? ' · TESTNET' : ' · LIVE'}
+        <Text style={{ color: testnet ? C.orange : C.neon2, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 }}>
+          {exchange?.toUpperCase()}{testnet ? ' · DEMO' : ' · LIVE'}
         </Text>
       </View>
     </View>
@@ -201,12 +208,12 @@ export function Chip({
         paddingVertical: small ? 6 : 8,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: active ? C.gold : 'rgba(212,175,55,0.22)',
-        backgroundColor: active ? 'rgba(212,175,55,0.16)' : 'rgba(0,0,0,0.25)',
+        borderColor: active ? C.neon2 : 'rgba(0,230,118,0.20)',
+        backgroundColor: active ? 'rgba(0,230,118,0.15)' : 'rgba(0,0,0,0.3)',
         marginRight: 8,
         marginBottom: 8,
       } as any}>
-      <Text style={{ color: active ? C.goldB : C.dim, fontWeight: active ? '800' : '600', fontSize: small ? 11 : 12.5 }}>
+      <Text style={{ color: active ? C.neon : C.dim, fontWeight: active ? '800' : '600', fontSize: small ? 11 : 12.5 }}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -225,7 +232,7 @@ export function KV({ k, v, color }: { k: string; v: React.ReactNode; color?: str
 export function ErrorNote({ msg }: { msg: string | null }) {
   if (!msg) return null;
   return (
-    <View style={{ backgroundColor: 'rgba(234,57,67,0.10)', borderColor: 'rgba(234,57,67,0.4)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
+    <View style={{ backgroundColor: 'rgba(255,82,82,0.10)', borderColor: 'rgba(255,82,82,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
       <Text style={{ color: C.loss, fontSize: 12.5 }}>{msg}</Text>
     </View>
   );
@@ -234,7 +241,7 @@ export function ErrorNote({ msg }: { msg: string | null }) {
 export function OkNote({ msg }: { msg: string | null }) {
   if (!msg) return null;
   return (
-    <View style={{ backgroundColor: 'rgba(22,199,132,0.10)', borderColor: 'rgba(22,199,132,0.4)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
+    <View style={{ backgroundColor: 'rgba(0,230,118,0.10)', borderColor: 'rgba(0,230,118,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
       <Text style={{ color: C.profit, fontSize: 12.5 }}>{msg}</Text>
     </View>
   );
@@ -243,7 +250,7 @@ export function OkNote({ msg }: { msg: string | null }) {
 export function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <View style={[S.between, { marginBottom: 10 }] as any}>
-      <Text style={{ color: C.gold, fontWeight: '800', fontSize: 12.5, letterSpacing: 2 }}>{children}</Text>
+      <Text style={{ color: C.neon2, fontWeight: '800', fontSize: 12.5, letterSpacing: 2 }}>{children}</Text>
       {right}
     </View>
   );
@@ -258,25 +265,25 @@ export function Empty({ text }: { text: string }) {
 }
 
 export function Logo({ size = 46 }: { size?: number }) {
-  // "Ascend W" monogram drawn natively (no image asset needed)
+  // "Ascend W" monogram drawn natively with neon glow
   return (
     <View
       style={{
         width: size,
         height: size,
         borderRadius: size * 0.28,
-        backgroundColor: '#141210',
+        backgroundColor: '#101613',
         borderWidth: 1.2,
-        borderColor: 'rgba(212,175,55,0.55)',
+        borderColor: 'rgba(0,230,118,0.55)',
         alignItems: 'center',
         justifyContent: 'center',
-        shadowColor: C.gold,
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
+        shadowColor: C.neon,
+        shadowOpacity: 0.45,
+        shadowRadius: 14,
         elevation: 6,
       } as any}>
-      <Text style={{ color: C.gold, fontSize: size * 0.5, fontWeight: '900', fontStyle: 'italic' }}>W</Text>
-      <View style={{ position: 'absolute', top: size * 0.13, right: size * 0.16, width: 0, height: 0, borderLeftWidth: 4, borderBottomWidth: 6, borderLeftColor: 'transparent', borderBottomColor: C.goldB, transform: [{ rotate: '45deg' }] }} />
+      <Text style={{ color: C.neon, fontSize: size * 0.5, fontWeight: '900', fontStyle: 'italic' }}>W</Text>
+      <View style={{ position: 'absolute', top: size * 0.13, right: size * 0.16, width: 0, height: 0, borderLeftWidth: 4, borderBottomWidth: 6, borderLeftColor: 'transparent', borderBottomColor: C.neon2, transform: [{ rotate: '45deg' }] }} />
     </View>
   );
 }

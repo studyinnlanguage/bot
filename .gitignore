@@ -59,11 +59,12 @@ Thumbs.db
 # runtime artifacts
 .bot_processes.json
 .watchdog.lock
+.encryption_key
+.flask_secret
 logs/
 user_instances/
 uploads/
 database.json
 database.json.bak
-.flask_secret
 *.pyc
 __pycache__/

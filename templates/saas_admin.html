@@ -6,32 +6,32 @@
     <title>TradeBot SaaS - Admin Panel</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0b0e11; color: #eaecef; min-height: 100vh; padding: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #080B0A; color: #eaecef; min-height: 100vh; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
         .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
         .header h1 { font-size: 24px; }
-        .header a { color: #f0b90b; text-decoration: none; font-size: 13px; }
-        .login-card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 12px; padding: 32px; max-width: 400px; margin: 80px auto; }
+        .header a { color: #39FF14; text-decoration: none; font-size: 13px; }
+        .login-card { background: #101613; border: 1px solid #2a2e36; border-radius: 12px; padding: 32px; max-width: 400px; margin: 80px auto; }
         .login-card h2 { text-align: center; margin-bottom: 8px; }
         .login-card p { text-align: center; color: #848e9c; font-size: 13px; margin-bottom: 20px; }
-        .input { width: 100%; padding: 12px; background: #0b0e11; border: 1px solid #2a2e36; color: #eaecef; border-radius: 8px; font-size: 14px; margin-bottom: 12px; }
-        .btn { width: 100%; padding: 12px; background: #f0b90b; color: #0b0e11; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 14px; }
-        .tabs { display: flex; gap: 4px; background: #1e2126; padding: 4px; border-radius: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .input { width: 100%; padding: 12px; background: #080B0A; border: 1px solid #2a2e36; color: #eaecef; border-radius: 8px; font-size: 14px; margin-bottom: 12px; }
+        .btn { width: 100%; padding: 12px; background: #39FF14; color: #080B0A; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 14px; }
+        .tabs { display: flex; gap: 4px; background: #101613; padding: 4px; border-radius: 10px; margin-bottom: 20px; flex-wrap: wrap; }
         .tab { flex: 1; padding: 10px; text-align: center; cursor: pointer; border-radius: 8px; font-size: 13px; font-weight: 600; color: #848e9c; border: none; background: none; min-width: 100px; }
-        .tab.active { background: #f0b90b; color: #0b0e11; }
+        .tab.active { background: #39FF14; color: #080B0A; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
-        .card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 12px; margin-bottom: 20px; overflow: hidden; }
+        .card { background: #101613; border: 1px solid #2a2e36; border-radius: 12px; margin-bottom: 20px; overflow: hidden; }
         .card-header { padding: 16px 20px; border-bottom: 1px solid #2a2e36; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
         .card-body { padding: 20px; }
         .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
         .form-group { margin-bottom: 12px; }
         .label { display: block; font-size: 11px; color: #848e9c; margin-bottom: 4px; text-transform: uppercase; }
-        .input-sm { width: 100%; padding: 8px 10px; background: #0b0e11; border: 1px solid #2a2e36; color: #eaecef; border-radius: 6px; font-size: 13px; }
-        .btn-create { background: #0ecb81; color: #0b0e11; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 13px; }
+        .input-sm { width: 100%; padding: 8px 10px; background: #080B0A; border: 1px solid #2a2e36; color: #eaecef; border-radius: 6px; font-size: 13px; }
+        .btn-create { background: #0ecb81; color: #080B0A; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 13px; }
         .license-row { padding: 12px 20px; border-bottom: 1px solid #2a2e36; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
         .license-row:last-child { border-bottom: none; }
-        .license-key { font-family: monospace; font-weight: 600; color: #f0b90b; }
+        .license-key { font-family: monospace; font-weight: 600; color: #39FF14; }
         .user-row { padding: 12px 20px; border-bottom: 1px solid #2a2e36; display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
         .user-row:last-child { border-bottom: none; }
         .badge { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-align: center; display: inline-block; }
@@ -42,45 +42,45 @@
         .badge-revoked { background: rgba(246,70,93,0.15); color: #f6465d; }
         .badge-running { background: rgba(14,203,129,0.15); color: #0ecb81; }
         .badge-banned { background: rgba(246,70,93,0.15); color: #f6465d; }
-        .badge-pending { background: rgba(240,185,11,0.15); color: #f0b90b; }
+        .badge-pending { background: rgba(57,255,20,0.15); color: #39FF14; }
         .badge-submitted { background: rgba(84,174,255,0.15); color: #54aeff; }
         .badge-verified { background: rgba(14,203,129,0.15); color: #0ecb81; }
         .btn-sm { padding: 5px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer; margin-left: 4px; }
         .btn-revoke { background: #f6465d; color: white; }
         .btn-delete { background: #2a2e36; color: #f6465d; border: 1px solid #f6465d; }
         .btn-ban { background: #f6465d; color: white; }
-        .btn-unban { background: #0ecb81; color: #0b0e11; }
-        .copy-btn { background: #2a2e36; color: #f0b90b; border: 1px solid #f0b90b; }
+        .btn-unban { background: #0ecb81; color: #080B0A; }
+        .copy-btn { background: #2a2e36; color: #39FF14; border: 1px solid #39FF14; }
         .btn-verify { background: #0ecb81; color: white; }
         .btn-reject { background: #f6465d; color: white; }
         .btn-view { background: #2a2e36; color: #54aeff; border: 1px solid #54aeff; }
         .empty { text-align: center; padding: 40px; color: #848e9c; }
         .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
-        .stat-card { background: #1e2126; border: 1px solid #2a2e36; border-radius: 8px; padding: 16px; }
+        .stat-card { background: #101613; border: 1px solid #2a2e36; border-radius: 8px; padding: 16px; }
         .stat-label { font-size: 10px; color: #848e9c; text-transform: uppercase; margin-bottom: 4px; }
         .stat-value { font-size: 22px; font-weight: 700; }
         .stat-value.green { color: #0ecb81; }
-        .stat-value.yellow { color: #f0b90b; }
+        .stat-value.yellow { color: #39FF14; }
         .stat-value.red { color: #f6465d; }
         .stat-value.blue { color: #54aeff; }
         .order-row { padding: 14px 20px; border-bottom: 1px solid #2a2e36; font-size: 12px; }
         .order-row:last-child { border-bottom: none; }
         .order-row:hover { background: rgba(255,255,255,0.02); }
         .order-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-        .order-id { font-family: monospace; font-weight: 700; color: #f0b90b; font-size: 13px; }
+        .order-id { font-family: monospace; font-weight: 700; color: #39FF14; font-size: 13px; }
         .order-user { color: #848e9c; font-size: 11px; margin-bottom: 8px; }
         .order-details { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: #848e9c; margin-bottom: 10px; }
         .order-details span { color: #eaecef; }
-        .order-tx { font-family: monospace; font-size: 11px; color: #848e9c; background: #0b0e11; padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 10px; }
+        .order-tx { font-family: monospace; font-size: 11px; color: #848e9c; background: #080B0A; padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 10px; }
         .order-actions { display: flex; gap: 6px; flex-wrap: wrap; }
         .ss-thumb { max-width: 80px; max-height: 80px; border-radius: 6px; border: 1px solid #2a2e36; cursor: pointer; margin-top: 4px; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 100000; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
-        .modal { background: #1e2126; border: 1px solid #2a2e36; border-radius: 12px; padding: 24px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal { background: #101613; border: 1px solid #2a2e36; border-radius: 12px; padding: 24px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
         .modal h3 { margin-bottom: 16px; }
         .modal img { max-width: 100%; border-radius: 8px; }
         .wallet-section .label { font-size: 10px; color: #848e9c; text-transform: uppercase; margin-bottom: 4px; }
-        .wallet-addr { font-family: monospace; font-size: 13px; color: #f0b90b; word-break: break-all; }
+        .wallet-addr { font-family: monospace; font-size: 13px; color: #39FF14; word-break: break-all; }
 
         @media (max-width: 768px) {
             body { padding: 12px; }
@@ -180,7 +180,7 @@
             <button class="tab active" onclick="switchTab('orders', event)">Payment Orders</button>
             <button class="tab" onclick="switchTab('licenses', event)">License Keys</button>
             <button class="tab" onclick="switchTab('users', event)">Users</button>
-            <button class="tab" onclick="switchTab('payouts', event)">Referral Payouts <span id="payoutsCount" style="color:#f0b90b;"></span></button>
+            <button class="tab" onclick="switchTab('payouts', event)">Referral Payouts <span id="payoutsCount" style="color:#39FF14;"></span></button>
             <button class="tab" onclick="switchTab('smtp', event)">📧 SMTP Email <span id="smtpBadgeStatus" style="font-size:10px;"></span></button>
         </div>
 
@@ -278,8 +278,8 @@
                         Environment variables in your server's <code>.env</code> file (or Coolify environment) are automatically detected and used as primary configuration.
                     </p>
 
-                    <div style="background:#0b0e11;padding:12px 16px;border-radius:8px;border:1px solid #2a2e36;margin-bottom:20px;font-size:12px;">
-                        <div style="color:#848e9c;margin-bottom:6px;">Current Active Source: <strong id="smtpActiveSource" style="color:#f0b90b;">Loading...</strong></div>
+                    <div style="background:#080B0A;padding:12px 16px;border-radius:8px;border:1px solid #2a2e36;margin-bottom:20px;font-size:12px;">
+                        <div style="color:#848e9c;margin-bottom:6px;">Current Active Source: <strong id="smtpActiveSource" style="color:#39FF14;">Loading...</strong></div>
                         <div style="color:#848e9c;">Active Sender Email: <strong id="smtpActiveUser" style="color:#eaecef;">Loading...</strong></div>
                     </div>
 
@@ -407,7 +407,7 @@
                     const dateStr = o.created_at ? new Date(o.created_at).toLocaleString() : '-';
                     return '<div class="order-row">'
                         + '<div class="order-top">'
-                        + '  <div><span class="order-id">' + o.id + '</span> <span class="badge" style="background:rgba(240,185,11,0.1);color:#f0b90b;margin-left:8px;">$' + o.amount + ' ' + (o.currency||'') + '</span></div>'
+                        + '  <div><span class="order-id">' + o.id + '</span> <span class="badge" style="background:rgba(57,255,20,0.1);color:#39FF14;margin-left:8px;">$' + o.amount + ' ' + (o.currency||'') + '</span></div>'
                         + '  <div>' + statusBadge + '</div>'
                         + '</div>'
                         + '<div class="order-user">User: ' + esc(o.user_email||'-') + (o.user_name ? ' (' + esc(o.user_name) + ')' : '') + '</div>'
@@ -670,7 +670,7 @@
                     const isPending = p.status === 'pending';
                     const dateStr = p.created_at ? new Date(p.created_at).toLocaleString() : '-';
                     const statusBadge = isPending ?
-                        '<span class="badge" style="background:rgba(240,185,11,0.15);color:#f0b90b;">pending</span>' :
+                        '<span class="badge" style="background:rgba(57,255,20,0.15);color:#39FF14;">pending</span>' :
                         '<span class="badge" style="background:rgba(14,203,129,0.15);color:#0ecb81;">paid</span>';
                     const actionBtn = isPending ?
                         '<button class="btn-sm btn-verify" onclick="approvePayout(\'' + p.id + '\', \'' + p.amount + '\')">✓ Mark as Paid</button>' :
@@ -804,7 +804,7 @@
                 }
 
                 resultDiv.style.display = 'block';
-                resultDiv.style.color = '#f0b90b';
+                resultDiv.style.color = '#39FF14';
                 resultDiv.textContent = '⏳ Sending test email to ' + to + '...';
 
                 try {
