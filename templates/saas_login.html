@@ -259,6 +259,22 @@
             const refInput = document.getElementById('signupReferral');
             const urlParams = new URLSearchParams(window.location.search);
             const refParam = urlParams.get('ref');
+            const errParam = urlParams.get('error');
+            if (errParam) {
+                const ERRMAP = {
+                    google_not_configured: 'Google sign-in server par configured nahi hai. /auth/google/diag kholo.',
+                    invalid_state: 'Login session expire ho gaya. Dobara Google se sign-in karo.',
+                    google_auth_failed: 'Google ne sign-in poora nahi kiya. Dobara try karo.',
+                    no_code: 'Google sign-in incomplete. Dobara try karo.',
+                    token_exchange_failed: 'Server-Google setup mismatch. /auth/google/diag mein exact fix dekho.',
+                    no_email_from_google: 'Google ne email share nahi ki. Dobara try karo.',
+                    oauth_failed: 'Google sign-in fail. Dobara try karo; detail: /auth/google/diag.'
+                };
+                if (ERRMAP[errParam]) {
+                    try { switchTab('login'); } catch (err) {}
+                    showError(ERRMAP[errParam]);
+                }
+            }
             if (refParam && refInput && !refInput.value) {
                 refInput.value = refParam.toUpperCase();
             }

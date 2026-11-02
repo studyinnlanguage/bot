@@ -3,6 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- PWA: installable app (Add to Home screen -> fullscreen, no URL bar) -->
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <meta name="theme-color" content="#070a0f">
+    <link rel="apple-touch-icon" href="/static/img/weexionic-logo.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="WEEXIONIC">
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/static/sw.js').catch(function () {});
+        });
+    }
+    </script>
     <title>Complete Payment - TradeBot Cloud</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

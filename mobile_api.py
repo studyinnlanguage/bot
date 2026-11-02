@@ -675,9 +675,20 @@ def m_bot_test_notification():
 # ---------------------------------------------------------------------------
 @mobile_bp.get("/packages")
 def m_packages():
+    # Wallets saved from the web Admin Panel live in DB settings (two shapes
+    # used over time); ENV vars are only the fallback. Previously ENV-only,
+    # so the app showed "Wallet address unavailable" even after saving.
+    try:
+        _db = _cfg.get("db") or {}
+        _st = _db.get("settings") or {}
+        _s = _st.get("payment_wallets") or {}
+        _w = _st.get("wallets") or {}
+    except Exception:
+        _s, _w = {}, {}
+    trc20 = _s.get("wallet_trc20") or _w.get("trc20") or os.environ.get("PAYMENT_WALLET_TRC20", "")
+    bep20 = _s.get("wallet_bep20") or _w.get("bep20") or os.environ.get("PAYMENT_WALLET_BEP20", "")
     return jsonify({"success": True, "packages": _cfg["packages"],
-                    "wallets": {"trc20": os.environ.get("PAYMENT_WALLET_TRC20", ""),
-                                "bep20": os.environ.get("PAYMENT_WALLET_BEP20", "")}})
+                    "wallets": {"trc20": trc20, "bep20": bep20}})
 
 
 @mobile_bp.post("/license/activate")
