@@ -15,6 +15,7 @@ Functions:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -56,9 +57,76 @@ class Position:
 class BinanceFuturesTrader:
     """Wraps Binance USDT-M Futures API for the bot. Supports testnet and mainnet."""
 
+    _LABEL_RE = re.compile(r"(api[\s_-]?key|api[\s_-]?secret|secret|key)\s*[:=]\s*", re.IGNORECASE)
+
+    @classmethod
+    def _normalize_credentials(cls, api_key, api_secret):
+        """Accept credentials however the user pasted them.
+
+        Returns (key, secret, warning). Fixes the classic causes of Binance
+        -2014 "API-key format invalid": key+secret on one line, labels,
+        quotes, commas, stray whitespace. Detects PrimeXBT credentials
+        pasted into the Binance fields and says so explicitly.
+        """
+        raw_key = str(api_key or "")
+        raw_secret = str(api_secret or "")
+        combined = " ".join(raw_key.split()) + " " + " ".join(raw_secret.split())
+        combined = combined.strip().strip(",").strip()
+
+        warning = None
+        key, secret = "", ""
+
+        if cls._LABEL_RE.search(combined):
+            matches = list(cls._LABEL_RE.finditer(combined))
+            for i, m in enumerate(matches):
+                label = m.group(1).lower()
+                start = m.end()
+                end = matches[i + 1].start() if i + 1 < len(matches) else len(combined)
+                val = combined[start:end].strip().strip('"').strip("'").rstrip(",;").strip()
+                toks = val.split()
+                if "secret" in label:
+                    secret = secret or (toks[0] if toks else "")
+                    if len(toks) > 1 and not key:
+                        key = toks[1]
+                else:
+                    key = key or (toks[0] if toks else "")
+                    if len(toks) > 1 and not secret:
+                        secret = toks[1]
+            if not secret and raw_secret.strip():
+                secret = " ".join(raw_secret.split()).strip().strip('"').strip("'")
+            if not key and raw_key.strip() and not cls._LABEL_RE.search(raw_key):
+                key = " ".join(raw_key.split()).strip().strip('"').strip("'")
+            if key or secret:
+                warning = "Credentials were pasted with labels/extra text - auto-cleaned"
+        else:
+            tokens = [t.strip().strip('"').strip("'").rstrip(",;") for t in combined.split(" ") if t.strip()]
+            if len(tokens) >= 2:
+                key = tokens[0]
+                secret = tokens[1]
+                if len(tokens) > 2:
+                    warning = "Credentials had extra text around them - auto-cleaned"
+            elif tokens:
+                key = tokens[0]
+                if not raw_secret.strip():
+                    warning = "API SECRET is empty - paste the secret into the Secret field"
+
+        if key.startswith("pxk_") or secret.startswith("pxk_") \
+                or secret.startswith(("MC4CAQ", "MCowBQYDK2Vw", "LS0tLS1CRUdJTi")) \
+                or "BEGIN PRIVATE KEY" in secret or "BEGIN PRIVATE KEY" in key:
+            warning = ("These are PRIMEXBT credentials (pxk_... / MC4CAQ...), NOT Binance keys. "
+                       "Either switch exchange to PrimeXBT in Settings, or create Binance Futures keys "
+                       "(LIVE: binance.com -> API Management -> Enable Futures; TESTNET: testnet.binancefuture.com).")
+        elif key and "@" in key:
+            warning = "The API KEY field contains an email, not a Binance API key"
+        elif key and (len(key) < 32 or not key.isalnum()):
+            warning = warning or "API key shape looks unusual for Binance (normally 64 letters/digits) - check for extra text"
+
+        return key, secret, warning
+
     def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
-        self.api_key = str(api_key or "").strip().strip('"').strip("'")
-        self.api_secret = str(api_secret or "").strip().strip('"').strip("'")
+        self.api_key, self.api_secret, self.credential_warning = self._normalize_credentials(api_key, api_secret)
+        if self.credential_warning:
+            logger.warning("Binance credentials: %s", self.credential_warning)
         self.testnet = bool(testnet)
         self.client = None
         self._exchange_info_cache: dict = {}  # symbol -> {step_size, min_qty, tick_size}

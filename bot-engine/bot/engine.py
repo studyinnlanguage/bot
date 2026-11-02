@@ -1749,9 +1749,19 @@ class BotEngine:
                                     + (f" ({_note})" if _note else ""))
                         })
                     else:
+                        _err = str(r.get("error", "unknown"))
+                        if "-2014" in _err or "API-key format invalid" in _err:
+                            _msg = ("API-key FORMAT invalid (-2014): key ka TEXT hi galat shape mein hai. "
+                                    "API Key aur SECRET alag-alag fields mein bilkul saaf paste karo "
+                                    "(koi label/quote/extra spaces nahi). PrimeXBT key Binance field mein nahi chalegi.")
+                        elif "-2015" in _err or "Invalid API-key" in _err:
+                            _msg = ("API Key REJECTED (-2015): Env=TESTNET hai to testnet.binancefuture.com ki key chahiye "
+                                    "(REAL key TESTNET pe kabhi nahi chalti); LIVE ho to Enable Futures ON + IP whitelist check karo.")
+                        else:
+                            _msg = _err[:200]
                         self._emit("log", {
                             "level": "warn",
-                            "msg": f"[{sym}] ⚠️ Leverage notice: {r.get('error', 'unknown')}"
+                            "msg": f"[{sym}] ⚠️ Leverage notice: {_msg}"
                         })
                 except Exception as e:
                     logger.error("Failed to set leverage for %s: %s", sym, e)
@@ -1924,10 +1934,26 @@ class BotEngine:
                     else:
                         err = str(r.get("error", ""))
                         is_binance = self.config.get("exchange", "binance").lower() == "binance"
-                        if is_binance and ("-2015" in err or "Invalid API-key" in err or "401" in err):
+                        if is_binance and ("-2014" in err or "API-key format invalid" in err):
                             self._emit("log", {
                                 "level": "error",
-                                "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): Your API Key is REJECTED by Binance! 1) Check 'Enable Futures'. 2) If IP restricted, whitelist your VPS IP. 3) Ensure it's a Futures key, not Spot!"
+                                "msg": f"[{sym}] ❌ API KEY FORMAT INVALID (-2014): key ka text hi galat shape mein hai! API Key aur SECRET alag-alag fields mein saaf paste karo (koi label/quote nahi). PrimeXBT key (pxk_/MC4CAQ) Binance mein NAHI chalegi."
+                            })
+                            # Stop the bot completely and kill all threads
+                            self.is_running = False
+                            for w in self.workers.values():
+                                w.stop_event.set()
+                            return
+                        elif is_binance and ("-2015" in err or "Invalid API-key" in err or "401" in err):
+                            _testnet = bool(self.config.get("testnet", True))
+                            _hint = ("TESTNET par REAL Binance key HAMESHA fail hoti hai - "
+                                     "testnet.binancefuture.com se TESTNET key lo (GitHub se login karke), "
+                                     "ya real trading ke liye Env ko LIVE karo.") if _testnet else \
+                                    ("Binance LIVE ne key reject ki: 1) 'Enable Futures' ON karo. "
+                                     "2) IP restriction ho to VPS IP whitelist karo. 3) Futures key ho, Spot nahi.")
+                            self._emit("log", {
+                                "level": "error",
+                                "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): {_hint}"
                             })
                             # Stop the bot completely and kill all threads
                             self.is_running = False

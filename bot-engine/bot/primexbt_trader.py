@@ -178,10 +178,59 @@ class PrimeXBTTrader:
     _YAHOO_TTL = 600.0   # seconds a Yahoo symbol resolution stays cached
     _PRICE_TTL = 10.0    # seconds a Yahoo quote stays cached (get_mark_price)
 
+    _PXBT_KEY_RE = re.compile(r"pxk_[A-Za-z0-9_\-]+")
+    _PXBT_PRIV_STARTS = ("MC4CAQ", "MCowBQYDK2Vw", "MC4CAQAw", "LS0tLS1CRUdJTi", "-----BEGIN")
+
+    @classmethod
+    def _normalize_credentials(cls, config: dict):
+        """Return (api_key, api_secret, warning) tolerating classic paste mistakes:
+        key + private key merged on one line ("pxk_... MC4CAQ..."), swapped
+        fields, the pxk_ token inside the Secret field, extra text/quotes.
+        """
+        cfg = config or {}
+        raw_key = str(cfg.get("api_key") or "")
+        raw_secret = str(cfg.get("api_secret") or "")
+        key = " ".join(raw_key.split()).strip().strip('"').strip("'")
+        secret = " ".join(raw_secret.split()).strip().strip('"').strip("'")
+        warning = None
+
+        def _has_pxk(s: str) -> bool:
+            return bool(cls._PXBT_KEY_RE.search(s))
+
+        def _priv_token(s: str):
+            cands = [t for t in s.split() if t.startswith(cls._PXBT_PRIV_STARTS)]
+            return max(cands, key=len) if cands else None
+
+        if _has_pxk(key) and _priv_token(key) and not secret:
+            secret = _priv_token(key)
+            key = cls._PXBT_KEY_RE.search(key).group(0)
+            warning = "API key and PRIVATE KEY were pasted together on one line - auto-split"
+        elif _has_pxk(secret) and _priv_token(secret) and not key:
+            key = cls._PXBT_KEY_RE.search(secret).group(0)
+            secret = _priv_token(secret)
+            warning = "API key and PRIVATE KEY were pasted together on one line - auto-split"
+        elif _has_pxk(secret) and not _has_pxk(key) and _priv_token(key):
+            key, secret = cls._PXBT_KEY_RE.search(secret).group(0), _priv_token(key)
+            warning = "API Key and Secret fields were swapped - auto-corrected"
+        else:
+            if _has_pxk(key):
+                m = cls._PXBT_KEY_RE.search(key)
+                if m.group(0) != key:
+                    key = m.group(0)
+                    warning = "API key had extra text around it - auto-cleaned"
+            if _has_pxk(secret):
+                s2 = cls._PXBT_KEY_RE.sub("", secret).strip()
+                if s2 != secret and _priv_token(s2):
+                    secret = s2
+                    warning = "Secret field contained the API key - cleaned"
+
+        return key, secret, warning
+
     def __init__(self, config: dict):
         self.config = config or {}
-        self.api_key = str(self.config.get("api_key", "")).strip()
-        self.api_secret = str(self.config.get("api_secret", "")).strip()
+        self.api_key, self.api_secret, self.credential_warning = self._normalize_credentials(self.config)
+        if self.credential_warning:
+            logger.warning("PrimeXBT credentials: %s", self.credential_warning)
         self.testnet = bool(self.config.get("testnet", True))
         self.private_key: Optional[Ed25519PrivateKey] = None
         self._symbol_leverage: Dict[str, int] = {}
