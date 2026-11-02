@@ -249,7 +249,7 @@ export function CockpitScreen({ navigation }: any) {
           <Empty text="Start the bot to spawn workers." />
         ) : (
           workers.map(([sym, w]: any) => (
-            <View key={sym} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomColor: 'rgba(57,255,20,0.10)', borderBottomWidth: 1 }}>
+            <View key={sym} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomColor: 'rgba(240, 185, 11,0.10)', borderBottomWidth: 1 }}>
               <TouchableOpacity onPress={() => setActiveSymbol(sym)}>
                 <Text style={{ color: sym === activeSymbol ? C.goldB : C.txt, fontWeight: '800', fontSize: 12.5 }}>{sym}</Text>
               </TouchableOpacity>
@@ -271,14 +271,14 @@ export function CockpitScreen({ navigation }: any) {
 }
 
 const iconBtn = {
-  borderColor: 'rgba(0,230,118,0.25)',
+  borderColor: 'rgba(240, 185, 11,0.25)',
   borderWidth: 1,
   borderRadius: 10,
   paddingHorizontal: 10,
   paddingVertical: 6,
-  backgroundColor: 'rgba(57,255,20,0.05)',
+  backgroundColor: 'rgba(240, 185, 11,0.05)',
 } as const;
 
 const S = {
-  sep: { height: 1, backgroundColor: 'rgba(57,255,20,0.1)', marginVertical: 8 },
+  sep: { height: 1, backgroundColor: 'rgba(240, 185, 11,0.1)', marginVertical: 8 },
 };

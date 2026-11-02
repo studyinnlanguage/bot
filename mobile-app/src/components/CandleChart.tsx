@@ -96,7 +96,7 @@ export function CandleChart({ candles, emas }: { candles: Candle[]; emas?: Emas 
   return (
     <Svg width="100%" height={H}>
       {view.gridLines.map((gy, i) => (
-        <Line key={i} x1={0} x2={W - PAD_R} y1={gy} y2={gy} stroke="rgba(0,230,118,0.10)" strokeWidth={1} />
+        <Line key={i} x1={0} x2={W - PAD_R} y1={gy} y2={gy} stroke="rgba(240, 185, 11,0.10)" strokeWidth={1} />
       ))}
       {view.candles.map((d, i) => (
         <React.Fragment key={i}>

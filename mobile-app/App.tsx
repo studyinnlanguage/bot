@@ -25,9 +25,9 @@ const navTheme = {
   colors: {
     ...DefaultTheme.colors,
     background: C.bg,
-    card: '#101613',
+    card: '#12161f',
     text: C.txt,
-    border: 'rgba(57, 255, 20, 0.18)',
+    border: 'rgba(240, 185, 11, 0.18)',
     primary: C.neon,
   },
 };
@@ -49,8 +49,8 @@ function MainTabs() {
         tabBarActiveTintColor: C.neon,
         tabBarInactiveTintColor: C.dim2,
         tabBarStyle: {
-          backgroundColor: '#101613',
-          borderTopColor: 'rgba(57, 255, 20, 0.20)',
+          backgroundColor: '#12161f',
+          borderTopColor: 'rgba(240, 185, 11, 0.20)',
           borderTopWidth: 1,
           height: 84,
           paddingTop: 10,

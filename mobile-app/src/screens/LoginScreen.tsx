@@ -103,9 +103,9 @@ export function LoginScreen() {
           />
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 14 }}>
-            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,230,118,0.18)' }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(240, 185, 11,0.18)' }} />
             <Text style={{ color: C.dim2, marginHorizontal: 10, fontSize: 11, letterSpacing: 2 }}>OR</Text>
-            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(0,230,118,0.18)' }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(240, 185, 11,0.18)' }} />
           </View>
 
           <TouchableOpacity

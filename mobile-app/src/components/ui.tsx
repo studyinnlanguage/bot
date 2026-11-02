@@ -55,7 +55,7 @@ export function NeonButton({
       {loading ? (
         <ActivityIndicator color={C.bg} />
       ) : (
-        <Text style={{ color: '#080B0A', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
+        <Text style={{ color: '#0b0e11', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
           {title}
         </Text>
       )}
@@ -87,8 +87,8 @@ export function GlassButton({
           paddingVertical: 13,
           alignItems: 'center',
           borderWidth: 1,
-          borderColor: danger ? 'rgba(255,82,82,0.45)' : 'rgba(0,230,118,0.35)',
-          backgroundColor: danger ? 'rgba(255,82,82,0.08)' : 'rgba(0,230,118,0.06)',
+          borderColor: danger ? 'rgba(255,82,82,0.45)' : 'rgba(240, 185, 11,0.35)',
+          backgroundColor: danger ? 'rgba(255,82,82,0.08)' : 'rgba(240, 185, 11,0.06)',
         },
         style,
       ]}>
@@ -135,7 +135,7 @@ export function Field({
         autoCorrect={false}
         style={{
           backgroundColor: 'rgba(0,0,0,0.45)',
-          borderColor: 'rgba(0,230,118,0.22)',
+          borderColor: 'rgba(240, 185, 11,0.22)',
           borderWidth: 1,
           borderRadius: 12,
           color: C.txt,
@@ -161,7 +161,7 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
           flexDirection: 'row',
           alignItems: 'center',
           gap: 6,
-          borderColor: 'rgba(0,230,118,0.25)',
+          borderColor: 'rgba(240, 185, 11,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
@@ -173,7 +173,7 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
       </View>
       <View
         style={{
-          borderColor: 'rgba(0,230,118,0.25)',
+          borderColor: 'rgba(240, 185, 11,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
@@ -208,8 +208,8 @@ export function Chip({
         paddingVertical: small ? 6 : 8,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: active ? C.neon2 : 'rgba(0,230,118,0.20)',
-        backgroundColor: active ? 'rgba(0,230,118,0.15)' : 'rgba(0,0,0,0.3)',
+        borderColor: active ? C.neon2 : 'rgba(240, 185, 11,0.20)',
+        backgroundColor: active ? 'rgba(240, 185, 11,0.15)' : 'rgba(0,0,0,0.3)',
         marginRight: 8,
         marginBottom: 8,
       } as any}>
@@ -241,7 +241,7 @@ export function ErrorNote({ msg }: { msg: string | null }) {
 export function OkNote({ msg }: { msg: string | null }) {
   if (!msg) return null;
   return (
-    <View style={{ backgroundColor: 'rgba(0,230,118,0.10)', borderColor: 'rgba(0,230,118,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
+    <View style={{ backgroundColor: 'rgba(240, 185, 11,0.10)', borderColor: 'rgba(240, 185, 11,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
       <Text style={{ color: C.profit, fontSize: 12.5 }}>{msg}</Text>
     </View>
   );
@@ -272,9 +272,9 @@ export function Logo({ size = 46 }: { size?: number }) {
         width: size,
         height: size,
         borderRadius: size * 0.28,
-        backgroundColor: '#101613',
+        backgroundColor: '#12161f',
         borderWidth: 1.2,
-        borderColor: 'rgba(0,230,118,0.55)',
+        borderColor: 'rgba(240, 185, 11,0.55)',
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: C.neon,
