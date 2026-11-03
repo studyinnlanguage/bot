@@ -66,6 +66,17 @@ class EMAQuadStrategy:
         self._prev_signal: Signal = Signal.HOLD
         self._last_trend_side: Optional[Signal] = None
         self._trade_entered_for_signal: bool = False
+        # ===== ANTI-INSTANT-REENTRY =====
+        # Timestamp (candle) of the last closed candle this strategy has seen.
+        self._last_closed_candle_ts = None
+        # When a position closes, reset_cross_state()/reset_for_reversal() set
+        # this to the current closed candle. Any "fresh cross" whose cross event
+        # (EMA55 exiting the bundle) happened AT OR BEFORE this candle is a STALE
+        # cross from the previous trend and is consumed — it can never trigger an
+        # entry. This kills the "trade closes -> bot instantly re-opens the SAME
+        # coin on the same old cross" bug (fresh_window lookback used to re-arm
+        # the pre-exit cross after every reset).
+        self._block_crosses_before = None
 
     def _calc_signal(self, row) -> Signal:
         e8 = float(row["ema_8"]) if not pd.isna(row["ema_8"]) else None
@@ -125,6 +136,12 @@ class EMAQuadStrategy:
         # iloc[-1] is the unclosed/forming candle whose close price ticks every second.
         closed_candle = enriched.iloc[-2] if len(enriched) >= 2 else enriched.iloc[-1]
         last = enriched.iloc[-1]
+        # Remember the last closed candle so a later reset_cross_state() can
+        # consume every cross that happened up to now (anti-instant-reentry).
+        try:
+            self._last_closed_candle_ts = enriched.index[-2] if len(enriched) >= 2 else enriched.index[-1]
+        except Exception:
+            pass
 
         e8, e13, e21, e55 = closed_candle["ema_8"], closed_candle["ema_13"], closed_candle["ema_21"], closed_candle["ema_55"]
         last_close = float(last["close"])
@@ -165,15 +182,42 @@ class EMAQuadStrategy:
         # Wider window (was hard-coded 2) so a cross is no longer "consumed" while the
         # chop-spread filter is still active on the first 1-2 candles of a new trend.
         is_fresh_cross = False
+        cross_event_ts = None
         lookback = self.fresh_window
         if signal == Signal.BUY and len(enriched) >= lookback + 3:
             recent = enriched.iloc[-(lookback + 2):-2]  # candles just BEFORE the closed candle
-            if any(not self._is_ema55_at_bottom(recent.iloc[j]) for j in range(len(recent))):
-                is_fresh_cross = True
+            # Find the LAST (most recent) candle in the window that was NOT at the
+            # bottom extreme — the cross into the current fan happened right after it.
+            for j in range(len(recent) - 1, -1, -1):
+                if not self._is_ema55_at_bottom(recent.iloc[j]):
+                    is_fresh_cross = True
+                    try:
+                        base = len(enriched) - (lookback + 2)
+                        cross_event_ts = enriched.index[base + j]
+                    except Exception:
+                        cross_event_ts = None
+                    break
         elif signal == Signal.SELL and len(enriched) >= lookback + 3:
             recent = enriched.iloc[-(lookback + 2):-2]
-            if any(not self._is_ema55_at_top(recent.iloc[j]) for j in range(len(recent))):
-                is_fresh_cross = True
+            for j in range(len(recent) - 1, -1, -1):
+                if not self._is_ema55_at_top(recent.iloc[j]):
+                    is_fresh_cross = True
+                    try:
+                        base = len(enriched) - (lookback + 2)
+                        cross_event_ts = enriched.index[base + j]
+                    except Exception:
+                        cross_event_ts = None
+                    break
+
+        # ===== STALE-CROSS CONSUMPTION (anti-instant-reentry) =====
+        # If the detected cross event happened at or before the candle where the
+        # last position exited, it is the OLD trend's cross — not a new signal.
+        if is_fresh_cross and self._block_crosses_before is not None and cross_event_ts is not None:
+            try:
+                if pd.Timestamp(cross_event_ts) <= pd.Timestamp(self._block_crosses_before):
+                    is_fresh_cross = False
+            except Exception:
+                pass
 
         # 4. Anti-Whipsaw Flicker State Transition:
         # If signal dips into HOLD due to chop spread, DO NOT reset _trade_entered_for_signal.
@@ -239,15 +283,21 @@ class EMAQuadStrategy:
         }
 
     def reset_cross_state(self):
-        """Reset the cross state to wait for a brand new crossover."""
+        """Reset the cross state to wait for a brand new crossover.
+
+        Consumes every cross up to the last closed candle seen, so the old
+        trend's cross can NOT re-trigger an entry after a position closes.
+        """
         self._prev_signal = Signal.HOLD
         self._last_trend_side = None
         self._trade_entered_for_signal = False
-        logger.info("Strategy cross state reset - waiting for fresh cross")
+        self._block_crosses_before = self._last_closed_candle_ts
+        logger.info("Strategy cross state reset - stale crosses consumed, waiting for a NEW cross")
 
     def reset_for_reversal(self):
-        """Reset for reversal exit."""
+        """Reset for reversal exit (also consumes stale crosses)."""
         self._prev_signal = Signal.HOLD
         self._last_trend_side = None
         self._trade_entered_for_signal = False
-        logger.info("Strategy reset for REVERSAL exit")
+        self._block_crosses_before = self._last_closed_candle_ts
+        logger.info("Strategy reset for REVERSAL exit - stale crosses consumed")

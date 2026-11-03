@@ -501,6 +501,12 @@ class SymbolWorker(threading.Thread):
                     # fresh crossover before the next entry (anti-whipsaw protection).
                     self.waiting_for_new_cross = True
                     self.reversal_pending_side = None
+                    # ===== SAME-COIN RE-ENTRY COOLDOWN =====
+                    # Block an instant re-open of this coin after SL/TP exit.
+                    try:
+                        self.engine.set_reentry_cooldown(symbol, reason=f"exit: {reason}")
+                    except Exception as ce:
+                        logger.warning("Re-entry cooldown set failed: %s", ce)
                     if is_ema_reversal_tp:
                         self.strategy.reset_for_reversal()
                         # BUGFIX (dead code restored): arm the immediate OPPOSITE-side
@@ -634,6 +640,11 @@ class SymbolWorker(threading.Thread):
                 self.sl_price = None
                 self.tp_price = None
                 self.tp_stage = 0
+                # Same-coin re-entry cooldown after an external/manual close.
+                try:
+                    self.engine.set_reentry_cooldown(symbol, reason="external close detected")
+                except Exception as ce:
+                    logger.warning("Re-entry cooldown set failed: %s", ce)
                 try:
                     if hasattr(self.engine.trader, "cancel_open_orders"):
                         self.engine.trader.cancel_open_orders(symbol)
@@ -827,6 +838,20 @@ class SymbolWorker(threading.Thread):
                     self.engine.trader.close_position(symbol)
                 except Exception as e:
                     logger.warning(f"[{symbol}] Reversal cleanup close failed: {e}")
+            # CONCURRENT TRADES + COOLDOWN: reversal re-entry must respect the
+            # same limits as a normal entry. If blocked, KEEP the pending flag
+            # and wait (slot may free up / cooldown may expire) — the drift
+            # check above clears the flag if the signal goes stale.
+            can_open, rv_reason = self.engine.can_open_new_trade(symbol)
+            if not can_open:
+                now_rv = time.time()
+                if now_rv - getattr(self, '_last_rv_locked_log_time', 0) > 60:
+                    self.engine._emit("log", {
+                        "level": "info",
+                        "msg": f"[{symbol}] Reversal re-entry waiting: {rv_reason}"
+                    })
+                    self._last_rv_locked_log_time = now_rv
+                return
             self.reversal_pending_side = None
             self.waiting_for_new_cross = False
             if hasattr(self, '_waiting_logged'):
@@ -869,6 +894,9 @@ class SymbolWorker(threading.Thread):
                 can_open, _ = self.engine.can_open_new_trade(symbol)
                 if not can_open:
                     return
+                # Atomic slot claim: other workers crossing on the same candle
+                # now see this entry as pending and can not exceed the limit.
+                self.engine.register_entry_intent(symbol, signal.value)
                 self._last_cross_time = now
                 self._last_trade_candle_id = candle_id
                 self.waiting_for_new_cross = False
@@ -878,12 +906,14 @@ class SymbolWorker(threading.Thread):
 
         # Check mode allows this trade
         if signal == Signal.BUY and mode not in ("long", "both"):
+            self.engine.release_entry_intent(symbol)
             self.engine._emit("log", {
                 "level": "info",
                 "msg": f"[{symbol}] Fresh BUY cross but mode is '{mode}' - skipping LONG entry."
             })
             return
         if signal == Signal.SELL and mode not in ("short", "both"):
+            self.engine.release_entry_intent(symbol)
             self.engine._emit("log", {
                 "level": "info",
                 "msg": f"[{symbol}] Fresh SELL cross but mode is '{mode}' - skipping SHORT entry."
@@ -893,6 +923,7 @@ class SymbolWorker(threading.Thread):
         # Compute trade size
         trade_size = self._compute_trade_size(mark_price, cfg.get("leverage", 10))
         if trade_size <= 0:
+            self.engine.release_entry_intent(symbol)
             if self.candles_processed % 12 == 0:
                 self.engine._emit("log", {
                     "level": "warn",
@@ -908,6 +939,7 @@ class SymbolWorker(threading.Thread):
             if max_qty > 0 and trade_size > max_qty:
                 trade_size = self.engine.trader._round_to_step(max_qty, filters.get("step_size", 0.001))
             if trade_size < min_qty:
+                self.engine.release_entry_intent(symbol)
                 if self.candles_processed % 12 == 0:
                     self.engine._emit("log", {
                         "level": "warn",
@@ -970,6 +1002,7 @@ class SymbolWorker(threading.Thread):
         MIN_FEE_BUFFER_PCT = 0.15
         tp_dist_pct = (r_dist / mark_price) * 100.0 if mark_price > 0 else 0.0
         if tp_dist_pct < MIN_FEE_BUFFER_PCT:
+            self.engine.release_entry_intent(symbol)
             self.engine._emit("log", {
                 "level": "warn",
                 "msg": (f"[{symbol}] ⚠️ Fee safety check: TP distance ({tp_dist_pct:.3f}%) < "
@@ -1008,6 +1041,8 @@ class SymbolWorker(threading.Thread):
                     order = self.engine.trader.open_long(symbol, trade_size)
             actual_qty = order.get("quantity", trade_size)
             self._log_order(order, f"[{symbol}] OPEN LONG ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
+            # Slot claim released — position (if opened) is now tracked via expected_pos_side.
+            self.engine.release_entry_intent(symbol)
             if order.get("success"):
                 self._last_open_timestamp = time.time()
                 self.last_signal = Signal.BUY
@@ -1089,6 +1124,8 @@ class SymbolWorker(threading.Thread):
                     order = self.engine.trader.open_short(symbol, trade_size)
             actual_qty = order.get("quantity", trade_size)
             self._log_order(order, f"[{symbol}] OPEN SHORT ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
+            # Slot claim released — position (if opened) is now tracked via expected_pos_side.
+            self.engine.release_entry_intent(symbol)
             if order.get("success"):
                 self._last_open_timestamp = time.time()
                 self.last_signal = Signal.SELL
@@ -1609,6 +1646,16 @@ class BotEngine:
         self.workers: dict[str, SymbolWorker] = {}
         self.lock = threading.Lock()
         self._trade_entry_lock = threading.Lock()
+        # ===== ANTI-OVERTRADING GUARDS =====
+        # _entry_intents: symbols currently placing an entry order (claimed
+        # atomically under _trade_entry_lock). Counted by can_open_new_trade so
+        # several workers crossing on the same candle can NOT all slip past the
+        # max_concurrent_trades limit while earlier orders are still in flight.
+        self._entry_intents: dict[str, dict] = {}
+        # _reentry_block: symbol -> unix ts until which a NEW trade on that coin
+        # is blocked. Set on EVERY exit (SL/TP, manual close, external close).
+        # Kills "close karo to usi time same coin pe dobara khol deta hai".
+        self._reentry_block: dict[str, float] = {}
         self.is_running = False
         self.active_symbol = None  # Which coin the UI is currently viewing
         # ===== MONITOR MODE =====
@@ -1693,12 +1740,55 @@ class BotEngine:
         active = self.get_active_positions()
         return (len(active) > 0, active[0] if active else None)
 
+    def _reentry_cooldown_sec(self) -> float:
+        """Same-coin re-entry cooldown in seconds (config 'reentry_cooldown_sec', default 180)."""
+        try:
+            val = float(self.config.get("reentry_cooldown_sec", 180))
+        except (ValueError, TypeError):
+            val = 180.0
+        return max(0.0, min(7200.0, val))
+
+    def set_reentry_cooldown(self, symbol: str, reason: str = ""):
+        """Block a new trade on `symbol` for the cooldown period (called on every exit)."""
+        cd = self._reentry_cooldown_sec()
+        if cd <= 0:
+            return
+        self._reentry_block[str(symbol).upper()] = time.time() + cd
+        self._emit("log", {
+            "level": "info",
+            "msg": (f"[{symbol}] ⏳ Re-entry cooldown {int(cd)}s started" +
+                    (f" ({reason})" if reason else "") +
+                    " — is coin pe turant dobara trade nahi khulega."),
+        })
+
+    def reentry_blocked_remaining(self, symbol: str) -> float:
+        """Seconds left in the same-coin re-entry cooldown (0 = not blocked)."""
+        remaining = float(self._reentry_block.get(str(symbol).upper(), 0.0)) - time.time()
+        return max(0.0, remaining)
+
+    def register_entry_intent(self, symbol: str, side: str):
+        """Atomically claim a trade slot for `symbol` while the order is being placed."""
+        self._entry_intents[str(symbol).upper()] = {"side": side, "ts": time.time()}
+
+    def release_entry_intent(self, symbol: str):
+        """Release the slot claim (order placed, failed, or skipped)."""
+        self._entry_intents.pop(str(symbol).upper(), None)
+
     def can_open_new_trade(self, symbol: str) -> tuple[bool, str]:
         """Check if a new trade can be opened for symbol, respecting max_concurrent_trades (1, 2, or 3)."""
         active_symbols = self.get_active_positions()
         # If this symbol itself already has a position open, do not re-enter
         if symbol in active_symbols:
             return False, f"[{symbol}] already has an active position"
+
+        now = time.time()
+
+        # ===== SAME-COIN RE-ENTRY COOLDOWN =====
+        # Every exit (SL/TP/manual/external close) starts a cooldown; no new
+        # trade on the same coin until it expires.
+        cd_left = self.reentry_blocked_remaining(symbol)
+        if cd_left > 0:
+            return False, f"[{symbol}] re-entry cooldown active ({int(cd_left)}s left) — no instant re-entry after close"
 
         # User configurable max concurrent trades: 1, 2, or 3 (default: 3)
         try:
@@ -1707,8 +1797,16 @@ class BotEngine:
             max_trades = 3
         max_trades = max(1, min(3, max_trades))
 
-        if len(active_symbols) >= max_trades:
-            return False, f"limit of {max_trades} simultaneous coin trades reached ({', '.join(active_symbols)})"
+        # Count in-flight entry intents so simultaneous crosses on the same
+        # candle can not exceed the limit (race condition fix).
+        intent_syms = {
+            s for s, v in self._entry_intents.items()
+            if now - float(v.get("ts", 0.0)) < 60.0 and s not in active_symbols
+        }
+
+        if len(active_symbols) + len(intent_syms) >= max_trades:
+            return False, (f"limit of {max_trades} simultaneous coin trades reached "
+                           f"({', '.join(sorted(set(active_symbols) | intent_syms))})")
         return True, ""
 
     # ---------- Lifecycle ----------

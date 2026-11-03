@@ -251,6 +251,7 @@ def m_register():
             "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
             "take_profit_pct": 6, "tp_mode": "fixed", "mode": "both",
             "max_concurrent_trades": 3,
+            "reentry_cooldown_sec": 180,
             "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
         },
     }
@@ -367,6 +368,7 @@ def m_google():
                 "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
                 "take_profit_pct": 6, "tp_mode": "fixed", "mode": "both",
                 "max_concurrent_trades": 3,
+                "reentry_cooldown_sec": 180,
                 "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
             },
         }
@@ -652,6 +654,11 @@ def m_bot_config():
             config["max_concurrent_trades"] = max(1, min(3, int(data["max_concurrent_trades"])))
         except (TypeError, ValueError):
             config["max_concurrent_trades"] = 3
+    if "reentry_cooldown_sec" in data:
+        try:
+            config["reentry_cooldown_sec"] = max(0, min(7200, int(float(data["reentry_cooldown_sec"]))))
+        except (TypeError, ValueError):
+            config["reentry_cooldown_sec"] = 180
     if "min_ema_spread" in data:
         try:
             config["min_ema_spread"] = max(0, min(5, float(data["min_ema_spread"]) or 0))

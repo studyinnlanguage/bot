@@ -31,6 +31,7 @@ export function EngineScreen() {
   const [stopLossPct, setStopLossPct] = useState('2');
   const [mode, setMode] = useState('both');
   const [maxTrades, setMaxTrades] = useState('3');
+  const [reentryCd, setReentryCd] = useState('180');
   const [minSpread, setMinSpread] = useState('0');
   const [freshWindow, setFreshWindow] = useState('8');
   const [busy, setBusy] = useState(false);
@@ -55,6 +56,7 @@ export function EngineScreen() {
           setStopLossPct(String(cfg.stop_loss_pct ?? 2));
           setMode(cfg.mode || 'both');
           setMaxTrades(String(cfg.max_concurrent_trades ?? 3));
+          setReentryCd(String(cfg.reentry_cooldown_sec ?? 180));
           setMinSpread(String(cfg.min_ema_spread ?? 0));
           setFreshWindow(String(cfg.fresh_window ?? 8));
         } catch (e: any) {
@@ -78,6 +80,7 @@ export function EngineScreen() {
         amount: Number(amount), amount_pct: Number(amountPct),
         stop_loss_pct: Number(stopLossPct), mode,
         max_concurrent_trades: Number(maxTrades),
+        reentry_cooldown_sec: Number(reentryCd),
         min_ema_spread: Number(minSpread), fresh_window: Number(freshWindow),
       };
       if (apiKey.trim()) patch.api_key = apiKey.trim();
@@ -226,6 +229,8 @@ export function EngineScreen() {
           ))}
         </View>
         <Field label="MAX CONCURRENT TRADES (1–3)" value={maxTrades} onChangeText={setMaxTrades} keyboardType="numbers-and-punctuation" />
+        <Field label="SAME-COIN RE-ENTRY COOLDOWN (SECONDS, 0–7200)" value={reentryCd} onChangeText={setReentryCd} keyboardType="numbers-and-punctuation"
+          hint="After a trade closes, the bot will NOT reopen a trade on the same coin until this cooldown expires (default 180s). 0 = off." />
       </Card>
 
       <Card style={{ marginTop: 14 }}>

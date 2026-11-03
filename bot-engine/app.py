@@ -148,6 +148,7 @@ DEFAULT_CONFIG = {
     "whatsapp_phone": "",
     "whatsapp_apikey": "",
     "max_concurrent_trades": 3,
+    "reentry_cooldown_sec": 180,
     "min_ema_spread": 0,
     "fresh_window": 8,
 }
@@ -353,6 +354,7 @@ def update_config():
               "email_enabled", "email_smtp_server", "email_smtp_port",
               "email_sender", "email_password", "email_receiver",
               "whatsapp_enabled", "whatsapp_phone", "whatsapp_apikey", "max_concurrent_trades",
+              "reentry_cooldown_sec",
               "min_ema_spread", "fresh_window", "live_confirmed"]:
         if k in data:
             CONFIG[k] = data[k]
@@ -440,8 +442,14 @@ def update_config():
         CONFIG["max_concurrent_trades"] = max(1, min(3, int(CONFIG.get("max_concurrent_trades", 3))))
     except (ValueError, TypeError):
         CONFIG["max_concurrent_trades"] = 3
+    # Same-coin re-entry cooldown (seconds) — blocks instant re-open after a close
+    try:
+        CONFIG["reentry_cooldown_sec"] = max(0, min(7200, int(float(CONFIG.get("reentry_cooldown_sec", 180)))))
+    except (ValueError, TypeError):
+        CONFIG["reentry_cooldown_sec"] = 180
     if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
         ENGINE.config["max_concurrent_trades"] = CONFIG["max_concurrent_trades"]
+        ENGINE.config["reentry_cooldown_sec"] = CONFIG["reentry_cooldown_sec"]
 
     # Strategy tuning keys: 0 = auto per-symbol default (majors 0.15%, memes 0.20%)
     try:
@@ -750,6 +758,14 @@ def close_position():
             worker.be_sl_set = False
             worker.partial_tp_done = False
 
+        # Same-coin re-entry cooldown: manual close ke foran baad bot is coin
+        # pe dobara trade NAHI kholta (user complaint: "close karo to usi time
+        # ne khol deta hai same coin pe").
+        try:
+            ENGINE.set_reentry_cooldown(symbol, reason="manual close")
+        except Exception as ce:
+            logger.warning("Manual close cooldown set failed: %s", ce)
+
         # Emit position cleared event immediately to update UI
         socketio.emit("position", {
             "symbol": symbol,
@@ -848,6 +864,12 @@ def close_all_positions():
                         worker.tp_stage = 0
                         worker.be_sl_set = False
                         worker.partial_tp_done = False
+
+                    # Same-coin re-entry cooldown after Close All too.
+                    try:
+                        ENGINE.set_reentry_cooldown(sym, reason="close all")
+                    except Exception as ce:
+                        logger.warning("Close-all cooldown set failed for %s: %s", sym, ce)
 
                     socketio.emit("position", {
                         "symbol": sym,

@@ -1,25 +1,26 @@
-// WEEXIONIC Premium Neon-Green Design System (shared with web terminal).
+// WEEXIONIC REDLINE Design System v3 (shared with web terminal).
+// Dark Black × Neon Red — silver = profit/BUY, red = loss/SELL.
 export const C = {
-  bg: '#0b0e11',
-  bg2: '#12161f',
-  bg3: '#141C17',
-  card: '#12161f',
-  cardBorder: 'rgba(240, 185, 11, 0.20)',
-  neon: '#fcd535',
-  neon2: '#f0b90b',
-  neonGlow: 'rgba(240, 185, 11, 0.25)',
-  // Backwards-compatible aliases mapped strictly to Neon Green (No gold, yellow or orange):
-  gold: '#fcd535',
-  goldB: '#ffd647',
-  goldD: '#00B359',
-  txt: '#eaecef',
-  dim: '#848e9c',
-  dim2: '#526056',
-  profit: '#f0b90b',
-  loss: '#FF5252',
+  bg: '#060607',
+  bg2: '#0b0b0d',
+  bg3: '#101013',
+  card: '#0e0e11',
+  cardBorder: 'rgba(255, 45, 60, 0.22)',
+  neon: '#ff3b46',
+  neon2: '#ff2734',
+  neonGlow: 'rgba(255, 59, 70, 0.30)',
+  // Backwards-compatible aliases mapped strictly to REDLINE (No gold, yellow or green):
+  gold: '#ff3b46',
+  goldB: '#ff6b73',
+  goldD: '#8f0f1a',
+  txt: '#f2f2f4',
+  dim: '#9a9aa5',
+  dim2: '#5c5c66',
+  profit: '#f5f5f7',
+  loss: '#ff3b46',
   blue: '#00E5FF',
-  orange: '#f0b90b', // Mapped to Neon Green (Strict No Orange rule)
-  warn: '#fcd535',   // Mapped to Neon Green
+  orange: '#ff3b46', // Mapped to REDLINE (Strict No Orange rule)
+  warn: '#ff8552',   // Mapped to REDLINE warning
   purple: '#B388FF',
 };
 
@@ -30,7 +31,7 @@ export const S = {
     backgroundColor: C.card,
     borderColor: C.cardBorder,
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 14,
   } as const,
   row: { flexDirection: 'row' as const, alignItems: 'center' },
@@ -40,7 +41,7 @@ export const S = {
   h2: { fontSize: 16, fontWeight: '700' as const, color: C.txt },
   num: { fontSize: 20, fontWeight: '800' as const, color: C.txt } as const,
   goldText: { color: C.neon2, fontWeight: '800' as const },
-  sep: { height: 1, backgroundColor: 'rgba(240, 185, 11, 0.12)', marginVertical: 10 } as const,
+  sep: { height: 1, backgroundColor: 'rgba(255, 45, 60, 0.14)', marginVertical: 10 } as const,
 };
 
 export const money = (v: number | null | undefined, sign = false) => {
