@@ -980,7 +980,7 @@
 
     </main>
 
-    <!-- Mobile Segmented Bottom Navigation Bar -->
+    <!-- Mobile Bottom Navigation Bar — 4 primary actions + More sheet -->
     <nav class="mobile-bottom-nav" id="mobileNav">
         <button type="button" class="mob-nav-item active" data-tab="terminal">
             <svg viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
@@ -990,27 +990,45 @@
             <svg viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <span class="mob-nav-text">Vault</span>
         </button>
-        <button type="button" class="mob-nav-item" data-tab="history">
-            <svg viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M12 2v4"/><path d="M16 2v4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M8 10h6"/><path d="M8 14h8"/><path d="M8 18h5"/></svg>
-            <span class="mob-nav-text">Ledger</span>
-        </button>
         <button type="button" class="mob-nav-item" data-tab="config">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="M4.9 4.9l2.1 2.1"/><path d="M17 17l2.1 2.1"/><path d="M19.1 4.9 17 7"/><path d="M7 17l-2.1 2.1"/></svg>
             <span class="mob-nav-text">Engine</span>
         </button>
-        <button type="button" class="mob-nav-item" data-tab="alerts">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/><path d="M12 12l6.3-6.3"/></svg>
-            <span class="mob-nav-text">Radar</span>
-        </button>
-        <button type="button" class="mob-nav-item" data-tab="logs">
-            <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            <span class="mob-nav-text">Pulse</span>
-        </button>
-        <button type="button" class="mob-nav-item" onclick="openProfileModal()">
-            <span class="mob-nav-icon">👤</span>
-            <span class="mob-nav-text">Account</span>
+        <button type="button" class="mob-nav-item" id="mobMoreBtn" aria-haspopup="true" aria-expanded="false">
+            <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+            <span class="mob-nav-text">More</span>
         </button>
     </nav>
+
+    <!-- More — bottom sheet (Ledger / Radar / Pulse / Account / Logout) -->
+    <div class="more-sheet-overlay" id="moreSheetOverlay">
+        <div class="more-sheet" id="moreSheet" role="menu" aria-label="More sections">
+            <div class="more-sheet-grip"></div>
+            <div class="more-sheet-title">More</div>
+            <div class="more-sheet-grid">
+                <button type="button" class="more-sheet-item" data-tab="history" role="menuitem">
+                    <svg viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M12 2v4"/><path d="M16 2v4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M8 10h6"/><path d="M8 14h8"/><path d="M8 18h5"/></svg>
+                    <span>Ledger</span><small>Trade history</small>
+                </button>
+                <button type="button" class="more-sheet-item" data-tab="alerts" role="menuitem">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/><path d="M12 12l6.3-6.3"/></svg>
+                    <span>Radar</span><small>Alerts &amp; signals</small>
+                </button>
+                <button type="button" class="more-sheet-item" data-tab="logs" role="menuitem">
+                    <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    <span>Pulse</span><small>Live logs</small>
+                </button>
+                <button type="button" class="more-sheet-item" onclick="openProfileModal(); closeMoreSheet();" role="menuitem">
+                    <span class="more-sheet-emoji">👤</span>
+                    <span>Account</span><small>Referrals &amp; payouts</small>
+                </button>
+                <button type="button" class="more-sheet-item more-sheet-danger" onclick="closeMoreSheet(); fetch('/api/auth/logout',{method:'POST'}).finally(()=>window.location.href='/?logout=1');" role="menuitem">
+                    <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+                    <span>Logout</span><small>End session</small>
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- Account & Referral Portal Modal -->
     <div class="ref-modal-overlay" id="profileReferralModal" onclick="if(event.target===this)closeProfileModal()">
@@ -1155,6 +1173,15 @@
             document.body.dataset.activeTab = tab;
             document.body.dataset.mobTab = tab;
 
+            // More-sheet sync: light up the More button for secondary tabs and
+            // mark the matching sheet item active
+            const MORE_TABS = ['history', 'alerts', 'logs'];
+            const _moreBtn = document.getElementById('mobMoreBtn');
+            if (_moreBtn) _moreBtn.classList.toggle('active', MORE_TABS.includes(tab));
+            document.querySelectorAll('.more-sheet-item[data-tab]').forEach(it => {
+                it.classList.toggle('active', it.dataset.tab === tab);
+            });
+
             // Trigger chart resize if returning to terminal.
             // NOTE: window.chart is the id="chart" DIV (window named access),
             // NOT the LightweightCharts instance — that lives in the app.js
@@ -1193,6 +1220,36 @@
         // Attach workspace top tabs click listeners
         document.querySelectorAll('.ws-tab-btn').forEach(btn => {
             btn.addEventListener('click', () => switchWorkspaceTab(btn.dataset.tab));
+        });
+
+        // ---- More bottom sheet (mobile secondary navigation) ----
+        const _moreSheetOverlay = document.getElementById('moreSheetOverlay');
+        const _moreBtnEl = document.getElementById('mobMoreBtn');
+        function openMoreSheet() {
+            if (!_moreSheetOverlay) return;
+            _moreSheetOverlay.classList.add('open');
+            if (_moreBtnEl) _moreBtnEl.setAttribute('aria-expanded', 'true');
+        }
+        function closeMoreSheet() {
+            if (!_moreSheetOverlay) return;
+            _moreSheetOverlay.classList.remove('open');
+            if (_moreBtnEl) _moreBtnEl.setAttribute('aria-expanded', 'false');
+        }
+        if (_moreBtnEl) {
+            _moreBtnEl.addEventListener('click', () => {
+                _moreSheetOverlay.classList.contains('open') ? closeMoreSheet() : openMoreSheet();
+            });
+        }
+        if (_moreSheetOverlay) {
+            _moreSheetOverlay.addEventListener('click', e => {
+                if (e.target === _moreSheetOverlay) closeMoreSheet();
+            });
+        }
+        document.querySelectorAll('.more-sheet-item[data-tab]').forEach(it => {
+            it.addEventListener('click', () => {
+                switchWorkspaceTab(it.dataset.tab);
+                closeMoreSheet();
+            });
         });
 
         // Sync logs in real time to expanded logs if open

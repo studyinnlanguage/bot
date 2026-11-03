@@ -969,13 +969,13 @@ _OAUTH_PAGE_STYLE = (
     "margin:0;padding:24px}"
     ".card{max-width:640px;width:100%;background:#14181d;border:1px solid #2b3139;"
     "border-radius:14px;padding:28px}"
-    "h1{margin:0 0 10px;font-size:21px;color:#f0b90b}"
+    "h1{margin:0 0 10px;font-size:21px;color:#ff3b46}"
     "p{line-height:1.55;margin:8px 0;color:#b7bdc6}"
-    ".fix{background:rgba(240,185,11,.07);border:1px solid rgba(240,185,11,.35);"
+    ".fix{background:rgba(255,45,60,.07);border:1px solid rgba(255,45,60,.35);"
     "border-radius:10px;padding:14px 16px;margin:14px 0;line-height:1.6;color:#eaecef}"
     "code{background:#0b0e11;border:1px solid #2b3139;border-radius:6px;padding:2px 6px;"
-    "color:#f0b90b;word-break:break-all}"
-    "a.btn{display:inline-block;margin-top:14px;background:#f0b90b;color:#111;font-weight:700;"
+    "color:#ff3b46;word-break:break-all}"
+    "a.btn{display:inline-block;margin-top:14px;background:#ff3b46;color:#ffffff;font-weight:700;"
     "padding:10px 18px;border-radius:8px;text-decoration:none}"
     "ul{padding-left:20px;line-height:1.7;color:#b7bdc6}"
     "table{font-size:14px}td{padding:6px 10px}"
@@ -991,7 +991,7 @@ def _oauth_error_page(title, message, fix_html):
 <div class="card"><h1>{{ title }}</h1><p>{{ message }}</p>
 <div class="fix">{{ fix|safe }}</div>
 <a class="btn" href="/auth/google">Retry Google Sign-In</a>
-&nbsp;&nbsp;<a href="/auth/google/diag" style="color:#f0b90b">Open /auth/google/diag</a>
+&nbsp;&nbsp;<a href="/auth/google/diag" style="color:#ff3b46">Open /auth/google/diag</a>
 </div></body></html>""",
         title=title, style=_OAUTH_PAGE_STYLE, fix=fix_html, message=message)
 
@@ -1007,7 +1007,7 @@ def google_diag():
         ("Redirect URI used by server", _google_redirect_uri_for_page()),
     ]
     trs = "".join(
-        "<tr><td style='color:#f0b90b'><b>%s</b></td><td style='word-break:break-all'>%s</td></tr>"
+        "<tr><td style='color:#ff3b46'><b>%s</b></td><td style='word-break:break-all'>%s</td></tr>"
         % (k, v) for k, v in rows)
     fix = ("<ul>"
            "<li>Google Cloud Console &rarr; APIs &amp; Services &rarr; <b>Credentials</b> &rarr; your OAuth Client.</li>"
@@ -2749,8 +2749,8 @@ def bot_engine_proxy(path=''):
             return '''<html><head><meta http-equiv="refresh" content="2"></head>
             <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
             <div style="max-width:400px;margin:0 auto;">
-                <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
-                <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Starting...</h2>
+                <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #ff3b46;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
+                <h2 style="color:#ff3b46;margin-bottom:8px;">Bot Engine Starting...</h2>
                 <p style="color:#848e9c;font-size:14px;">Connecting to bot engine. Please wait...</p>
             </div>
             <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
@@ -2812,8 +2812,8 @@ def bot_engine_proxy(path=''):
         return '''<html><head><meta http-equiv="refresh" content="3"></head>
         <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
         <div style="max-width:400px;margin:0 auto;">
-            <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #f0b90b;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
-            <h2 style="color:#f0b90b;margin-bottom:8px;">Bot Engine Restarting...</h2>
+            <div style="width:60px;height:60px;border:4px solid #2a2e36;border-top:4px solid #ff3b46;border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
+            <h2 style="color:#ff3b46;margin-bottom:8px;">Bot Engine Restarting...</h2>
             <p style="color:#848e9c;font-size:14px;">Reconnecting to engine. Page will auto-refresh in 3 seconds...</p>
         </div>
         <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>

@@ -2714,6 +2714,8 @@ function initMobileNav() {
     if (!nav) return;
     const items = nav.querySelectorAll('.mob-nav-item');
     items.forEach(item => {
+        // More button (no data-tab) is handled by its own sheet listeners
+        if (!item.dataset.tab) return;
         item.addEventListener('click', () => {
             const tab = item.dataset.tab;
             if (typeof window.switchWorkspaceTab === 'function') {

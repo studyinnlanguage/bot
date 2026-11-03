@@ -10,20 +10,20 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-base: #070a0f;
-            --bg-card: #12161f;
-            --bg-surface: #1a1f2c;
-            --bg-hover: #22293a;
-            --border: #262e3d;
-            --border-highlight: #3b465c;
+            --bg-base: #060607;
+            --bg-card: #0b0b0d;
+            --bg-surface: #101013;
+            --bg-hover: #17171b;
+            --border: #1c1c22;
+            --border-highlight: #2a2a32;
             --text-main: #f0f3f8;
             --text-muted: #8e9bb0;
             --text-dim: #5c687d;
-            --gold: #fcd535;
-            --gold-glow: rgba(240, 185, 11, 0.2);
-            --emerald: #f0b90b;
-            --emerald-glow: rgba(240, 185, 11, 0.2);
-            --crimson: #f6465d;
+            --gold: #ff3b46;
+            --gold-glow: rgba(255, 45, 60, 0.2);
+            --emerald: #f5f5f7;
+            --emerald-glow: rgba(245, 245, 247, 0.09);
+            --crimson: #ff3b46;
             --crimson-glow: rgba(246, 70, 93, 0.2);
             --blue: #2b7fff;
             --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -34,7 +34,7 @@
         
         body {
             font-family: var(--font-sans);
-            background: linear-gradient(180deg, #070a0f 0%, #0d121a 50%, #070a0f 100%);
+            background: linear-gradient(180deg, #060607 0%, #0d121a 50%, #060607 100%);
             color: var(--text-main);
             min-height: 100vh;
             line-height: 1.65;
@@ -87,9 +87,9 @@
             text-transform: uppercase;
             padding: 3px 8px;
             border-radius: 6px;
-            background: rgba(240, 185, 11, 0.15);
+            background: rgba(255, 45, 60, 0.15);
             color: var(--gold);
-            border: 1px solid rgba(240, 185, 11, 0.3);
+            border: 1px solid rgba(255, 45, 60, 0.3);
             letter-spacing: 0.5px;
         }
         .nav-actions {
@@ -120,14 +120,14 @@
             background: var(--bg-hover);
         }
         .nav-btn-primary {
-            background: linear-gradient(135deg, var(--gold) 0%, #ffd647 100%);
-            color: #0b0e11;
+            background: linear-gradient(135deg, var(--gold) 0%, #ff6b73 100%);
+            color: #ffffff;
             border: none;
             box-shadow: 0 4px 14px var(--gold-glow);
         }
         .nav-btn-primary:hover {
             transform: translateY(-1px);
-            box-shadow: 0 6px 18px rgba(240, 185, 11, 0.35);
+            box-shadow: 0 6px 18px rgba(255, 45, 60, 0.35);
         }
 
         /* Container Layout */
@@ -142,7 +142,7 @@
             text-align: center;
             margin-bottom: 36px;
             padding: 32px 20px;
-            background: radial-gradient(circle at center, rgba(240, 185, 11, 0.08) 0%, rgba(18, 22, 31, 0) 70%);
+            background: radial-gradient(circle at center, rgba(255, 45, 60, 0.08) 0%, rgba(18, 22, 31, 0) 70%);
             border-radius: 20px;
             border: 1px solid rgba(255, 255, 255, 0.04);
         }
@@ -153,7 +153,7 @@
             margin-bottom: 10px;
         }
         .hero-title span {
-            background: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
+            background: linear-gradient(135deg, #ff3b46 0%, #ff3b46 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -219,7 +219,7 @@
             box-shadow: 0 4px 14px rgba(0,0,0,0.4);
         }
         .tab-btn.active.tab-disclaimer { border-color: var(--crimson); color: #ff8595; }
-        .tab-btn.active.tab-terms { border-color: var(--gold); color: #fcd535; }
+        .tab-btn.active.tab-terms { border-color: var(--gold); color: #ff3b46; }
         .tab-btn.active.tab-privacy { border-color: var(--blue); color: #7db2ff; }
         .tab-btn.active.tab-security { border-color: var(--emerald); color: #51e6ab; }
 
@@ -323,14 +323,14 @@
         }
         .alert-crimson strong { color: #fff; }
         .alert-gold {
-            background: rgba(240, 185, 11, 0.08);
-            border: 1px solid rgba(240, 185, 11, 0.35);
-            color: #f0b90b;
+            background: rgba(255, 45, 60, 0.08);
+            border: 1px solid rgba(255, 45, 60, 0.35);
+            color: #ff3b46;
         }
         .alert-gold strong { color: #fff; }
         .alert-emerald {
-            background: rgba(240, 185, 11, 0.08);
-            border: 1px solid rgba(240, 185, 11, 0.35);
+            background: rgba(255, 45, 60, 0.08);
+            border: 1px solid rgba(255, 45, 60, 0.35);
             color: #72f0b7;
         }
         .alert-emerald strong { color: #fff; }
