@@ -1211,14 +1211,26 @@ def write_user_bot_config(user_id: str) -> str:
 
     if existing and isinstance(existing, dict):
         bot_config = existing
-        # Synchronize exchange and trading parameters from DB if updated
-        if "exchange" in config and config["exchange"]:
-            bot_config["exchange"] = config["exchange"].lower()
+        # Synchronize exchange and trading parameters from DB if updated.
+        # COIN MEMORY RULE: the engine's own config file carries the user's
+        # FRESHEST coin selection (every dashboard save writes it first and
+        # mirrors it into the DB via the proxy). The DB copy is applied only
+        # when the engine file has no coins yet, OR the DB switched to a
+        # DIFFERENT exchange (then the DB coins are the only valid ones for
+        # that exchange). Result: coins selected by the user survive
+        # refreshes, engine respawns and redeploys until the user himself
+        # selects different coins.
+        _db_exchange = str(config.get("exchange") or "").lower()
+        _file_exchange = str(bot_config.get("exchange") or "").lower()
+        if _db_exchange:
+            bot_config["exchange"] = _db_exchange
         if "testnet" in config:
             bot_config["testnet"] = bool(config["testnet"])
-        if "symbols_list" in config and config["symbols_list"]:
-            bot_config["symbols_list"] = config["symbols_list"]
-            bot_config["symbol"] = config["symbols_list"][0]
+        _db_symbols = [str(s).upper().strip() for s in (config.get("symbols_list") or []) if str(s).strip()]
+        _exchange_changed = bool(_db_exchange and _file_exchange and _db_exchange != _file_exchange)
+        if _db_symbols and (not bot_config.get("symbols_list") or _exchange_changed):
+            bot_config["symbols_list"] = _db_symbols
+            bot_config["symbol"] = _db_symbols[0]
 
         # Ensure credentials from DB take precedence if engine has empty or stale keys.
         # decrypt_checked(): an unreadable ciphertext (ENCRYPTION_KEY changed after a
@@ -1267,8 +1279,8 @@ def write_user_bot_config(user_id: str) -> str:
         bot_config.update({
             "exchange": config.get("exchange", "binance"),
             "testnet": config.get("testnet", True),
-            "symbol": (config.get("symbols_list", ["BTCUSDT"]) or ["BTCUSDT"])[0],
-            "symbols_list": config.get("symbols_list", ["BTCUSDT"]),
+            "symbol": (config.get("symbols_list") or ["BTCUSDT"])[0],
+            "symbols_list": (config.get("symbols_list") or ["BTCUSDT"]),
             "timeframe": config.get("timeframe", "5m"),
             "leverage": config.get("leverage", 10),
             "amount_mode": config.get("amount_mode", "fixed"),
