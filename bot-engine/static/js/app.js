@@ -1742,10 +1742,11 @@ async function loadSettings() {
     try {
         const r = await fetch('/api/config');
         const cfg = await r.json();
+        // Per-exchange saved-credential map (presence flags only, no secrets)
+        window._savedExchanges = cfg.saved_exchanges || null;
         // Exchange
         const exchange = cfg.exchange || 'binance';
         setExchange(exchange);
-        if ($('apiPassphrase')) $('apiPassphrase').placeholder = cfg.has_api_passphrase ? 'Saved' : 'WEEX Passphrase';
         if ($('timeframe')) $('timeframe').value = cfg.timeframe || '1d';
         if ($('leverage')) {
             const savedLev = cfg.leverage || 10;
@@ -1764,7 +1765,9 @@ async function loadSettings() {
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
         if ($('mode')) $('mode').value = cfg.mode || 'both';
         if ($('testnet')) $('testnet').value = String(cfg.testnet ?? true);
-        if (cfg.has_api_key && $('apiKey')) $('apiKey').placeholder = cfg.api_key_masked || 'Saved';
+        // Saved-credential placeholders for the ACTIVE exchange (masked key
+        // when available) + ✓ markers on every saved exchange button.
+        updateSavedCredsUI(exchange, window._savedExchanges, cfg);
         // Advanced engine tuning fields
         if ($('minEmaSpread')) $('minEmaSpread').value = (cfg.min_ema_spread != null) ? cfg.min_ema_spread : 0;
         if ($('freshWindow')) $('freshWindow').value = (cfg.fresh_window != null) ? cfg.fresh_window : 8;
@@ -1849,6 +1852,42 @@ function updateQuickLevOptions(exchange) {
     });
 }
 
+// ===== Per-exchange credential memory UI ================================
+// The server remembers credentials PER EXCHANGE (api_keys slots). This
+// helper reflects the saved state of the given exchange in the UI: input
+// placeholders show "Saved ✓" (or the masked key for the active exchange)
+// and each exchange button gets a ✓ marker when its own credentials exist.
+function updateSavedCredsUI(exchange, savedMap, cfg) {
+    const info = (savedMap && savedMap[exchange]) || null;
+    const hasKey = info ? info.has_api_key : !!(cfg && cfg.has_api_key);
+    const hasSecret = info ? info.has_api_secret : !!(cfg && cfg.has_api_secret);
+    const hasPass = info ? info.has_passphrase : !!(cfg && cfg.has_api_passphrase);
+    if ($('apiKey') && hasKey) {
+        $('apiKey').placeholder = (cfg && cfg.api_key_masked) ? cfg.api_key_masked : 'Saved ✓';
+    }
+    if ($('apiSecret') && hasSecret) {
+        $('apiSecret').placeholder = 'Saved ✓';
+    }
+    if ($('apiPassphrase') && exchange === 'weex') {
+        $('apiPassphrase').placeholder = hasPass ? 'Saved ✓' : 'WEEX Passphrase';
+    }
+    markSavedExchangeButtons(savedMap, cfg);
+}
+
+function markSavedExchangeButtons(savedMap, cfg) {
+    document.querySelectorAll('.exchange-btn').forEach(btn => {
+        const ex = btn.dataset.exchange;
+        if (!btn.dataset.label) btn.dataset.label = btn.textContent.replace(/\s*✓$/, '').trim();
+        const info = savedMap && savedMap[ex];
+        const ready = info ? !!(info.has_api_key && info.has_api_secret)
+                           : !!(cfg && ex === cfg.exchange && cfg.has_api_key && cfg.has_api_secret);
+        btn.textContent = btn.dataset.label + (ready ? ' ✓' : '');
+        btn.title = ready
+            ? `${ex.toUpperCase()}: credentials saved — switch karne par auto-load hongi`
+            : `${ex.toUpperCase()}: no credentials saved yet`;
+    });
+}
+
 function setExchange(exchange) {
     const prevExchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || null;
     document.querySelectorAll('.exchange-btn').forEach(btn => {
@@ -1874,6 +1913,9 @@ function setExchange(exchange) {
         else if (exchange === 'weex') $('apiSecret').placeholder = 'Enter WEEX API Secret';
         else $('apiSecret').placeholder = 'Enter Binance API Secret';
     }
+    // Per-exchange credential memory: if THIS exchange has saved credentials,
+    // show "Saved ✓" (the switch auto-loads them server-side).
+    updateSavedCredsUI(exchange, window._savedExchanges);
     if ($('coinInput')) {
         if (exchange === 'primexbt') $('coinInput').placeholder = 'XAU/USD, BTC/USD, ETH/USD, USTEC...';
         else $('coinInput').placeholder = 'BTCUSDT, SOLUSDT, ETHUSDT...';
@@ -1918,6 +1960,13 @@ function setExchange(exchange) {
     // user's saved coins and auto-saving the defaults over their config.
     if (prevExchange && prevExchange !== exchange && !isRestoringSettings) {
         log('info', `Exchange switched: ${prevExchange} -> ${exchange}. Refreshing coin list...`);
+        // Per-exchange credential memory: tell the user what was loaded.
+        const savedInfo = window._savedExchanges && window._savedExchanges[exchange];
+        if (savedInfo && savedInfo.has_api_key && savedInfo.has_api_secret) {
+            log('success', `🔑 ${exchange.toUpperCase()} ki saved credentials auto-load ho gayin — dobara enter karne ki zaroorat nahi.`);
+        } else {
+            log('warn', `🔑 ${exchange.toUpperCase()} ke liye koi API saved nahi — is exchange ki API Key/Secret enter karke SAVE karein.`);
+        }
         // Adapt existing coins for new exchange
         if (exchange === 'primexbt') {
             coins = ['XAU/USD', 'BTC/USD', 'ETH/USD'];
@@ -2036,8 +2085,9 @@ async function saveSettings() {
             $('apiKey').value = '';
             $('apiSecret').value = '';
             $('apiPassphrase').value = '';
-            $('apiKey').placeholder = 'Saved';
-            if (exchange === 'weex') $('apiPassphrase').placeholder = 'Saved';
+            // Refresh the per-exchange saved-credential map from the response
+            window._savedExchanges = (data.config && data.config.saved_exchanges) || window._savedExchanges;
+            updateSavedCredsUI(exchange, window._savedExchanges, data.config || {});
             // Clear notification sensitive fields
             if ($('telegramBotToken')) { $('telegramBotToken').value = ''; $('telegramBotToken').placeholder = 'Saved'; }
             if ($('emailPassword')) { $('emailPassword').value = ''; $('emailPassword').placeholder = 'Saved'; }

@@ -518,34 +518,98 @@ def m_bot_config():
 
     if request.method == "GET":
         config = user.get("bot_config", {})
+        # Per-exchange saved-credential summary (presence flags only).
+        _slots = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
+        _saved = {}
+        for _ex in ("binance", "weex", "primexbt"):
+            _s = dict(_slots.get(_ex) or {})
+            _has = bool(_s.get("api_key_enc") and _s.get("api_secret_enc"))
+            if not _has and _ex == str(config.get("exchange") or "binance").lower():
+                # legacy flat set belongs to the active exchange
+                _has = bool(config.get("api_key_enc") and config.get("api_secret_enc"))
+            _saved[_ex] = _has
         return jsonify({
             "success": True,
             "config": {
                 **config,
                 "api_key_enc": None, "api_secret_enc": None, "api_passphrase_enc": None,
+                "api_keys_enc": None,
                 "has_api_key": bool(config.get("api_key_enc")),
                 "has_api_secret": bool(config.get("api_secret_enc")),
                 "has_passphrase": bool(config.get("api_passphrase_enc")),
+                "saved_exchanges": _saved,
             },
         })
 
     data = request.get_json(force=True, silent=True) or {}
     config = user.setdefault("bot_config", {})
+    _VALID_EX = ("binance", "weex", "primexbt")
 
     # ---- validation mirroring the web config route ----
+    prev_ex = str(config.get("exchange") or "binance").lower()
     if "exchange" in data:
         ex = str(data["exchange"]).lower().strip()
-        if ex not in ("binance", "weex", "primexbt"):
+        if ex not in _VALID_EX:
             return jsonify({"success": False, "error": "Unsupported exchange"}), 400
         config["exchange"] = ex
+    new_ex = str(config.get("exchange") or "binance").lower()
+
+    # ---- PER-EXCHANGE CREDENTIAL MEMORY -------------------------------------
+    # Credentials are remembered per exchange (api_keys_enc slots, encrypted).
+    # The legacy flat *_enc fields keep mirroring the ACTIVE exchange's set.
+    _slots = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
+    _slots = {k: dict(v or {}) for k, v in _slots.items() if isinstance(v, dict)}
+
+    if new_ex != prev_ex and prev_ex in _VALID_EX:
+        # Archive the legacy flat credentials under the OLD exchange (they
+        # belonged there), then re-point the flat fields to the NEW
+        # exchange's own saved set (may be empty until the user saves it).
+        old_slot = dict(_slots.get(prev_ex) or {})
+        if config.get("api_key_enc") and not old_slot.get("api_key_enc"):
+            old_slot["api_key_enc"] = config["api_key_enc"]
+        if config.get("api_secret_enc") and not old_slot.get("api_secret_enc"):
+            old_slot["api_secret_enc"] = config["api_secret_enc"]
+        if config.get("api_passphrase_enc") and not old_slot.get("api_passphrase_enc"):
+            old_slot["api_passphrase_enc"] = config["api_passphrase_enc"]
+        _slots[prev_ex] = old_slot
+    # Seed the ACTIVE exchange's slot from the legacy flat set (legacy
+    # migration — only safe when the exchange did not change above).
+    if new_ex == prev_ex:
+        act0 = dict(_slots.get(new_ex) or {})
+        if not act0.get("api_key_enc") and config.get("api_key_enc"):
+            act0["api_key_enc"] = config["api_key_enc"]
+            act0.setdefault("api_secret_enc", config.get("api_secret_enc") or "")
+            act0.setdefault("api_passphrase_enc", config.get("api_passphrase_enc") or "")
+            _slots[new_ex] = act0
+
+    if "api_key" in data and data["api_key"]:
+        _enc = _cfg["encrypt"](str(data["api_key"]).strip())
+        config["api_key_enc"] = _enc
+        _s = dict(_slots.get(new_ex) or {})
+        _s["api_key_enc"] = _enc
+        _slots[new_ex] = _s
+    if "api_secret" in data and data["api_secret"]:
+        _enc = _cfg["encrypt"](str(data["api_secret"]).strip())
+        config["api_secret_enc"] = _enc
+        _s = dict(_slots.get(new_ex) or {})
+        _s["api_secret_enc"] = _enc
+        _slots[new_ex] = _s
+    if "api_passphrase" in data and data["api_passphrase"]:
+        _enc = _cfg["encrypt"](str(data["api_passphrase"]).strip())
+        config["api_passphrase_enc"] = _enc
+        _s = dict(_slots.get(new_ex) or {})
+        _s["api_passphrase_enc"] = _enc
+        _slots[new_ex] = _s
+    config["api_keys_enc"] = _slots
+
+    if new_ex != prev_ex:
+        # Pure switch: re-point legacy flat fields to the NEW exchange's slot.
+        act = dict(_slots.get(new_ex) or {})
+        config["api_key_enc"] = act.get("api_key_enc") or ""
+        config["api_secret_enc"] = act.get("api_secret_enc") or ""
+        config["api_passphrase_enc"] = act.get("api_passphrase_enc") or ""
     if "testnet" in data:
         config["testnet"] = bool(data["testnet"])
-    if "api_key" in data and data["api_key"]:
-        config["api_key_enc"] = _cfg["encrypt"](str(data["api_key"]).strip())
-    if "api_secret" in data and data["api_secret"]:
-        config["api_secret_enc"] = _cfg["encrypt"](str(data["api_secret"]).strip())
-    if "api_passphrase" in data and data["api_passphrase"]:
-        config["api_passphrase_enc"] = _cfg["encrypt"](str(data["api_passphrase"]).strip())
     if "symbols_list" in data:
         symbols = data["symbols_list"]
         if isinstance(symbols, str):
@@ -627,7 +691,31 @@ def m_bot_config():
                     engine_payload[dst] = _cfg["decrypt"](config[src])
                 except Exception:
                     pass
+        # Per-exchange slot map for the engine (plain values over the internal
+        # token-protected proxy) so the engine's slots learn every exchange.
+        try:
+            _ex_now = str(config.get("exchange") or "binance").lower()
+            _slot_src = dict((config.get("api_keys_enc") or {}).get(_ex_now) or {})
+            _slot_plain = {}
+            for src_f, dst_f in (("api_key_enc", "api_key"), ("api_secret_enc", "api_secret"),
+                                 ("api_passphrase_enc", "api_passphrase")):
+                _enc_v = _slot_src.get(src_f) or config.get(src_f)
+                if _enc_v:
+                    _slot_plain[dst_f] = _cfg["decrypt"](_enc_v)
+            if _slot_plain.get("api_key") and _slot_plain.get("api_secret"):
+                engine_payload["api_keys"] = {_ex_now: _slot_plain}
+        except Exception:
+            pass
         engine_result = _cfg["proxy_to_bot"](user["id"], "POST", "/api/config", engine_payload)
+
+    _slots_out = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
+    _saved_out = {}
+    for _ex in ("binance", "weex", "primexbt"):
+        _s = dict(_slots_out.get(_ex) or {})
+        _has = bool(_s.get("api_key_enc") and _s.get("api_secret_enc"))
+        if not _has and _ex == str(config.get("exchange") or "binance").lower():
+            _has = bool(config.get("api_key_enc") and config.get("api_secret_enc"))
+        _saved_out[_ex] = _has
 
     return jsonify({
         "success": True,
@@ -635,9 +723,11 @@ def m_bot_config():
         "config": {
             **config,
             "api_key_enc": None, "api_secret_enc": None, "api_passphrase_enc": None,
+            "api_keys_enc": None,
             "has_api_key": bool(config.get("api_key_enc")),
             "has_api_secret": bool(config.get("api_secret_enc")),
             "has_passphrase": bool(config.get("api_passphrase_enc")),
+            "saved_exchanges": _saved_out,
         },
     })
 

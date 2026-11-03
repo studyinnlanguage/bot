@@ -26,6 +26,11 @@ from flask import Flask, jsonify, render_template, request, Response, session
 from flask_socketio import SocketIO
 
 from bot.engine import BotEngine, get_trader
+from bot.cred_slots import (
+    EXCHANGES, clean_cred, normalize_cred_slots, slot_has_creds,
+    store_creds_in_slot, archive_flat_into_slot, hydrate_flat_from_slot,
+    merge_external_slots, saved_exchanges_summary, resolve_exchange,
+)
 
 # ---------- Setup ----------
 try:
@@ -110,6 +115,11 @@ DEFAULT_CONFIG = {
     "api_key": "",
     "api_secret": "",
     "api_passphrase": "",
+    # PER-EXCHANGE CREDENTIAL MEMORY: credentials are remembered per exchange
+    # so switching Binance <-> WEEX <-> PrimeXBT auto-loads the right set
+    # instead of reusing/overwriting one shared set (root cause of the
+    # "switch exchange -> API error / key length mismatch" reports).
+    "api_keys": {},
     "exchange": "binance",
     "testnet": True,
     "symbol": "BTCUSDT",
@@ -159,6 +169,14 @@ def load_config() -> dict:
             merged["tp_mode"] = "fixed"
             merged["take_profit_pct"] = merged.get("stop_loss_pct", 2)
             merged["trailing_roe_pct"] = 100.0
+            # Per-exchange credential memory: if a slot map exists, the flat
+            # fields MUST mirror the ACTIVE exchange's own saved credentials.
+            # (A legacy file without slots keeps its flat credentials as-is;
+            # they are archived into the right slot at the first live switch —
+            # see update_config.)
+            if isinstance(merged.get("api_keys"), dict) and any(
+                    slot_has_creds(s) for s in normalize_cred_slots(merged["api_keys"]).values()):
+                hydrate_flat_from_slot(merged, merged.get("exchange"))
             if path != CONFIG_FILE:
                 logger.warning("config.json was unreadable — settings recovered from %s", path.name)
             return merged
@@ -242,12 +260,13 @@ def get_config():
     # Presence flags + masked previews only.
     _SECRET_FIELDS = (
         "api_key", "api_secret", "api_passphrase", "email_password",
-        "telegram_bot_token", "whatsapp_apikey",
+        "telegram_bot_token", "whatsapp_apikey", "api_keys",
     )
     safe = {k: v for k, v in CONFIG.items() if k not in _SECRET_FIELDS}
     safe["has_api_key"] = bool(CONFIG.get("api_key"))
     safe["has_api_secret"] = bool(CONFIG.get("api_secret"))
     safe["has_api_passphrase"] = bool(CONFIG.get("api_passphrase"))
+    safe["saved_exchanges"] = saved_exchanges_summary(CONFIG)
     safe["has_telegram_token"] = bool(CONFIG.get("telegram_bot_token"))
     safe["has_email_password"] = bool(CONFIG.get("email_password"))
     safe["has_whatsapp_apikey"] = bool(CONFIG.get("whatsapp_apikey"))
@@ -327,7 +346,7 @@ def update_config():
     # exchange switch can be detected and handled safely.
     prev_exchange = (CONFIG.get("exchange") or "binance").lower()
 
-    for k in ["exchange", "api_passphrase", "symbol", "symbols_list", "timeframe",
+    for k in ["exchange", "symbol", "symbols_list", "timeframe",
               "leverage", "amount", "amount_mode", "amount_pct",
               "stop_loss_pct", "take_profit_pct", "trailing_roe_pct", "tp_mode", "mode", "testnet", "auto_start",
               "telegram_enabled", "telegram_bot_token", "telegram_chat_id",
@@ -338,20 +357,53 @@ def update_config():
         if k in data:
             CONFIG[k] = data[k]
 
-    if data.get("api_key"):
-        CONFIG["api_key"] = data["api_key"]
-    if data.get("api_secret"):
-        CONFIG["api_secret"] = data["api_secret"]
+    # ---- PER-EXCHANGE CREDENTIAL MEMORY -------------------------------------
+    # Credentials are remembered PER EXCHANGE (api_keys slots). The flat
+    # api_key/api_secret/api_passphrase stay the LIVE credentials of the
+    # ACTIVE exchange for every existing consumer (engine, traders, gates).
+    # This replaces the old behaviour of one shared credential set that was
+    # silently reused on the new exchange (Binance 64-char key on PrimeXBT
+    # -> "API-key format invalid" / length mismatch) and overwritten on save
+    # (switch back -> keys gone).
+    incoming_exchange = resolve_exchange(data.get("exchange") or CONFIG.get("exchange"))
+    # 1) Merge a payload-supplied slot map first (mobile API sync sends
+    #    api_keys so the engine learns every exchange's credentials).
+    if isinstance(data.get("api_keys"), dict):
+        merge_external_slots(CONFIG, data["api_keys"])
+    # 2) Live exchange switch: archive the current flat credentials under the
+    #    exchange they were used on (legacy migration), then auto-load the
+    #    NEW exchange's own saved credentials.
+    if incoming_exchange != prev_exchange:
+        archive_flat_into_slot(CONFIG, prev_exchange)
+        hydrate_flat_from_slot(CONFIG, incoming_exchange)
+    # 3) Newly typed credentials go into the ACTIVE exchange's slot and are
+    #    mirrored to the flat fields (a switch + new keys in one save both work).
+    if (clean_cred(data.get("api_key")) or clean_cred(data.get("api_secret"))
+            or clean_cred(data.get("api_passphrase"))):
+        store_creds_in_slot(CONFIG, incoming_exchange,
+                            data.get("api_key"), data.get("api_secret"), data.get("api_passphrase"))
+        hydrate_flat_from_slot(CONFIG, incoming_exchange)
 
-    CONFIG["exchange"] = (CONFIG.get("exchange") or "binance").lower()
-    if CONFIG["exchange"] not in ("binance", "weex", "primexbt"):
-        CONFIG["exchange"] = "binance"
+    CONFIG["exchange"] = incoming_exchange
 
     # ---- Exchange switch safety ------------------------------------------
     # Detect a live exchange change and rebuild the engine adapters, so the
     # old exchange's trader never receives the new exchange's symbols.
     if CONFIG["exchange"] != prev_exchange:
         _handle_exchange_switch(prev_exchange, CONFIG["exchange"])
+        # Tell the user which credentials are now live for the new exchange.
+        try:
+            _slot_now = normalize_cred_slots(CONFIG.get("api_keys")).get(CONFIG["exchange"]) or {}
+            if slot_has_creds(_slot_now):
+                socketio.emit("log", {"level": "success",
+                                      "msg": (f"\U0001f511 {CONFIG['exchange'].upper()} ki saved credentials "
+                                              "auto-load ho gayin — dobara enter karne ki zaroorat nahi.")})
+            else:
+                socketio.emit("log", {"level": "warn",
+                                      "msg": (f"\U0001f511 {CONFIG['exchange'].upper()} ke liye koi API saved nahi "
+                                              "— is exchange ki API Key/Secret enter karke SAVE karein.")})
+        except Exception:
+            pass
 
     max_lev = 1000 if CONFIG["exchange"] == "primexbt" else (500 if CONFIG["exchange"] == "weex" else 125)
     CONFIG["leverage"] = max(1, min(max_lev, int(CONFIG["leverage"])))
@@ -452,11 +504,12 @@ def update_config():
             logger.warning("Could not sync engine config on save: %s", _e)
 
     _SECRET_FIELDS = ("api_secret", "email_password", "telegram_bot_token", "whatsapp_apikey",
-                      "api_key", "api_passphrase")
+                      "api_key", "api_passphrase", "api_keys")
     safe_cfg = {k: v for k, v in CONFIG.items() if k not in _SECRET_FIELDS}
     safe_cfg["has_api_key"] = bool(CONFIG.get("api_key"))
     safe_cfg["has_api_secret"] = bool(CONFIG.get("api_secret"))
     safe_cfg["has_api_passphrase"] = bool(CONFIG.get("api_passphrase"))
+    safe_cfg["saved_exchanges"] = saved_exchanges_summary(CONFIG)
     resp = {"success": True, "config": safe_cfg}
     if auth_check is not None:
         resp["auth_check"] = auth_check

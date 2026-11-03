@@ -1238,18 +1238,74 @@ def write_user_bot_config(user_id: str) -> str:
         # the exact mechanism that produced Binance -2014 on all symbols. Instead we
         # keep whatever the engine already has and flag api_key_invalid so the UI
         # tells the user to re-save the key.
+        #
+        # ---- PER-EXCHANGE CREDENTIAL MEMORY ---------------------------------
+        # The engine file's api_keys slots are the freshest per-exchange
+        # credentials; the DB's encrypted slots (api_keys_enc) fill in any
+        # exchange the engine file does not know yet. On an exchange switch
+        # between the two, the flat credentials are archived under the OLD
+        # exchange and the NEW exchange's own saved set is loaded — never the
+        # old behaviour of carrying one shared set across exchanges.
+        _VALID_EX = ("binance", "weex", "primexbt")
         _creds_invalid = False
-        for _plain_key, _enc_key in (("api_key", "api_key_enc"),
-                                     ("api_secret", "api_secret_enc"),
-                                     ("api_passphrase", "api_passphrase_enc")):
-            if not bot_config.get(_plain_key) and config.get(_enc_key):
-                ok, val = decrypt_checked(config.get(_enc_key, ""))
-                if ok:
-                    bot_config[_plain_key] = val.strip().strip('"').strip("'")
-                else:
-                    _creds_invalid = True
-                    logger.error("Credential %s unreadable with current ENCRYPTION_KEY "
-                                 "(key changed after redeploy?). User must re-save it.", _enc_key)
+        _db_slots = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
+        _file_slots = bot_config.get("api_keys") if isinstance(bot_config.get("api_keys"), dict) else {}
+        _slots = {}
+        for _ex in _VALID_EX:
+            _s = dict(_file_slots.get(_ex) or {})
+            _d = dict(_db_slots.get(_ex) or {})
+            for _enc_f, _plain_f in (("api_key_enc", "api_key"),
+                                     ("api_secret_enc", "api_secret"),
+                                     ("api_passphrase_enc", "api_passphrase")):
+                if not _s.get(_plain_f) and _d.get(_enc_f):
+                    ok, val = decrypt_checked(_d[_enc_f])
+                    if ok:
+                        _s[_plain_f] = str(val).strip().strip('"').strip("'")
+                    else:
+                        _creds_invalid = True
+                        logger.error("Credential %s/%s unreadable with current ENCRYPTION_KEY "
+                                     "(key changed after redeploy?). User must re-save it.", _ex, _enc_f)
+            _slots[_ex] = _s
+
+        if _exchange_changed and _file_exchange in _VALID_EX:
+            # Exchange switch (DB vs engine file): archive the engine file's
+            # flat credentials under the exchange they were used on, then
+            # auto-load the NEW exchange's own saved credentials.
+            if bot_config.get("api_key") or bot_config.get("api_secret") or bot_config.get("api_passphrase"):
+                _old = dict(_slots.get(_file_exchange) or {})
+                _old.setdefault("api_key", str(bot_config.get("api_key") or "").strip().strip('"').strip("'"))
+                _old.setdefault("api_secret", str(bot_config.get("api_secret") or "").strip().strip('"').strip("'"))
+                _old.setdefault("api_passphrase", str(bot_config.get("api_passphrase") or "").strip().strip('"').strip("'"))
+                _slots[_file_exchange] = _old
+            _act_new = _db_exchange if _db_exchange in _VALID_EX else "binance"
+            _new = dict(_slots.get(_act_new) or {})
+            bot_config["api_key"] = str(_new.get("api_key") or "")
+            bot_config["api_secret"] = str(_new.get("api_secret") or "")
+            bot_config["api_passphrase"] = str(_new.get("api_passphrase") or "")
+        else:
+            # Same exchange: the legacy one-set DB credentials may still fill
+            # an empty flat field (older clients), then seed the active slot
+            # so both stay in sync.
+            for _plain_key, _enc_key in (("api_key", "api_key_enc"),
+                                         ("api_secret", "api_secret_enc"),
+                                         ("api_passphrase", "api_passphrase_enc")):
+                if not bot_config.get(_plain_key) and config.get(_enc_key):
+                    ok, val = decrypt_checked(config.get(_enc_key, ""))
+                    if ok:
+                        bot_config[_plain_key] = val.strip().strip('"').strip("'")
+                    else:
+                        _creds_invalid = True
+                        logger.error("Credential %s unreadable with current ENCRYPTION_KEY "
+                                     "(key changed after redeploy?). User must re-save it.", _enc_key)
+            _act_ex = _db_exchange if _db_exchange in _VALID_EX else "binance"
+            if (bot_config.get("api_key") or bot_config.get("api_secret")) \
+                    and not (_slots.get(_act_ex) or {}).get("api_key"):
+                _slots[_act_ex] = {
+                    "api_key": str(bot_config.get("api_key") or "").strip().strip('"').strip("'"),
+                    "api_secret": str(bot_config.get("api_secret") or "").strip().strip('"').strip("'"),
+                    "api_passphrase": str(bot_config.get("api_passphrase") or "").strip().strip('"').strip("'"),
+                }
+        bot_config["api_keys"] = _slots
 
         # Sanitize existing keys if present
         if bot_config.get("api_key"):
@@ -1305,6 +1361,44 @@ def write_user_bot_config(user_id: str) -> str:
             "whatsapp_phone": config.get("whatsapp_phone", ""),
             "whatsapp_apikey": decrypt(config.get("whatsapp_apikey_enc", "")),
         })
+        # ---- PER-EXCHANGE CREDENTIAL MEMORY (fresh instance) -----------------
+        # Build the slots from the DB's encrypted per-exchange sets; the
+        # legacy flat set (one shared credential group) seeds the ACTIVE
+        # exchange's slot because it belonged to that exchange.
+        _VALID_EX = ("binance", "weex", "primexbt")
+        _db_slots = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
+        _slots = {}
+        for _ex in _VALID_EX:
+            _d = dict(_db_slots.get(_ex) or {})
+            _s = {"api_key": "", "api_secret": "", "api_passphrase": ""}
+            for _enc_f, _plain_f in (("api_key_enc", "api_key"),
+                                     ("api_secret_enc", "api_secret"),
+                                     ("api_passphrase_enc", "api_passphrase")):
+                if _d.get(_enc_f):
+                    ok, val = decrypt_checked(_d[_enc_f])
+                    if ok:
+                        _s[_plain_f] = str(val).strip().strip('"').strip("'")
+                    else:
+                        _creds_invalid = True
+                        logger.error("Credential %s/%s unreadable with current ENCRYPTION_KEY "
+                                     "(key changed after redeploy?). User must re-save it.", _ex, _enc_f)
+            _slots[_ex] = _s
+        _act_ex = str(bot_config.get("exchange") or "binance").lower()
+        if _act_ex not in _VALID_EX:
+            _act_ex = "binance"
+        if not (_slots.get(_act_ex) or {}).get("api_key") and bot_config.get("api_key"):
+            _slots[_act_ex] = {
+                "api_key": str(bot_config.get("api_key") or "").strip().strip('"').strip("'"),
+                "api_secret": str(bot_config.get("api_secret") or "").strip().strip('"').strip("'"),
+                "api_passphrase": str(bot_config.get("api_passphrase") or "").strip().strip('"').strip("'"),
+            }
+        bot_config["api_keys"] = _slots
+        # Hydrate the flat fields from the ACTIVE exchange's own slot so the
+        # engine never starts with another exchange's credentials.
+        _a = dict(_slots.get(_act_ex) or {})
+        bot_config["api_key"] = str(_a.get("api_key") or "")
+        bot_config["api_secret"] = str(_a.get("api_secret") or "")
+        bot_config["api_passphrase"] = str(_a.get("api_passphrase") or "")
         bot_config["api_key_invalid"] = _creds_invalid
     if "auto_start" not in bot_config:
         bot_config["auto_start"] = False
@@ -1345,6 +1439,7 @@ def _sync_engine_config_to_db(user: dict, data: dict):
     leverage resets, amount-mode resets, etc.).
     """
     config = user.setdefault("bot_config", {})
+    prev_db_exchange = str(config.get("exchange") or "").lower()
     if "exchange" in data:
         ex = str(data["exchange"] or "binance").lower()
         # Keep the exchange EXACTLY as saved (binance, weex OR primexbt).
@@ -1354,15 +1449,94 @@ def _sync_engine_config_to_db(user: dict, data: dict):
         config["exchange"] = ex if ex in ("binance", "weex", "primexbt") else "binance"
     if "testnet" in data:
         config["testnet"] = bool(data["testnet"])
-    if data.get("api_key") and str(data["api_key"]).strip():
-        config["api_key_enc"] = encrypt(str(data["api_key"]).strip())
-    if data.get("api_secret") and str(data["api_secret"]).strip():
-        config["api_secret_enc"] = encrypt(str(data["api_secret"]).strip())
-    if "api_passphrase" in data:
-        if data["api_passphrase"] and str(data["api_passphrase"]).strip():
-            config["api_passphrase_enc"] = encrypt(str(data["api_passphrase"]).strip())
-        elif data["api_passphrase"] == "":
-            config["api_passphrase_enc"] = ""
+    new_db_exchange = str(config.get("exchange") or "binance").lower()
+
+    # ---- PER-EXCHANGE CREDENTIAL SLOTS (encrypted at rest) -------------------
+    # api_keys_enc mirrors the engine's per-exchange api_keys slots:
+    #   {exchange: {"api_key_enc": ..., "api_secret_enc": ..., "api_passphrase_enc": ...}}
+    # The legacy flat *_enc fields keep mirroring the ACTIVE exchange's
+    # credentials so admin views and older mobile clients keep working.
+    _VALID_EX = ("binance", "weex", "primexbt")
+    _raw_slots = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
+    slots = {k: dict(v or {}) for k, v in _raw_slots.items() if isinstance(v, dict)}
+
+    def _enc_val(plain) -> str:
+        try:
+            s = str(plain or "").strip()
+            return encrypt(s) if s else ""
+        except Exception:
+            return ""
+
+    # Seed the ACTIVE exchange's slot from the legacy flat set ONCE (the
+    # legacy set belonged to the exchange that was active when it was saved —
+    # only safe while no exchange change happens in this same payload).
+    if prev_db_exchange == new_db_exchange:
+        _act = dict(slots.get(new_db_exchange) or {})
+        if not _act.get("api_key_enc") and config.get("api_key_enc"):
+            _act["api_key_enc"] = config["api_key_enc"]
+            _act.setdefault("api_secret_enc", config.get("api_secret_enc") or "")
+            _act.setdefault("api_passphrase_enc", config.get("api_passphrase_enc") or "")
+            slots[new_db_exchange] = _act
+
+    _stored_active = {"api_key": False, "api_secret": False, "api_passphrase": False}
+
+    # 1) A payload may carry a full per-exchange slot map (mobile engine-sync
+    #    sends api_keys). Only non-empty values are applied.
+    payload_slots = data.get("api_keys") if isinstance(data.get("api_keys"), dict) else None
+    if payload_slots:
+        for pex, pslot in payload_slots.items():
+            pex_l = str(pex or "").lower()
+            if pex_l not in _VALID_EX or not isinstance(pslot, dict):
+                continue
+            tgt = dict(slots.get(pex_l) or {})
+            for _pf in ("api_key", "api_secret", "api_passphrase"):
+                _v = str(pslot.get(_pf) or "").strip()
+                if _v:
+                    tgt[f"{_pf}_enc"] = _enc_val(_v)
+                    if pex_l == new_db_exchange:
+                        _stored_active[_pf] = True
+            slots[pex_l] = tgt
+
+    # 2) Flat payload credentials (web dashboard saves / older mobile
+    #    clients) are stored under the ACTIVE exchange's slot.
+    for _pf in ("api_key", "api_secret", "api_passphrase"):
+        _v = str(data.get(_pf) or "").strip()
+        if _v:
+            tgt = dict(slots.get(new_db_exchange) or {})
+            tgt[f"{_pf}_enc"] = _enc_val(_v)
+            slots[new_db_exchange] = tgt
+            _stored_active[_pf] = True
+
+    # 3) Live exchange switch: archive the legacy flat credentials under the
+    #    OLD exchange (they belonged there), so nothing is ever lost.
+    if new_db_exchange != prev_db_exchange and prev_db_exchange in _VALID_EX:
+        old_slot = dict(slots.get(prev_db_exchange) or {})
+        if config.get("api_key_enc") and not old_slot.get("api_key_enc"):
+            old_slot["api_key_enc"] = config["api_key_enc"]
+        if config.get("api_secret_enc") and not old_slot.get("api_secret_enc"):
+            old_slot["api_secret_enc"] = config["api_secret_enc"]
+        if config.get("api_passphrase_enc") and not old_slot.get("api_passphrase_enc"):
+            old_slot["api_passphrase_enc"] = config["api_passphrase_enc"]
+        slots[prev_db_exchange] = old_slot
+    config["api_keys_enc"] = slots
+
+    # Re-point the legacy flat fields to the ACTIVE exchange's slot:
+    #  - on an exchange switch (pure switch re-points; possibly empty for the
+    #    new exchange — the user then saves that exchange's keys once), or
+    #  - when new credentials for the active exchange arrived in this payload.
+    if new_db_exchange != prev_db_exchange or any(_stored_active.values()):
+        act = dict(slots.get(new_db_exchange) or {})
+        if new_db_exchange != prev_db_exchange and not any(_stored_active.values()):
+            config["api_key_enc"] = act.get("api_key_enc") or ""
+            config["api_secret_enc"] = act.get("api_secret_enc") or ""
+            config["api_passphrase_enc"] = act.get("api_passphrase_enc") or ""
+        else:
+            if act.get("api_key_enc"):
+                config["api_key_enc"] = act["api_key_enc"]
+            if act.get("api_secret_enc"):
+                config["api_secret_enc"] = act["api_secret_enc"]
+            if act.get("api_passphrase_enc"):
+                config["api_passphrase_enc"] = act["api_passphrase_enc"]
     if "symbols_list" in data and isinstance(data["symbols_list"], list):
         config["symbols_list"] = [str(s).upper().strip() for s in data["symbols_list"] if str(s).strip()]
 
