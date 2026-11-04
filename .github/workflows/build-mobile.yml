@@ -68,13 +68,13 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.0.0-apk
+          name: WEEXIONIC-v2.1.0-apk
           path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
 
       - name: Upload AAB artifact (Play Store)
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.0.0-aab
+          name: WEEXIONIC-v2.1.0-aab
           path: mobile-app/android/app/build/outputs/bundle/release/app-release.aab
 
       - name: Attach APK to release (when triggered by a release)
