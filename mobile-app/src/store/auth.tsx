@@ -1,10 +1,8 @@
 // Auth context — session state + login/register/google/logout actions.
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Linking } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi, type UserSnapshot } from '../api/endpoints';
 import { tokenStore } from '../api/client';
-import { DEEP_LINK_OAUTH } from '../config/env';
 
 interface AuthState {
   loading: boolean;

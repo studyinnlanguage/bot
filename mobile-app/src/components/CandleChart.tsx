@@ -88,15 +88,15 @@ export function CandleChart({ candles, emas }: { candles: Candle[]; emas?: Emas 
 
   const emaSeries: Array<[string | null, string]> = [
     [view.ema8, C.blue],
-    [view.ema13, C.neon2],
+    [view.ema13, C.orange],
     [view.ema21, C.purple],
-    [view.ema55, C.loss],
+    [view.ema55, C.cyan],
   ];
 
   return (
     <Svg width="100%" height={H}>
       {view.gridLines.map((gy, i) => (
-        <Line key={i} x1={0} x2={W - PAD_R} y1={gy} y2={gy} stroke="rgba(255,45,60,0.10)" strokeWidth={1} />
+        <Line key={i} x1={0} x2={W - PAD_R} y1={gy} y2={gy} stroke="rgba(61, 139, 255,0.10)" strokeWidth={1} />
       ))}
       {view.candles.map((d, i) => (
         <React.Fragment key={i}>

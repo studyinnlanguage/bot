@@ -1,6 +1,6 @@
 // Pulse — live engine activity log via Socket.IO.
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, ScrollView, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { Card, Empty, GlassButton, SectionTitle } from '../components/ui';
 import { getSocket } from '../socket/ws';
 import { C } from '../theme/theme';
@@ -60,7 +60,7 @@ export function PulseScreen() {
             keyExtractor={i => String(i.id)}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             renderItem={({ item }) => (
-              <View style={{ paddingVertical: 4, borderBottomColor: 'rgba(255,45,60,0.06)', borderBottomWidth: 1 }}>
+              <View style={{ paddingVertical: 4, borderBottomColor: 'rgba(61, 139, 255,0.06)', borderBottomWidth: 1 }}>
                 <Text style={{ color: C.dim2, fontSize: 9 }}>{item.ts}</Text>
                 <Text style={{ color: colorFor(item.level), fontSize: 11.5, lineHeight: 16 }}>{item.msg}</Text>
               </View>

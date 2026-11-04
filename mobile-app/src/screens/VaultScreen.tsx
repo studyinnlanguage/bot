@@ -9,7 +9,7 @@ import { C, money, price } from '../theme/theme';
 export function VaultScreen() {
   const [positions, setPositions] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
   const pull = useCallback(async () => {
@@ -82,7 +82,7 @@ export function VaultScreen() {
       </SectionTitle>
       <ErrorNote msg={err} />
       {note ? (
-        <View style={{ backgroundColor: 'rgba(255,45,60,0.1)', borderColor: 'rgba(255,45,60,0.4)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
+        <View style={{ backgroundColor: 'rgba(46,207,138,0.1)', borderColor: 'rgba(46,207,138,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
           <Text style={{ color: C.profit, fontSize: 12.5 }}>{note}</Text>
         </View>
       ) : null}
@@ -93,7 +93,7 @@ export function VaultScreen() {
         </Card>
       ) : (
         positions.map(p => (
-          <Card key={p.symbol} style={{ marginBottom: 12, borderColor: p.side === 'LONG' ? 'rgba(255,45,60,0.4)' : p.side === 'SHORT' ? 'rgba(255,59,70,0.4)' : C.cardBorder }}>
+          <Card key={p.symbol} style={{ marginBottom: 12, borderColor: p.side === 'LONG' ? 'rgba(46,207,138,0.45)' : p.side === 'SHORT' ? 'rgba(246,70,93,0.45)' : C.cardBorder }}>
             {p.side === 'NONE' ? (
               <Text style={{ color: C.dim2, fontSize: 12 }}>{p.symbol}: flat</Text>
             ) : (

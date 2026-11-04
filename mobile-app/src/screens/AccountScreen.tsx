@@ -2,7 +2,6 @@
 // referral program with payout wallet and withdrawals.
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   ScrollView,
@@ -57,24 +56,24 @@ export function AccountScreen() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ padding: 14, paddingBottom: 30 }}>
       <Card style={{ alignItems: 'center', paddingVertical: 18 }}>
-        <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#0b0b0d', borderWidth: 1.4, borderColor: 'rgba(255,45,60,0.6)', alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: '#0d1220', borderWidth: 1.4, borderColor: 'rgba(61, 139, 255,0.6)', alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ color: C.neon, fontSize: 24, fontWeight: '900', fontStyle: 'italic' }}>W</Text>
         </View>
         <Text style={{ color: C.txt, fontWeight: '900', fontSize: 17, marginTop: 10 }}>{user?.name}</Text>
         <Text style={{ color: C.dim, fontSize: 12.5 }}>{user?.email}</Text>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-          <View style={{ borderColor: 'rgba(255,45,60,0.3)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+          <View style={{ borderColor: 'rgba(61, 139, 255,0.3)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
             <Text style={{ color: sub?.active ? C.neon2 : C.dim, fontSize: 11.5, fontWeight: '800' }}>
               {sub?.active ? `${String(sub.plan).toUpperCase()}${sub.days_left != null ? ` · ${sub.days_left}d LEFT` : ''}` : 'NO ACTIVE PLAN'}
             </Text>
           </View>
           {user?.bot_config?.testnet ? (
-            <View style={{ borderColor: 'rgba(255,183,77,0.4)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
-              <Text style={{ color: C.neon, fontSize: 11.5, fontWeight: '800' }}>DEMO</Text>
+            <View style={{ borderColor: 'rgba(46,207,138,0.45)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+              <Text style={{ color: C.profit, fontSize: 11.5, fontWeight: '800' }}>DEMO</Text>
             </View>
           ) : (
-            <View style={{ borderColor: 'rgba(255,45,60,0.4)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
-              <Text style={{ color: C.neon2, fontSize: 11.5, fontWeight: '800' }}>LIVE</Text>
+            <View style={{ borderColor: 'rgba(246,70,93,0.45)', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+              <Text style={{ color: C.loss, fontSize: 11.5, fontWeight: '800' }}>LIVE</Text>
             </View>
           )}
         </View>
@@ -87,7 +86,7 @@ export function AccountScreen() {
 
       <View style={{ flexDirection: 'row', marginTop: 14, marginBottom: 6 }}>
         {(['profile', 'packages', 'referral'] as const).map(t => (
-          <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 12, backgroundColor: tab === t ? 'rgba(255,45,60,0.15)' : 'transparent', marginRight: 6 }}>
+          <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 12, backgroundColor: tab === t ? 'rgba(61, 139, 255,0.15)' : 'transparent', marginRight: 6 }}>
             <Text style={{ color: tab === t ? C.neon : C.dim, fontWeight: '800', fontSize: 12 }}>
               {t === 'profile' ? 'ACCOUNT' : t === 'packages' ? 'PLANS' : 'REFERRALS'}
             </Text>
@@ -159,7 +158,7 @@ function PackagesTab() {
     <>
       <ErrorNote msg={err} />
       {Object.entries(packages).map(([id, p]: any) => (
-        <Card key={id} style={{ marginTop: 8, borderColor: p.popular ? 'rgba(255,45,60,0.55)' : C.cardBorder }}>
+        <Card key={id} style={{ marginTop: 8, borderColor: p.popular ? 'rgba(61, 139, 255,0.55)' : C.cardBorder }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View>
               <Text style={{ color: C.neon, fontWeight: '900', fontSize: 16 }}>{p.name}</Text>
@@ -180,7 +179,7 @@ function PackagesTab() {
           <Text style={{ color: C.dim2, fontSize: 12 }}>No orders yet.</Text>
         ) : (
           orders.slice(0, 8).map(o => (
-            <View key={o.id} style={{ paddingVertical: 8, borderBottomColor: 'rgba(255,45,60,0.08)', borderBottomWidth: 1 }}>
+            <View key={o.id} style={{ paddingVertical: 8, borderBottomColor: 'rgba(61, 139, 255,0.08)', borderBottomWidth: 1 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: C.txt, fontSize: 12, fontWeight: '700' }}>{o.id}</Text>
                 <Text style={{ color: o.status === 'verified' ? C.profit : o.status === 'rejected' ? C.loss : C.neon2, fontSize: 11.5, fontWeight: '800', textTransform: 'uppercase' }}>
@@ -225,7 +224,6 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
   useEffect(() => {
     if (!order || polling) return;
     if (order.status !== 'submitted') return;
-    let stop = false;
     setPolling(true);
     const t = setInterval(async () => {
       try {
@@ -237,7 +235,6 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
       } catch {}
     }, 6000);
     return () => {
-      stop = true;
       clearInterval(t);
     };
   }, [order, polling]);
@@ -274,7 +271,7 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' }}>
-        <View style={{ backgroundColor: C.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%', borderColor: 'rgba(255,45,60,0.25)', borderWidth: 1 }}>
+        <View style={{ backgroundColor: C.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%', borderColor: 'rgba(61, 139, 255,0.25)', borderWidth: 1 }}>
           {verified ? (
             <View style={{ alignItems: 'center', paddingVertical: 30 }}>
               <Text style={{ color: C.profit, fontSize: 40 }}>✓</Text>
@@ -300,9 +297,9 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
                       paddingVertical: 10,
                       borderRadius: 12,
                       marginRight: 8,
-                      backgroundColor: network === n ? 'rgba(255,45,60,0.16)' : 'rgba(0,0,0,0.3)',
+                      backgroundColor: network === n ? 'rgba(61, 139, 255,0.16)' : 'rgba(0,0,0,0.3)',
                       borderWidth: 1,
-                      borderColor: network === n ? C.neon2 : 'rgba(255,45,60,0.15)',
+                      borderColor: network === n ? C.neon2 : 'rgba(61, 139, 255,0.15)',
                     }}>
                     <Text style={{ color: network === n ? C.neon : C.dim, fontWeight: '800', fontSize: 12 }}>
                       {n.toUpperCase()}
@@ -312,7 +309,7 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
               </View>
               <View style={{ alignItems: 'center', marginVertical: 10 }}>
                 {address ? (
-                  <QRCode value={address} size={148} backgroundColor="#FFFFFF" color="#060607" />
+                  <QRCode value={address} size={148} backgroundColor="#FFFFFF" color="#05070d" />
                 ) : (
                   <View style={{ padding: 24, alignItems: 'center' }}>
                     <Text style={{ color: C.warn, fontSize: 13, textAlign: 'center', lineHeight: 18 }}>
@@ -322,7 +319,7 @@ function PaymentModal({ order, wallets, onClose }: { order: any; wallets: any; o
                 )}
                 <Text style={{ color: C.dim2, fontSize: 10.5, marginTop: 8 }}>{networkLabel}</Text>
               </View>
-              <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(255,45,60,0.2)' }}>
+              <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(61, 139, 255,0.2)' }}>
                 <Text style={{ color: address ? C.neon2 : C.warn, fontSize: 11.5 }} selectable>
                   {address || 'Wallet address unavailable — select other network or contact support.'}
                 </Text>
@@ -425,7 +422,7 @@ function ReferralTab() {
       <Card style={{ marginTop: 6 }}>
         <SectionTitle>YOUR REFERRAL LINK</SectionTitle>
         <TouchableOpacity onPress={copyRef}>
-          <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(255,45,60,0.2)' }}>
+          <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(61, 139, 255,0.2)' }}>
             <Text style={{ color: C.goldB, fontSize: 11.5 }} selectable>
               {data?.referral_link || '…'}
             </Text>
@@ -467,7 +464,7 @@ function ReferralTab() {
           <Text style={{ color: C.dim2, fontSize: 12 }}>No referral earnings yet.</Text>
         ) : (
           data.referral_history.slice(0, 10).map((h: any, i: number) => (
-            <View key={i} style={{ paddingVertical: 7, borderBottomColor: 'rgba(255,45,60,0.12)', borderBottomWidth: 1 }}>
+            <View key={i} style={{ paddingVertical: 7, borderBottomColor: 'rgba(61, 139, 255,0.12)', borderBottomWidth: 1 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: C.txt, fontSize: 12 }}>{h.buyer_email || h.buyer_id}</Text>
                 <Text style={{ color: C.profit, fontWeight: '800', fontSize: 12.5 }}>{money(h.bonus_amount, true)}</Text>

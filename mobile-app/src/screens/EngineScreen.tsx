@@ -67,7 +67,6 @@ export function EngineScreen() {
   );
 
   const ex = EXCHANGES.find(e => e.id === exchange) || EXCHANGES[0];
-  const hasKeys = user?.bot_config?.has_api_key && user?.bot_config?.has_api_secret;
 
   const save = async () => {
     setBusy(true);
@@ -163,7 +162,7 @@ export function EngineScreen() {
             }}
           />
         </View>
-        <Text style={{ color: testnet ? C.neon : C.loss, fontSize: 11, marginBottom: 12, fontWeight: '700' }}>
+        <Text style={{ color: testnet ? C.profit : C.loss, fontSize: 11, marginBottom: 12, fontWeight: '700' }}>
           {testnet
             ? 'DEMO: Virtual simulated funds only. Completely isolated from live capital.'
             : '⚠️ LIVE TRADING ACTIVE: Every order executes with real money on the live exchange.'}

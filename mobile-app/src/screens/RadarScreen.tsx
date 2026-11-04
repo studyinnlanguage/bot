@@ -1,6 +1,6 @@
 // Radar — notification channels (Telegram / Email / WhatsApp) + test send.
 import React, { useCallback, useState } from 'react';
-import { ScrollView, Switch, Text, View } from 'react-native';
+import { ScrollView, Switch, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Card, ErrorNote, Field, GlassButton, GoldButton, Lbl, OkNote, SectionTitle } from '../components/ui';
 import { botApi } from '../api/endpoints';

@@ -1,4 +1,4 @@
-// Shared premium UI components — neon-green dark design system.
+// Shared premium UI components — MIDNIGHT design system.
 import React from 'react';
 import {
   ActivityIndicator,
@@ -6,7 +6,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  StyleSheet,
   TextStyle,
   ViewStyle,
 } from 'react-native';
@@ -40,7 +39,7 @@ export function NeonButton({
       disabled={disabled || loading}
       style={[
         {
-          backgroundColor: disabled || loading ? '#8f0f1a' : C.neon,
+          backgroundColor: disabled || loading ? '#1a4fa8' : C.neon,
           borderRadius: 14,
           paddingVertical: 14,
           alignItems: 'center',
@@ -55,7 +54,7 @@ export function NeonButton({
       {loading ? (
         <ActivityIndicator color={C.bg} />
       ) : (
-        <Text style={{ color: '#060607', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
+        <Text style={{ color: '#05070d', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
           {title}
         </Text>
       )}
@@ -87,8 +86,8 @@ export function GlassButton({
           paddingVertical: 13,
           alignItems: 'center',
           borderWidth: 1,
-          borderColor: danger ? 'rgba(255,59,70,0.45)' : 'rgba(255,45,60,0.35)',
-          backgroundColor: danger ? 'rgba(255,59,70,0.08)' : 'rgba(255,45,60,0.06)',
+          borderColor: danger ? 'rgba(246, 70, 93,0.45)' : 'rgba(61, 139, 255,0.35)',
+          backgroundColor: danger ? 'rgba(246, 70, 93,0.08)' : 'rgba(61, 139, 255,0.06)',
         },
         style,
       ]}>
@@ -135,7 +134,7 @@ export function Field({
         autoCorrect={false}
         style={{
           backgroundColor: 'rgba(0,0,0,0.45)',
-          borderColor: 'rgba(255,45,60,0.22)',
+          borderColor: 'rgba(61, 139, 255,0.22)',
           borderWidth: 1,
           borderRadius: 12,
           color: C.txt,
@@ -161,7 +160,7 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
           flexDirection: 'row',
           alignItems: 'center',
           gap: 6,
-          borderColor: 'rgba(255,45,60,0.25)',
+          borderColor: 'rgba(61, 139, 255,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
@@ -173,14 +172,14 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
       </View>
       <View
         style={{
-          borderColor: 'rgba(255,45,60,0.25)',
+          borderColor: 'rgba(61, 139, 255,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
           paddingVertical: 5,
           backgroundColor: 'rgba(0,0,0,0.3)',
         } as any}>
-        <Text style={{ color: testnet ? C.neon : C.neon2, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 }}>
+        <Text style={{ color: testnet ? C.profit : C.loss, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 }}>
           {exchange?.toUpperCase()}{testnet ? ' · DEMO' : ' · LIVE'}
         </Text>
       </View>
@@ -208,8 +207,8 @@ export function Chip({
         paddingVertical: small ? 6 : 8,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: active ? C.neon2 : 'rgba(255,45,60,0.20)',
-        backgroundColor: active ? 'rgba(255,45,60,0.15)' : 'rgba(0,0,0,0.3)',
+        borderColor: active ? C.neon2 : 'rgba(61, 139, 255,0.20)',
+        backgroundColor: active ? 'rgba(61, 139, 255,0.15)' : 'rgba(0,0,0,0.3)',
         marginRight: 8,
         marginBottom: 8,
       } as any}>
@@ -232,7 +231,7 @@ export function KV({ k, v, color }: { k: string; v: React.ReactNode; color?: str
 export function ErrorNote({ msg }: { msg: string | null }) {
   if (!msg) return null;
   return (
-    <View style={{ backgroundColor: 'rgba(255,59,70,0.10)', borderColor: 'rgba(255,59,70,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
+    <View style={{ backgroundColor: 'rgba(246, 70, 93,0.10)', borderColor: 'rgba(246, 70, 93,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
       <Text style={{ color: C.loss, fontSize: 12.5 }}>{msg}</Text>
     </View>
   );
@@ -241,7 +240,7 @@ export function ErrorNote({ msg }: { msg: string | null }) {
 export function OkNote({ msg }: { msg: string | null }) {
   if (!msg) return null;
   return (
-    <View style={{ backgroundColor: 'rgba(255,45,60,0.10)', borderColor: 'rgba(255,45,60,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
+    <View style={{ backgroundColor: 'rgba(46,207,138,0.10)', borderColor: 'rgba(46,207,138,0.35)', borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 }}>
       <Text style={{ color: C.profit, fontSize: 12.5 }}>{msg}</Text>
     </View>
   );
@@ -272,9 +271,9 @@ export function Logo({ size = 46 }: { size?: number }) {
         width: size,
         height: size,
         borderRadius: size * 0.28,
-        backgroundColor: '#0b0b0d',
+        backgroundColor: '#0d1220',
         borderWidth: 1.2,
-        borderColor: 'rgba(255,45,60,0.55)',
+        borderColor: 'rgba(61, 139, 255,0.55)',
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: C.neon,

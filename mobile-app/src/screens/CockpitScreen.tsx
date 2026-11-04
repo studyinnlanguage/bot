@@ -1,8 +1,7 @@
 // Cockpit — live bot dashboard: status, balance, chart, signals, workers, controls.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   RefreshControl,
   ScrollView,
   Text,
@@ -184,7 +183,7 @@ export function CockpitScreen({ navigation }: any) {
         </SectionTitle>
         <CandleChart candles={candles} emas={emas} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, gap: 4 }}>
-          {[['EMA8', C.blue], ['EMA13', C.neon2], ['EMA21', C.purple], ['EMA55', C.loss]].map(([n, c]) => (
+          {[['EMA8', C.blue], ['EMA13', C.orange], ['EMA21', C.purple], ['EMA55', C.cyan]].map(([n, c]) => (
             <View key={n as string} style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
               <View style={{ width: 8, height: 3, backgroundColor: c as string, marginRight: 4 }} />
               <Text style={{ color: C.dim, fontSize: 10 }}>{n}</Text>
@@ -218,7 +217,7 @@ export function CockpitScreen({ navigation }: any) {
       <View style={{ height: 14 }} />
 
       {position && position.side && position.side !== 'NONE' ? (
-        <Card style={{ borderColor: position.side === 'LONG' ? 'rgba(22,199,132,0.4)' : 'rgba(234,57,67,0.4)' }}>
+        <Card style={{ borderColor: position.side === 'LONG' ? 'rgba(46,207,138,0.45)' : 'rgba(246,70,93,0.45)' }}>
           <SectionTitle right={<Text style={{ color: position.side === 'LONG' ? C.profit : C.loss, fontWeight: '900' }}>{position.side}</Text>}>
             OPEN POSITION
           </SectionTitle>
@@ -249,7 +248,7 @@ export function CockpitScreen({ navigation }: any) {
           <Empty text="Start the bot to spawn workers." />
         ) : (
           workers.map(([sym, w]: any) => (
-            <View key={sym} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomColor: 'rgba(255,45,60,0.10)', borderBottomWidth: 1 }}>
+            <View key={sym} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomColor: 'rgba(61, 139, 255,0.10)', borderBottomWidth: 1 }}>
               <TouchableOpacity onPress={() => setActiveSymbol(sym)}>
                 <Text style={{ color: sym === activeSymbol ? C.goldB : C.txt, fontWeight: '800', fontSize: 12.5 }}>{sym}</Text>
               </TouchableOpacity>
@@ -271,14 +270,14 @@ export function CockpitScreen({ navigation }: any) {
 }
 
 const iconBtn = {
-  borderColor: 'rgba(255,45,60,0.25)',
+  borderColor: 'rgba(61, 139, 255,0.25)',
   borderWidth: 1,
   borderRadius: 10,
   paddingHorizontal: 10,
   paddingVertical: 6,
-  backgroundColor: 'rgba(255,45,60,0.05)',
+  backgroundColor: 'rgba(61, 139, 255,0.05)',
 } as const;
 
 const S = {
-  sep: { height: 1, backgroundColor: 'rgba(255,45,60,0.1)', marginVertical: 8 },
+  sep: { height: 1, backgroundColor: 'rgba(61, 139, 255,0.1)', marginVertical: 8 },
 };

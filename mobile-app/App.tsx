@@ -25,9 +25,9 @@ const navTheme = {
   colors: {
     ...DefaultTheme.colors,
     background: C.bg,
-    card: '#0b0b0d',
+    card: '#0d1220',
     text: C.txt,
-    border: 'rgba(255,45,60, 0.18)',
+    border: 'rgba(61, 139, 255, 0.18)',
     primary: C.neon,
   },
 };
@@ -49,8 +49,8 @@ function MainTabs() {
         tabBarActiveTintColor: C.neon,
         tabBarInactiveTintColor: C.dim2,
         tabBarStyle: {
-          backgroundColor: '#0b0b0d',
-          borderTopColor: 'rgba(255,45,60, 0.20)',
+          backgroundColor: '#0d1220',
+          borderTopColor: 'rgba(61, 139, 255, 0.20)',
           borderTopWidth: 1,
           height: 84,
           paddingTop: 10,
@@ -99,7 +99,7 @@ export default function App() {
 }
 
 function SplashWrapper({ navigation }: any) {
-  const { loading, user } = useAuth();
+  const { loading } = useAuth();
   React.useEffect(() => {
     if (!loading) {
       navigation.replace('Root');

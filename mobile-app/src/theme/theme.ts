@@ -1,27 +1,28 @@
-// WEEXIONIC REDLINE Design System v3 (shared with web terminal).
-// Dark Black × Neon Red — silver = profit/BUY, red = loss/SELL.
+// WEEXIONIC MIDNIGHT Design System v4 (shared with web terminal).
+// Deep navy × electric blue — green = profit/BUY, red = loss/SELL/danger only.
 export const C = {
-  bg: '#060607',
-  bg2: '#0b0b0d',
-  bg3: '#101013',
-  card: '#0e0e11',
-  cardBorder: 'rgba(255, 45, 60, 0.22)',
-  neon: '#ff3b46',
-  neon2: '#ff2734',
-  neonGlow: 'rgba(255, 59, 70, 0.30)',
-  // Backwards-compatible aliases mapped strictly to REDLINE (No gold, yellow or green):
-  gold: '#ff3b46',
-  goldB: '#ff6b73',
-  goldD: '#8f0f1a',
-  txt: '#f2f2f4',
-  dim: '#9a9aa5',
-  dim2: '#5c5c66',
-  profit: '#f5f5f7',
-  loss: '#ff3b46',
-  blue: '#00E5FF',
-  orange: '#ff3b46', // Mapped to REDLINE (Strict No Orange rule)
-  warn: '#ff8552',   // Mapped to REDLINE warning
-  purple: '#B388FF',
+  bg: '#05070d',
+  bg2: '#0d1220',
+  bg3: '#111a2c',
+  card: '#111a2c',
+  cardBorder: 'rgba(61, 139, 255, 0.22)',
+  neon: '#3d8bff',
+  neon2: '#6ba6ff',
+  neonGlow: 'rgba(61, 139, 255, 0.30)',
+  cyan: '#37c6ff',
+  // Backwards-compatible aliases mapped to MIDNIGHT (no gold/yellow, red = danger only):
+  gold: '#3d8bff',
+  goldB: '#6ba6ff',
+  goldD: '#1a4fa8',
+  txt: '#f2f5fa',
+  dim: '#9aa7bd',
+  dim2: '#5d6b82',
+  profit: '#2ecf8a',
+  loss: '#f6465d',
+  blue: '#5B8DEF',
+  orange: '#ffb020',   // EMA13 amber
+  warn: '#ffb020',
+  purple: '#A06BF0',
 };
 
 export const S = {
@@ -41,7 +42,7 @@ export const S = {
   h2: { fontSize: 16, fontWeight: '700' as const, color: C.txt },
   num: { fontSize: 20, fontWeight: '800' as const, color: C.txt } as const,
   goldText: { color: C.neon2, fontWeight: '800' as const },
-  sep: { height: 1, backgroundColor: 'rgba(255, 45, 60, 0.14)', marginVertical: 10 } as const,
+  sep: { height: 1, backgroundColor: 'rgba(61, 139, 255, 0.14)', marginVertical: 10 } as const,
 };
 
 export const money = (v: number | null | undefined, sign = false) => {

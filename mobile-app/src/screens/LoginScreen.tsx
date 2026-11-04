@@ -7,9 +7,8 @@ import {
   TouchableOpacity,
   View,
   Linking,
-  ActivityIndicator,
 } from 'react-native';
-import { Card, ErrorNote, Field, GoldButton, Lbl, Logo, OkNote } from '../components/ui';
+import { Card, ErrorNote, Field, GoldButton, Logo, OkNote } from '../components/ui';
 import { C } from '../theme/theme';
 import { useAuth } from '../store/auth';
 import { GOOGLE_OAUTH_ENTRY, APP_VERSION } from '../config/env';
@@ -103,9 +102,9 @@ export function LoginScreen() {
           />
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 14 }}>
-            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,45,60,0.18)' }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(61, 139, 255,0.18)' }} />
             <Text style={{ color: C.dim2, marginHorizontal: 10, fontSize: 11, letterSpacing: 2 }}>OR</Text>
-            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,45,60,0.18)' }} />
+            <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(61, 139, 255,0.18)' }} />
           </View>
 
           <TouchableOpacity
