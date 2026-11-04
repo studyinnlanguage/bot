@@ -11,7 +11,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/weexionic-logo.png') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <title>WEEXIONIC TRADING BOT - Pro Futures Terminal</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='onyx1') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1153,7 +1153,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='onyx1') }}"></script>
     <script>
         // ---- Global Workspace Tab Switching System ----
         function switchWorkspaceTab(tab) {

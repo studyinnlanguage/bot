@@ -57,6 +57,9 @@ logger = logging.getLogger("app")
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
 app.config["SECRET_KEY"] = os.environ.get("BOT_ENGINE_SECRET", secrets.token_hex(32))
+# Theme iterations move fast: never let the browser cache stale CSS/JS across redeploys.
+# (0 = always revalidate; changed files are picked up immediately after a redeploy.)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 # Security: Suppress Werkzeug server banner disclosure in development / fallback modes
 try:
