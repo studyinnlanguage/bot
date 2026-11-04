@@ -176,7 +176,7 @@ function renderEMAStack(data) {
             ruleEl.style.background = 'rgba(46,207,138, 0.08)';
             ruleEl.textContent = 'EMA55 is at BOTTOM → BUY signal fires → Bot opens LONG';
         } else {
-            ruleEl.style.color = '#fcd535';
+            ruleEl.style.color = '#f0b90b';
             ruleEl.style.borderColor = 'rgba(240,185,11, 0.3)';
             ruleEl.style.background = 'rgba(240,185,11, 0.08)';
             ruleEl.textContent = 'EMA55 in middle → HOLD (no action). Strategy: EMA55 at BOTTOM = BUY | EMA55 at TOP = SELL';
@@ -726,11 +726,11 @@ function initChart() {
                 fontSize: 11,
             },
             grid: {
-                vertLines: { color: 'rgba(240,185,11,0.06)' },
-                horzLines: { color: 'rgba(240,185,11,0.06)' },
+                vertLines: { color: 'rgba(255,255,255,0.06)' },
+                horzLines: { color: 'rgba(255,255,255,0.06)' },
             },
             timeScale: {
-                borderColor: 'rgba(240,185,11,0.22)',
+                borderColor: 'rgba(255,255,255,0.16)',
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 5,
@@ -740,13 +740,13 @@ function initChart() {
                 fixRightEdge: false,
             },
             rightPriceScale: {
-                borderColor: 'rgba(240,185,11,0.22)',
+                borderColor: 'rgba(255,255,255,0.16)',
                 scaleMargins: { top: 0.1, bottom: 0.1 },
             },
             crosshair: {
                 mode: 1,  // Magnet mode
-                vertLine: { color: '#fcd535', width: 1, style: 2, labelBackgroundColor: '#121212' },
-                horzLine: { color: '#fcd535', width: 1, style: 2, labelBackgroundColor: '#121212' },
+                vertLine: { color: '#f0b90b', width: 1, style: 2, labelBackgroundColor: '#151517' },
+                horzLine: { color: '#f0b90b', width: 1, style: 2, labelBackgroundColor: '#151517' },
             },
             // TradingView style interactions
             handleScroll: true,    // Enable panning (drag to move)
