@@ -171,14 +171,14 @@ function renderEMAStack(data) {
             ruleEl.style.background = 'rgba(246, 70, 93, 0.08)';
             ruleEl.textContent = 'EMA55 is at TOP → SELL signal fires → Bot opens SHORT';
         } else if (ema55Idx === emas.length - 1) {
-            ruleEl.style.color = '#ff2734';
-            ruleEl.style.borderColor = 'rgba(255,45,60, 0.5)';
-            ruleEl.style.background = 'rgba(255,45,60, 0.08)';
+            ruleEl.style.color = '#2ecf8a';
+            ruleEl.style.borderColor = 'rgba(46,207,138, 0.5)';
+            ruleEl.style.background = 'rgba(46,207,138, 0.08)';
             ruleEl.textContent = 'EMA55 is at BOTTOM → BUY signal fires → Bot opens LONG';
         } else {
-            ruleEl.style.color = '#ff3b46';
-            ruleEl.style.borderColor = 'rgba(255,45,60, 0.3)';
-            ruleEl.style.background = 'rgba(255,45,60, 0.08)';
+            ruleEl.style.color = '#6ba6ff';
+            ruleEl.style.borderColor = 'rgba(61,139,255, 0.3)';
+            ruleEl.style.background = 'rgba(61,139,255, 0.08)';
             ruleEl.textContent = 'EMA55 in middle → HOLD (no action). Strategy: EMA55 at BOTTOM = BUY | EMA55 at TOP = SELL';
         }
     }
@@ -203,7 +203,7 @@ async function fetchChartData(symbol) {
 
 // ===== TradingView-style Drawing Canvas Overlay System =====
 let currentDrawingTool = 'cursor'; // 'cursor' | 'trendline' | 'horizontal' | 'rectangle' | 'text'
-let activeDrawingColor = '#ff3b46';
+let activeDrawingColor = '#3d8bff';
 let drawings = [];
 let isDrawing = false;
 let drawStartPoint = null;
@@ -213,7 +213,7 @@ let drawingCanvas = null;
 let drawingCtx = null;
 
 function hexToRgba(hex, alpha) {
-    let c = (hex || '#ff3b46').replace('#', '');
+    let c = (hex || '#3d8bff').replace('#', '');
     if (c.length === 3) c = c.split('').map(x => x + x).join('');
     const num = parseInt(c, 16);
     return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
@@ -402,8 +402,8 @@ function redrawCanvas() {
     drawings.forEach((d) => {
         const isSelected = (d.id === selectedDrawingId);
         drawingCtx.save();
-        drawingCtx.strokeStyle = d.color || '#ff3b46';
-        drawingCtx.fillStyle = d.color || '#ff3b46';
+        drawingCtx.strokeStyle = d.color || '#3d8bff';
+        drawingCtx.fillStyle = d.color || '#3d8bff';
         drawingCtx.lineWidth = isSelected ? 3 : 2;
 
         if (d.type === 'trendline') {
@@ -436,9 +436,9 @@ function redrawCanvas() {
                 drawingCtx.setLineDash([]);
 
                 const badgeText = fmt(d.price);
-                drawingCtx.fillStyle = d.color || '#ff3b46';
+                drawingCtx.fillStyle = d.color || '#3d8bff';
                 drawingCtx.fillRect(w - 75, py - 9, 75, 18);
-                drawingCtx.fillStyle = '#060607';
+                drawingCtx.fillStyle = '#05070d';
                 drawingCtx.font = 'bold 10px JetBrains Mono, monospace';
                 drawingCtx.fillText(badgeText, w - 70, py + 4);
             }
@@ -451,7 +451,7 @@ function redrawCanvas() {
                 const rw = Math.abs(p2.x - p1.x);
                 const rh = Math.abs(p2.y - p1.y);
 
-                drawingCtx.fillStyle = hexToRgba(d.color || '#ff3b46', 0.16);
+                drawingCtx.fillStyle = hexToRgba(d.color || '#3d8bff', 0.16);
                 drawingCtx.fillRect(rx, ry, rw, rh);
                 drawingCtx.strokeRect(rx, ry, rw, rh);
 
@@ -474,10 +474,10 @@ function redrawCanvas() {
                 const bgH = 22;
                 drawingCtx.fillStyle = 'rgba(11, 14, 22, 0.88)';
                 drawingCtx.fillRect(pt.x, pt.y - 16, bgW, bgH);
-                drawingCtx.strokeStyle = d.color || '#ff3b46';
+                drawingCtx.strokeStyle = d.color || '#3d8bff';
                 drawingCtx.strokeRect(pt.x, pt.y - 16, bgW, bgH);
 
-                drawingCtx.fillStyle = d.color || '#ff3b46';
+                drawingCtx.fillStyle = d.color || '#3d8bff';
                 drawingCtx.fillText(d.text, pt.x + 7, pt.y);
             }
         }
@@ -720,17 +720,17 @@ function initChart() {
 
         chart = LightweightCharts.createChart(container, {
             layout: {
-                background: { type: 'solid', color: '#060607' },
-                textColor: '#9a9aa5',
+                background: { type: 'solid', color: '#05070d' },
+                textColor: '#9aa7bd',
                 fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                 fontSize: 11,
             },
             grid: {
-                vertLines: { color: 'rgba(255,45,60,0.06)' },
-                horzLines: { color: 'rgba(255,45,60,0.06)' },
+                vertLines: { color: 'rgba(61,139,255,0.06)' },
+                horzLines: { color: 'rgba(61,139,255,0.06)' },
             },
             timeScale: {
-                borderColor: 'rgba(255,45,60,0.22)',
+                borderColor: 'rgba(61,139,255,0.22)',
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 5,
@@ -740,13 +740,13 @@ function initChart() {
                 fixRightEdge: false,
             },
             rightPriceScale: {
-                borderColor: 'rgba(255,45,60,0.22)',
+                borderColor: 'rgba(61,139,255,0.22)',
                 scaleMargins: { top: 0.1, bottom: 0.1 },
             },
             crosshair: {
                 mode: 1,  // Magnet mode
-                vertLine: { color: '#ff3b46', width: 1, style: 2, labelBackgroundColor: '#0b0b0d' },
-                horzLine: { color: '#ff3b46', width: 1, style: 2, labelBackgroundColor: '#0b0b0d' },
+                vertLine: { color: '#6ba6ff', width: 1, style: 2, labelBackgroundColor: '#0d1220' },
+                horzLine: { color: '#6ba6ff', width: 1, style: 2, labelBackgroundColor: '#0d1220' },
             },
             // TradingView style interactions
             handleScroll: true,    // Enable panning (drag to move)
@@ -757,18 +757,18 @@ function initChart() {
         });
 
         candleSeries = chart.addCandlestickSeries({
-            upColor: '#ff3b46',
-            downColor: '#ff3b46',
-            borderUpColor: '#ff3b46',
-            borderDownColor: '#ff3b46',
+            upColor: '#2ecf8a',
+            downColor: '#f6465d',
+            borderUpColor: '#2ecf8a',
+            borderDownColor: '#f6465d',
             borderVisible: false,
-            wickUpColor: '#ff3b46',
-            wickDownColor: '#ff3b46',
+            wickUpColor: '#2ecf8a',
+            wickDownColor: '#f6465d',
         });
         ema8Series  = chart.addLineSeries({ color: '#5B8DEF', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema13Series = chart.addLineSeries({ color: '#ff2734', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema13Series = chart.addLineSeries({ color: '#ffb020', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
         ema21Series = chart.addLineSeries({ color: '#A06BF0', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        ema55Series = chart.addLineSeries({ color: '#FF4D5E', lineWidth: 3, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        ema55Series = chart.addLineSeries({ color: '#37c6ff', lineWidth: 3, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
 
         const ro = new ResizeObserver(() => {
             if (chart) {
@@ -1092,10 +1092,10 @@ function updatePositionUI(data) {
     if (trailingEl) {
         if (data.side && data.side !== 'NONE' && data.tp_price) {
             trailingEl.textContent = `$${fmt(data.tp_price)} (1:1 Target)`;
-            trailingEl.style.color = '#ff2734';
+            trailingEl.style.color = '#2ecf8a';
         } else {
             trailingEl.textContent = '--';
-            trailingEl.style.color = '#9a9aa5';
+            trailingEl.style.color = '#9aa7bd';
         }
     }
     const slEl = $('posCurrentSl');
@@ -1105,7 +1105,7 @@ function updatePositionUI(data) {
             slEl.style.color = '#f6465d';
         } else {
             slEl.textContent = '--';
-            slEl.style.color = '#9a9aa5';
+            slEl.style.color = '#9aa7bd';
         }
     }
 
@@ -1241,9 +1241,9 @@ function updatePositionUI(data) {
                     price: price, color: color, lineWidth: 1,
                     lineStyle: dashed ? 2 : 0, axisLabelVisible: true, title: title,
                 });
-                _posPriceLines.push(mkLine(Number(data.entry_price), '#ff3b46', 'ENTRY', false));
-                if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#f5f5f7', 'TP 1:1', true));
-                if (data.sl_price) _posPriceLines.push(mkLine(Number(data.sl_price), '#FF4D5E', 'SL 1:1', true));
+                _posPriceLines.push(mkLine(Number(data.entry_price), '#3d8bff', 'ENTRY', false));
+                if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#2ecf8a', 'TP 1:1', true));
+                if (data.sl_price) _posPriceLines.push(mkLine(Number(data.sl_price), '#f6465d', 'SL 1:1', true));
             }
         }
     } catch (plErr) { console.warn('price lines:', plErr); }
@@ -2134,7 +2134,7 @@ function updateEnvBadge(testnet, exchange, keysLoaded) {
     const modeBadge = $('modeBadge');
     if (exBadge) {
         exBadge.textContent = (exchange || 'binance').toUpperCase();
-        exBadge.style.color = exchange === 'primexbt' ? '#5B8DEF' : (exchange === 'weex' ? '#00E5FF' : '#ff3b46');
+        exBadge.style.color = exchange === 'primexbt' ? '#5B8DEF' : (exchange === 'weex' ? '#37c6ff' : '#ffb020');
     }
     if (modeBadge) {
         // Resolve the REAL keys state: explicit param first, then the saved
@@ -2153,13 +2153,13 @@ function updateEnvBadge(testnet, exchange, keysLoaded) {
             // loaded every order hits the REAL account. Never trust the
             // testnet checkbox for this exchange.
             modeBadge.textContent = hasKeys ? 'LIVE' : 'NO KEYS';
-            modeBadge.style.color = hasKeys ? '#ff3b46' : '#ff3b46';
+            modeBadge.style.color = hasKeys ? '#f6465d' : '#ffb020';
         } else if (exchange === 'weex') {
             modeBadge.textContent = testnet ? 'DEMO' : 'LIVE';
-            modeBadge.style.color = testnet ? '#ff3b46' : '#ff3b46';
+            modeBadge.style.color = testnet ? '#2ecf8a' : '#f6465d';
         } else {
             modeBadge.textContent = testnet ? 'TESTNET' : 'MAINNET';
-            modeBadge.style.color = testnet ? '#ff3b46' : '#ff3b46';
+            modeBadge.style.color = testnet ? '#2ecf8a' : '#f6465d';
         }
     }
 }
@@ -2674,8 +2674,8 @@ function attachListeners() {
                 b.style.background = '';
                 b.style.color = '';
             });
-            btn.style.background = '#ff3b46';
-            btn.style.color = '#060607';
+            btn.style.background = '#3d8bff';
+            btn.style.color = '#ffffff';
             applyLeverageDirect(lev);
         });
     });
@@ -2693,8 +2693,8 @@ function attachListeners() {
             });
             const btnMatch = document.querySelector(`.quick-leverage .btn[data-lev="${maxLev}"]`);
             if (btnMatch) {
-                btnMatch.style.background = '#ff3b46';
-                btnMatch.style.color = '#060607';
+                btnMatch.style.background = '#3d8bff';
+                btnMatch.style.color = '#ffffff';
             }
             applyLeverageDirect(maxLev);
         });

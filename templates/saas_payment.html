@@ -9,7 +9,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #060607;
+            background: #05070d;
             color: #eaecef;
             min-height: 100vh;
             line-height: 1.6;
@@ -33,13 +33,13 @@
             width: 44px;
             height: 44px;
             border-radius: 50%;
-            border: 2px solid rgba(255, 45, 60, 0.7);
-            box-shadow: 0 0 16px rgba(255, 45, 60, 0.45);
+            border: 2px solid rgba(61,139,255, 0.7);
+            box-shadow: 0 0 16px rgba(61,139,255, 0.45);
             overflow: hidden;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #060607;
+            background: #05070d;
         }
         .logo img {
             width: 100%;
@@ -67,8 +67,8 @@
 
         /* Cards */
         .card {
-            background: #0b0b0d;
-            border: 1px solid #17171b;
+            background: #0d1220;
+            border: 1px solid #182238;
             border-radius: 14px;
             padding: 24px;
             margin-bottom: 20px;
@@ -77,7 +77,7 @@
         .card-title {
             font-size: 15px;
             font-weight: 700;
-            color: #ff3b46;
+            color: #3d8bff;
             margin-bottom: 16px;
             display: flex;
             align-items: center;
@@ -93,7 +93,7 @@
         }
         .net-tab {
             background: #14171d;
-            border: 1.5px solid #17171b;
+            border: 1.5px solid #182238;
             border-radius: 12px;
             padding: 14px 16px;
             cursor: pointer;
@@ -102,13 +102,13 @@
             position: relative;
         }
         .net-tab:hover {
-            border-color: rgba(255, 45, 60,0.5);
-            background: rgba(255, 45, 60,0.04);
+            border-color: rgba(61,139,255,0.5);
+            background: rgba(61,139,255,0.04);
         }
         .net-tab.active {
-            border-color: #ff3b46;
-            background: rgba(255, 45, 60,0.08);
-            box-shadow: 0 0 20px rgba(255, 45, 60,0.15);
+            border-color: #3d8bff;
+            background: rgba(61,139,255,0.08);
+            box-shadow: 0 0 20px rgba(61,139,255,0.15);
         }
         .net-tab-title {
             font-size: 14px;
@@ -119,7 +119,7 @@
             gap: 8px;
         }
         .net-tab.active .net-tab-title {
-            color: #ff3b46;
+            color: #3d8bff;
         }
         .net-tab-desc {
             font-size: 11px;
@@ -136,7 +136,7 @@
             padding: 20px 10px;
             background: #14171d;
             border-radius: 12px;
-            border: 1px dashed #17171b;
+            border: 1px dashed #182238;
             margin-bottom: 20px;
         }
         .qr-frame {
@@ -157,7 +157,7 @@
         .amount-highlight {
             font-size: 32px;
             font-weight: 800;
-            color: #ff3b46;
+            color: #3d8bff;
             font-family: 'SF Mono', 'Roboto Mono', monospace;
             display: flex;
             align-items: baseline;
@@ -174,8 +174,8 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            background: #060607;
-            border: 1px solid #17171b;
+            background: #05070d;
+            border: 1px solid #182238;
             border-radius: 10px;
             padding: 12px 14px;
             cursor: pointer;
@@ -184,7 +184,7 @@
             margin-top: 10px;
         }
         .wallet-box:hover {
-            border-color: #ff3b46;
+            border-color: #3d8bff;
         }
         .wallet-addr {
             font-family: 'SF Mono', 'Roboto Mono', monospace;
@@ -197,9 +197,9 @@
             user-select: all;
         }
         .copy-btn {
-            background: rgba(255, 45, 60,0.15);
-            border: 1px solid rgba(255, 45, 60,0.3);
-            color: #ff3b46;
+            background: rgba(61,139,255,0.15);
+            border: 1px solid rgba(61,139,255,0.3);
+            color: #3d8bff;
             font-size: 12px;
             font-weight: 700;
             padding: 6px 14px;
@@ -210,12 +210,12 @@
             flex-shrink: 0;
         }
         .copy-btn:hover {
-            background: rgba(255, 45, 60,0.3);
+            background: rgba(61,139,255,0.3);
         }
         .copy-btn.copied {
-            background: rgba(255, 45, 60,0.15);
-            border-color: rgba(255, 45, 60,0.4);
-            color: #ff3b46;
+            background: rgba(61,139,255,0.15);
+            border-color: rgba(61,139,255,0.4);
+            color: #3d8bff;
         }
 
         .meta-badges {
@@ -227,7 +227,7 @@
         }
         .meta-badge {
             background: rgba(255,255,255,0.05);
-            border: 1px solid #17171b;
+            border: 1px solid #182238;
             font-size: 11px;
             color: #848e9c;
             padding: 3px 10px;
@@ -240,7 +240,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 9px 0;
-            border-bottom: 1px solid #17171b;
+            border-bottom: 1px solid #182238;
             font-size: 13px;
         }
         .summary-row:last-child { border-bottom: none; }
@@ -256,31 +256,31 @@
         .form-hint { font-size: 12px; color: #848e9c; margin-top: 5px; }
         .form-input {
             width: 100%; padding: 12px 14px;
-            background: #060607; border: 1.5px solid #17171b; border-radius: 10px;
+            background: #05070d; border: 1.5px solid #182238; border-radius: 10px;
             color: #eaecef; font-size: 14px;
             font-family: 'SF Mono', 'Roboto Mono', monospace;
             outline: none; transition: border-color 0.2s;
         }
-        .form-input:focus { border-color: #ff3b46; }
+        .form-input:focus { border-color: #3d8bff; }
 
         /* Submit Button */
         .submit-btn {
             width: 100%; padding: 15px 24px;
-            background: linear-gradient(135deg, #ff3b46 0%, #ff6b73 100%);
+            background: linear-gradient(135deg, #3d8bff 0%, #6ba6ff 100%);
             color: #ffffff; border: none; border-radius: 10px;
             font-size: 15px; font-weight: 800; cursor: pointer;
             transition: all 0.2s; display: flex; align-items: center;
             justify-content: center; gap: 8px; text-decoration: none;
-            box-shadow: 0 4px 20px rgba(255, 45, 60,0.25);
+            box-shadow: 0 4px 20px rgba(61,139,255,0.25);
         }
         .submit-btn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 6px 24px rgba(255, 45, 60,0.4);
+            box-shadow: 0 6px 24px rgba(61,139,255,0.4);
         }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .submit-btn .spinner {
             width: 18px; height: 18px; border: 2px solid rgba(11,14,17,0.3);
-            border-top-color: #060607; border-radius: 50%;
+            border-top-color: #05070d; border-radius: 50%;
             animation: spin 0.6s linear infinite; display: none;
         }
         .submit-btn.loading .spinner { display: block; }
@@ -294,19 +294,19 @@
             display: none; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.5;
         }
         .msg-box.visible { display: flex; }
-        .msg-success { background: rgba(255, 45, 60,0.12); border: 1px solid rgba(255, 45, 60,0.3); color: #ff3b46; }
-        .msg-error { background: rgba(246,70,93,0.12); border: 1px solid rgba(246,70,93,0.3); color: #ff3b46; }
-        .msg-info { background: rgba(255, 45, 60,0.12); border: 1px solid rgba(255, 45, 60,0.3); color: #ff3b46; }
+        .msg-success { background: rgba(61,139,255,0.12); border: 1px solid rgba(61,139,255,0.3); color: #3d8bff; }
+        .msg-error { background: rgba(246,70,93,0.12); border: 1px solid rgba(246,70,93,0.3); color: #3d8bff; }
+        .msg-info { background: rgba(61,139,255,0.12); border: 1px solid rgba(61,139,255,0.3); color: #3d8bff; }
 
         /* Verified Celebration Box */
         .celebration-box {
-            background: linear-gradient(135deg, rgba(255, 45, 60,0.15) 0%, rgba(255, 45, 60,0.05) 100%);
-            border: 2px solid #ff3b46; border-radius: 14px;
+            background: linear-gradient(135deg, rgba(61,139,255,0.15) 0%, rgba(61,139,255,0.05) 100%);
+            border: 2px solid #3d8bff; border-radius: 14px;
             padding: 28px 20px; text-align: center; display: none; margin-bottom: 24px;
         }
         .celebration-box.visible { display: block; }
         .celebration-icon { font-size: 48px; margin-bottom: 12px; }
-        .celebration-title { font-size: 20px; font-weight: 800; color: #ff3b46; margin-bottom: 6px; }
+        .celebration-title { font-size: 20px; font-weight: 800; color: #3d8bff; margin-bottom: 6px; }
         .celebration-sub { font-size: 13px; color: #eaecef; margin-bottom: 18px; }
 
         .back-link {
@@ -314,13 +314,13 @@
             color: #848e9c; text-decoration: none; font-size: 13px;
             font-weight: 600; margin-top: 12px; transition: color 0.2s;
         }
-        .back-link:hover { color: #ff3b46; }
+        .back-link:hover { color: #3d8bff; }
 
         /* Toast */
         .toast {
             position: fixed; bottom: 24px; left: 50%;
             transform: translateX(-50%) translateY(80px);
-            background: #0b0b0d; border: 1px solid #17171b;
+            background: #0d1220; border: 1px solid #182238;
             color: #eaecef; padding: 12px 24px; border-radius: 10px;
             font-size: 14px; font-weight: 600; z-index: 1000;
             opacity: 0; transition: all 0.3s ease; pointer-events: none;
@@ -362,10 +362,10 @@
             <div class="celebration-sub" id="celebrationSub">
                 Your license has been issued and linked to your account. You can now launch and configure your trading bot.
             </div>
-            <div style="background:#060607; border:1px solid #17171b; padding:12px; border-radius:8px; font-family:monospace; font-size:14px; color:#ff3b46; margin-bottom:16px; user-select:all;" id="licenseKeyDisplay">
+            <div style="background:#05070d; border:1px solid #182238; padding:12px; border-radius:8px; font-family:monospace; font-size:14px; color:#3d8bff; margin-bottom:16px; user-select:all;" id="licenseKeyDisplay">
                 {{ order.license_key if (order and order.license_key) else 'LICENSE-KEY-ACTIVE' }}
             </div>
-            <a href="/bot/" class="submit-btn" style="background:linear-gradient(135deg, #ff3b46 0%, #b3121f 100%); color:#ffffff; font-size:16px;">
+            <a href="/bot/" class="submit-btn" style="background:linear-gradient(135deg, #3d8bff 0%, #1a4fa8 100%); color:#ffffff; font-size:16px;">
                 🚀 Launch Trading Bot Now
             </a>
             <div style="font-size:12px; color:#848e9c; margin-top:12px;" id="redirectCountdownText"></div>
@@ -392,7 +392,7 @@
         <div class="card">
             <div class="card-title">
                 <span>Scan QR or Copy USDT Address</span>
-                <span style="font-size:12px; color:#ff3b46; font-weight:600;">Automated Verification Active</span>
+                <span style="font-size:12px; color:#3d8bff; font-weight:600;">Automated Verification Active</span>
             </div>
 
             <div class="deposit-qr-wrap">
@@ -475,8 +475,8 @@
             </form>
         </div>
 
-        <div style="background:rgba(255, 45, 60,0.06); border:1px solid rgba(255, 45, 60,0.2); border-radius:10px; padding:12px 16px; font-size:12px; color:#848e9c; line-height:1.6; margin-bottom:20px;">
-            <strong style="color:#ff3b46;">ℹ️ Instant Activation:</strong> Our server directly queries the Tron and BSC blockchains. As soon as your transaction is confirmed on-chain, your account is unlocked automatically without waiting for admin approval.
+        <div style="background:rgba(61,139,255,0.06); border:1px solid rgba(61,139,255,0.2); border-radius:10px; padding:12px 16px; font-size:12px; color:#848e9c; line-height:1.6; margin-bottom:20px;">
+            <strong style="color:#3d8bff;">ℹ️ Instant Activation:</strong> Our server directly queries the Tron and BSC blockchains. As soon as your transaction is confirmed on-chain, your account is unlocked automatically without waiting for admin approval.
         </div>
 
         <a href="/packages" class="back-link">

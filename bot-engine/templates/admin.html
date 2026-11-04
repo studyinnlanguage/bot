@@ -8,12 +8,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         body {
-            background: linear-gradient(135deg, #060607 0%, #1a1d24 100%);
+            background: linear-gradient(135deg, #05070d 0%, #1a1d24 100%);
             min-height: 100vh;
             margin: 0;
             padding: 20px;
             font-family: 'Inter', sans-serif;
-            color: #f2f2f4;
+            color: #f2f5fa;
         }
         .admin-container {
             max-width: 1200px;
@@ -30,7 +30,7 @@
         .admin-title {
             font-size: 24px;
             font-weight: 700;
-            color: #ff3b46;
+            color: #3d8bff;
         }
         .admin-card {
             background: #1e2126;
@@ -43,7 +43,7 @@
             font-size: 14px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: #9a9aa5;
+            color: #9aa7bd;
             margin: 0 0 16px;
         }
         .form-row {
@@ -59,36 +59,36 @@
         .form-label {
             display: block;
             font-size: 11px;
-            color: #9a9aa5;
+            color: #9aa7bd;
             margin-bottom: 4px;
             text-transform: uppercase;
         }
         .form-input, .form-select {
             width: 100%;
             padding: 8px 10px;
-            background: #060607;
+            background: #05070d;
             border: 1px solid #2a2e36;
-            color: #f2f2f4;
+            color: #f2f5fa;
             border-radius: 6px;
             font-size: 13px;
             box-sizing: border-box;
         }
         .btn {
             padding: 8px 16px;
-            background: #ff3b46;
-            color: #060607;
+            background: #3d8bff;
+            color: #05070d;
             border: none;
             border-radius: 6px;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
         }
-        .btn:hover { background: #ff6b73; }
+        .btn:hover { background: #6ba6ff; }
         .btn-sm { padding: 4px 10px; font-size: 11px; }
         .btn-danger { background: #f6465d; color: #fff; }
-        .btn-success { background: #ff2734; color: #060607; }
-        .btn-warn { background: transparent; color: #ff3b46; border: 1px solid #ff3b46; }
-        .btn-secondary { background: #2a2e36; color: #f2f2f4; }
+        .btn-success { background: #2f7ae8; color: #05070d; }
+        .btn-warn { background: transparent; color: #3d8bff; border: 1px solid #3d8bff; }
+        .btn-secondary { background: #2a2e36; color: #f2f5fa; }
         .keys-table {
             width: 100%;
             border-collapse: collapse;
@@ -100,7 +100,7 @@
             border-bottom: 1px solid #2a2e36;
         }
         .keys-table th {
-            color: #9a9aa5;
+            color: #9aa7bd;
             font-size: 10px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -109,7 +109,7 @@
         .keys-table tr:hover { background: #181a20; }
         .key-cell {
             font-family: 'JetBrains Mono', monospace;
-            color: #ff3b46;
+            color: #3d8bff;
             cursor: pointer;
         }
         .key-cell:hover { text-decoration: underline; }
@@ -120,9 +120,9 @@
             font-weight: 600;
             display: inline-block;
         }
-        .badge-active { background: rgba(255,45,60, 0.15); color: #ff2734; }
+        .badge-active { background: rgba(61,139,255, 0.15); color: #2f7ae8; }
         .badge-revoked { background: rgba(246, 70, 93, 0.15); color: #f6465d; }
-        .badge-expired { background: rgba(132, 142, 156, 0.15); color: #9a9aa5; }
+        .badge-expired { background: rgba(132, 142, 156, 0.15); color: #9aa7bd; }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -133,17 +133,17 @@
             background: #181a20;
             padding: 16px;
             border-radius: 8px;
-            border-left: 3px solid #ff3b46;
+            border-left: 3px solid #3d8bff;
         }
         .stat-value {
             font-size: 24px;
             font-weight: 700;
-            color: #ff3b46;
+            color: #3d8bff;
             font-family: 'JetBrains Mono', monospace;
         }
         .stat-label {
             font-size: 11px;
-            color: #9a9aa5;
+            color: #9aa7bd;
             text-transform: uppercase;
             margin-top: 4px;
         }
@@ -171,7 +171,7 @@
             display: none;
         }
         .msg.show { display: block; }
-        .msg-success { background: rgba(255,45,60, 0.1); color: #ff2734; }
+        .msg-success { background: rgba(61,139,255, 0.1); color: #2f7ae8; }
         .msg-error { background: rgba(246, 70, 93, 0.1); color: #f6465d; }
 
         @media (max-width: 768px) {
@@ -193,10 +193,10 @@
     <!-- Admin Login Overlay -->
     <div id="loginOverlay" class="login-overlay">
         <div class="login-box">
-            <h2 style="text-align:center;margin-bottom:16px;color:#ff3b46">🔐 Admin Login</h2>
+            <h2 style="text-align:center;margin-bottom:16px;color:#3d8bff">🔐 Admin Login</h2>
             <input type="password" id="adminPass" class="form-input" placeholder="Admin password" style="margin-bottom:12px">
             <button onclick="adminLogin()" class="btn" style="width:100%">Login</button>
-            <p style="text-align:center;margin-top:12px;font-size:11px;color:#9a9aa5">
+            <p style="text-align:center;margin-top:12px;font-size:11px;color:#9aa7bd">
                 Enter your admin password
             </p>
         </div>
@@ -295,7 +295,7 @@
                         </tr>
                     </thead>
                     <tbody id="keysBody">
-                        <tr><td colspan="9" style="text-align:center;color:#9a9aa5;padding:20px">Loading...</td></tr>
+                        <tr><td colspan="9" style="text-align:center;color:#9aa7bd;padding:20px">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -362,7 +362,7 @@
 
                     const tbody = document.getElementById('keysBody');
                     if (keys.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9a9aa5;padding:20px">No license keys yet. Create one above.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9aa7bd;padding:20px">No license keys yet. Create one above.</td></tr>';
                         return;
                     }
                     tbody.innerHTML = keys.map(k => {

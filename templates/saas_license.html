@@ -7,31 +7,31 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-               background: linear-gradient(135deg, #060607 0%, #0b0b0d 100%);
+               background: linear-gradient(135deg, #05070d 0%, #0d1220 100%);
                min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #eaecef; padding: 20px; }
-        .card { background: #0b0b0d; border: 1px solid #17171b; border-radius: 16px;
+        .card { background: #0d1220; border: 1px solid #182238; border-radius: 16px;
                 padding: 40px; width: 100%; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
         .logo { width: 64px; height: 64px; border-radius: 50%;
-                border: 2px solid rgba(255, 45, 60, 0.7);
-                box-shadow: 0 0 20px rgba(255, 45, 60, 0.45);
+                border: 2px solid rgba(61,139,255, 0.7);
+                box-shadow: 0 0 20px rgba(61,139,255, 0.45);
                 overflow: hidden; display: flex; align-items: center; justify-content: center;
-                margin: 0 auto 16px; background: #060607; }
+                margin: 0 auto 16px; background: #05070d; }
         .logo img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
         h1 { text-align: center; font-size: 20px; margin-bottom: 6px; }
         p { text-align: center; color: #848e9c; font-size: 13px; margin-bottom: 24px; }
         .info { padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; line-height: 1.6; }
-        .info-new { background: rgba(255, 45, 60,0.08); border: 1px dashed rgba(255, 45, 60,0.4);
-                   color: #ff3b46; }
+        .info-new { background: rgba(61,139,255,0.08); border: 1px dashed rgba(61,139,255,0.4);
+                   color: #3d8bff; }
         .info-expired { background: rgba(246,70,93,0.1); border: 1px solid rgba(246,70,93,0.3);
-                        color: #ff3b46; }
+                        color: #3d8bff; }
         .info-revoked { background: rgba(246,70,93,0.1); border: 1px solid rgba(246,70,93,0.3);
-                         color: #ff3b46; }
+                         color: #3d8bff; }
         label { display: block; font-size: 12px; color: #848e9c; margin-bottom: 6px; text-transform: uppercase; }
-        input { width: 100%; padding: 14px; background: #060607; border: 1px solid #17171b;
+        input { width: 100%; padding: 14px; background: #05070d; border: 1px solid #182238;
                 color: #eaecef; border-radius: 10px; font-size: 16px; text-align: center;
                 font-family: monospace; letter-spacing: 1px; margin-bottom: 16px; }
-        input:focus { outline: none; border-color: #ff3b46; }
-        .btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #ff3b46, #ff6b73);
+        input:focus { outline: none; border-color: #3d8bff; }
+        .btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #3d8bff, #6ba6ff);
                color: #ffffff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
         .btn:hover { transform: translateY(-1px); }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -61,19 +61,19 @@
             <strong>Welcome to TradeBot Cloud!</strong><br><br>
             You are a new user. To start trading, choose a plan below.<br>
             After payment & admin verification, you will receive a license key.<br><br>
-            <em><a href="/packages" style="color:#ff3b46;text-decoration:none;font-weight:700;">>> Choose a Package & Start Trading -></a></em>
+            <em><a href="/packages" style="color:#3d8bff;text-decoration:none;font-weight:700;">>> Choose a Package & Start Trading -></a></em>
         </div>
         {% elif sub.status == 'expired' %}
         <div class="info info-expired">
             <strong>Your license has expired.</strong><br>
             Days remaining: {{ sub.days_left if sub.days_left else 0 }}<br><br>
-            <em><a href="/packages" style="color:#ff3b46;text-decoration:none;font-weight:700;">>> Renew Your Plan -></a></em>
+            <em><a href="/packages" style="color:#3d8bff;text-decoration:none;font-weight:700;">>> Renew Your Plan -></a></em>
         </div>
         {% else %}
         <div class="info info-revoked">
             <strong>No active license found.</strong><br>
             You need a license to use TradeBot Cloud.<br><br>
-            <em><a href="/packages" style="color:#ff3b46;text-decoration:none;font-weight:700;">>> Get a License -></a></em>
+            <em><a href="/packages" style="color:#3d8bff;text-decoration:none;font-weight:700;">>> Get a License -></a></em>
         </div>
         {% endif %}
 
@@ -95,13 +95,13 @@
             const result = document.getElementById('result');
 
             if (!key) {
-                result.innerHTML = '<span style="color:#ff3b46;">Please enter a license key</span>';
+                result.innerHTML = '<span style="color:#3d8bff;">Please enter a license key</span>';
                 return;
             }
 
             btn.disabled = true;
             btn.textContent = 'Activating...';
-            result.innerHTML = '<span style="color:#ff3b46;">Please wait...</span>';
+            result.innerHTML = '<span style="color:#3d8bff;">Please wait...</span>';
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -121,11 +121,11 @@
 
                 const data = await r.json();
                 if (data.success) {
-                    result.innerHTML = '<span style="color:#ff3b46;">✅ ' + data.message + '<br>Redirecting...</span>';
+                    result.innerHTML = '<span style="color:#3d8bff;">✅ ' + data.message + '<br>Redirecting...</span>';
                     btn.textContent = 'Success! Redirecting...';
                     setTimeout(() => { window.location.href = '/'; }, 1500);
                 } else {
-                    result.innerHTML = '<span style="color:#ff3b46;">❌ ' + (data.error || 'Activation failed') + '</span>';
+                    result.innerHTML = '<span style="color:#3d8bff;">❌ ' + (data.error || 'Activation failed') + '</span>';
                     btn.disabled = false;
                     btn.textContent = 'Activate License';
                 }
@@ -135,7 +135,7 @@
                 if (e.name === 'AbortError') {
                     errMsg = 'Server timeout (30s). Please try again.';
                 }
-                result.innerHTML = '<span style="color:#ff3b46;">❌ ' + errMsg + '</span>';
+                result.innerHTML = '<span style="color:#3d8bff;">❌ ' + errMsg + '</span>';
                 btn.disabled = false;
                 btn.textContent = 'Activate License';
             }
