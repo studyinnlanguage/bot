@@ -10,22 +10,22 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-base: #0a0a0c;
-            --bg-card: #141412;
-            --bg-surface: #191814;
-            --bg-hover: #20201a;
+            --bg-base: #0a0a0a;
+            --bg-card: #121212;
+            --bg-surface: #161616;
+            --bg-hover: #1c1c1c;
             --border: #1d2942;
             --border-highlight: #2a3a5c;
             --text-main: #f0f3f8;
             --text-muted: #8e9bb0;
             --text-dim: #5c687d;
-            --gold: #f5c518;
-            --gold-glow: rgba(245,197,24, 0.2);
+            --gold: #f0b90b;
+            --gold-glow: rgba(240,185,11, 0.2);
             --emerald: #2ecf8a;
             --emerald-glow: rgba(46,207,138, 0.09);
             --crimson: #f6465d;
             --crimson-glow: rgba(246, 70, 93, 0.2);
-            --blue: #f5c518;
+            --blue: #f0b90b;
             --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
         }
@@ -34,7 +34,7 @@
         
         body {
             font-family: var(--font-sans);
-            background: linear-gradient(180deg, #0a0a0c 0%, #0d121a 50%, #0a0a0c 100%);
+            background: linear-gradient(180deg, #0a0a0a 0%, #0d121a 50%, #0a0a0a 100%);
             color: var(--text-main);
             min-height: 100vh;
             line-height: 1.65;
@@ -87,9 +87,9 @@
             text-transform: uppercase;
             padding: 3px 8px;
             border-radius: 6px;
-            background: rgba(245,197,24, 0.15);
+            background: rgba(240,185,11, 0.15);
             color: var(--gold);
-            border: 1px solid rgba(245,197,24, 0.3);
+            border: 1px solid rgba(240,185,11, 0.3);
             letter-spacing: 0.5px;
         }
         .nav-actions {
@@ -120,14 +120,14 @@
             background: var(--bg-hover);
         }
         .nav-btn-primary {
-            background: linear-gradient(135deg, var(--gold) 0%, #ffd84d 100%);
+            background: linear-gradient(135deg, var(--gold) 0%, #fcd535 100%);
             color: #ffffff;
             border: none;
             box-shadow: 0 4px 14px var(--gold-glow);
         }
         .nav-btn-primary:hover {
             transform: translateY(-1px);
-            box-shadow: 0 6px 18px rgba(245,197,24, 0.35);
+            box-shadow: 0 6px 18px rgba(240,185,11, 0.35);
         }
 
         /* Container Layout */
@@ -142,7 +142,7 @@
             text-align: center;
             margin-bottom: 36px;
             padding: 32px 20px;
-            background: radial-gradient(circle at center, rgba(245,197,24, 0.08) 0%, rgba(18, 22, 31, 0) 70%);
+            background: radial-gradient(circle at center, rgba(240,185,11, 0.08) 0%, rgba(18, 22, 31, 0) 70%);
             border-radius: 20px;
             border: 1px solid rgba(255, 255, 255, 0.04);
         }
@@ -153,7 +153,7 @@
             margin-bottom: 10px;
         }
         .hero-title span {
-            background: linear-gradient(135deg, #f5c518 0%, #f5c518 100%);
+            background: linear-gradient(135deg, #f0b90b 0%, #f0b90b 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -219,8 +219,8 @@
             box-shadow: 0 4px 14px rgba(0,0,0,0.4);
         }
         .tab-btn.active.tab-disclaimer { border-color: var(--crimson); color: #ff8595; }
-        .tab-btn.active.tab-terms { border-color: var(--gold); color: #f5c518; }
-        .tab-btn.active.tab-privacy { border-color: var(--blue); color: #ffd84d; }
+        .tab-btn.active.tab-terms { border-color: var(--gold); color: #f0b90b; }
+        .tab-btn.active.tab-privacy { border-color: var(--blue); color: #fcd535; }
         .tab-btn.active.tab-security { border-color: var(--emerald); color: #51e6ab; }
 
         /* Document Pane */
@@ -323,21 +323,21 @@
         }
         .alert-crimson strong { color: #fff; }
         .alert-gold {
-            background: rgba(245,197,24, 0.08);
-            border: 1px solid rgba(245,197,24, 0.35);
-            color: #f5c518;
+            background: rgba(240,185,11, 0.08);
+            border: 1px solid rgba(240,185,11, 0.35);
+            color: #f0b90b;
         }
         .alert-gold strong { color: #fff; }
         .alert-emerald {
-            background: rgba(245,197,24, 0.08);
-            border: 1px solid rgba(245,197,24, 0.35);
+            background: rgba(240,185,11, 0.08);
+            border: 1px solid rgba(240,185,11, 0.35);
             color: #72f0b7;
         }
         .alert-emerald strong { color: #fff; }
         .alert-blue {
-            background: rgba(245, 197, 24, 0.08);
-            border: 1px solid rgba(245, 197, 24, 0.35);
-            color: #ffe98a;
+            background: rgba(240,185,11, 0.08);
+            border: 1px solid rgba(240,185,11, 0.35);
+            color: #ffe58f;
         }
         .alert-blue strong { color: #fff; }
 

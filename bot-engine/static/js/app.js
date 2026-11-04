@@ -176,9 +176,9 @@ function renderEMAStack(data) {
             ruleEl.style.background = 'rgba(46,207,138, 0.08)';
             ruleEl.textContent = 'EMA55 is at BOTTOM → BUY signal fires → Bot opens LONG';
         } else {
-            ruleEl.style.color = '#ffd84d';
-            ruleEl.style.borderColor = 'rgba(245,197,24, 0.3)';
-            ruleEl.style.background = 'rgba(245,197,24, 0.08)';
+            ruleEl.style.color = '#fcd535';
+            ruleEl.style.borderColor = 'rgba(240,185,11, 0.3)';
+            ruleEl.style.background = 'rgba(240,185,11, 0.08)';
             ruleEl.textContent = 'EMA55 in middle → HOLD (no action). Strategy: EMA55 at BOTTOM = BUY | EMA55 at TOP = SELL';
         }
     }
@@ -203,7 +203,7 @@ async function fetchChartData(symbol) {
 
 // ===== TradingView-style Drawing Canvas Overlay System =====
 let currentDrawingTool = 'cursor'; // 'cursor' | 'trendline' | 'horizontal' | 'rectangle' | 'text'
-let activeDrawingColor = '#f5c518';
+let activeDrawingColor = '#f0b90b';
 let drawings = [];
 let isDrawing = false;
 let drawStartPoint = null;
@@ -213,7 +213,7 @@ let drawingCanvas = null;
 let drawingCtx = null;
 
 function hexToRgba(hex, alpha) {
-    let c = (hex || '#f5c518').replace('#', '');
+    let c = (hex || '#f0b90b').replace('#', '');
     if (c.length === 3) c = c.split('').map(x => x + x).join('');
     const num = parseInt(c, 16);
     return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
@@ -402,8 +402,8 @@ function redrawCanvas() {
     drawings.forEach((d) => {
         const isSelected = (d.id === selectedDrawingId);
         drawingCtx.save();
-        drawingCtx.strokeStyle = d.color || '#f5c518';
-        drawingCtx.fillStyle = d.color || '#f5c518';
+        drawingCtx.strokeStyle = d.color || '#f0b90b';
+        drawingCtx.fillStyle = d.color || '#f0b90b';
         drawingCtx.lineWidth = isSelected ? 3 : 2;
 
         if (d.type === 'trendline') {
@@ -436,9 +436,9 @@ function redrawCanvas() {
                 drawingCtx.setLineDash([]);
 
                 const badgeText = fmt(d.price);
-                drawingCtx.fillStyle = d.color || '#f5c518';
+                drawingCtx.fillStyle = d.color || '#f0b90b';
                 drawingCtx.fillRect(w - 75, py - 9, 75, 18);
-                drawingCtx.fillStyle = '#0a0a0c';
+                drawingCtx.fillStyle = '#0a0a0a';
                 drawingCtx.font = 'bold 10px JetBrains Mono, monospace';
                 drawingCtx.fillText(badgeText, w - 70, py + 4);
             }
@@ -451,7 +451,7 @@ function redrawCanvas() {
                 const rw = Math.abs(p2.x - p1.x);
                 const rh = Math.abs(p2.y - p1.y);
 
-                drawingCtx.fillStyle = hexToRgba(d.color || '#f5c518', 0.16);
+                drawingCtx.fillStyle = hexToRgba(d.color || '#f0b90b', 0.16);
                 drawingCtx.fillRect(rx, ry, rw, rh);
                 drawingCtx.strokeRect(rx, ry, rw, rh);
 
@@ -474,10 +474,10 @@ function redrawCanvas() {
                 const bgH = 22;
                 drawingCtx.fillStyle = 'rgba(11, 14, 22, 0.88)';
                 drawingCtx.fillRect(pt.x, pt.y - 16, bgW, bgH);
-                drawingCtx.strokeStyle = d.color || '#f5c518';
+                drawingCtx.strokeStyle = d.color || '#f0b90b';
                 drawingCtx.strokeRect(pt.x, pt.y - 16, bgW, bgH);
 
-                drawingCtx.fillStyle = d.color || '#f5c518';
+                drawingCtx.fillStyle = d.color || '#f0b90b';
                 drawingCtx.fillText(d.text, pt.x + 7, pt.y);
             }
         }
@@ -720,17 +720,17 @@ function initChart() {
 
         chart = LightweightCharts.createChart(container, {
             layout: {
-                background: { type: 'solid', color: '#0a0a0c' },
-                textColor: '#a9a396',
+                background: { type: 'solid', color: '#0a0a0a' },
+                textColor: '#a3a3a3',
                 fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                 fontSize: 11,
             },
             grid: {
-                vertLines: { color: 'rgba(245,197,24,0.06)' },
-                horzLines: { color: 'rgba(245,197,24,0.06)' },
+                vertLines: { color: 'rgba(240,185,11,0.06)' },
+                horzLines: { color: 'rgba(240,185,11,0.06)' },
             },
             timeScale: {
-                borderColor: 'rgba(245,197,24,0.22)',
+                borderColor: 'rgba(240,185,11,0.22)',
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 5,
@@ -740,13 +740,13 @@ function initChart() {
                 fixRightEdge: false,
             },
             rightPriceScale: {
-                borderColor: 'rgba(245,197,24,0.22)',
+                borderColor: 'rgba(240,185,11,0.22)',
                 scaleMargins: { top: 0.1, bottom: 0.1 },
             },
             crosshair: {
                 mode: 1,  // Magnet mode
-                vertLine: { color: '#ffd84d', width: 1, style: 2, labelBackgroundColor: '#141412' },
-                horzLine: { color: '#ffd84d', width: 1, style: 2, labelBackgroundColor: '#141412' },
+                vertLine: { color: '#fcd535', width: 1, style: 2, labelBackgroundColor: '#121212' },
+                horzLine: { color: '#fcd535', width: 1, style: 2, labelBackgroundColor: '#121212' },
             },
             // TradingView style interactions
             handleScroll: true,    // Enable panning (drag to move)
@@ -1095,7 +1095,7 @@ function updatePositionUI(data) {
             trailingEl.style.color = '#2ecf8a';
         } else {
             trailingEl.textContent = '--';
-            trailingEl.style.color = '#a9a396';
+            trailingEl.style.color = '#a3a3a3';
         }
     }
     const slEl = $('posCurrentSl');
@@ -1105,7 +1105,7 @@ function updatePositionUI(data) {
             slEl.style.color = '#f6465d';
         } else {
             slEl.textContent = '--';
-            slEl.style.color = '#a9a396';
+            slEl.style.color = '#a3a3a3';
         }
     }
 
@@ -1241,7 +1241,7 @@ function updatePositionUI(data) {
                     price: price, color: color, lineWidth: 1,
                     lineStyle: dashed ? 2 : 0, axisLabelVisible: true, title: title,
                 });
-                _posPriceLines.push(mkLine(Number(data.entry_price), '#f5c518', 'ENTRY', false));
+                _posPriceLines.push(mkLine(Number(data.entry_price), '#f0b90b', 'ENTRY', false));
                 if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#2ecf8a', 'TP 1:1', true));
                 if (data.sl_price) _posPriceLines.push(mkLine(Number(data.sl_price), '#f6465d', 'SL 1:1', true));
             }
@@ -2674,7 +2674,7 @@ function attachListeners() {
                 b.style.background = '';
                 b.style.color = '';
             });
-            btn.style.background = '#f5c518';
+            btn.style.background = '#f0b90b';
             btn.style.color = '#ffffff';
             applyLeverageDirect(lev);
         });
@@ -2693,7 +2693,7 @@ function attachListeners() {
             });
             const btnMatch = document.querySelector(`.quick-leverage .btn[data-lev="${maxLev}"]`);
             if (btnMatch) {
-                btnMatch.style.background = '#f5c518';
+                btnMatch.style.background = '#f0b90b';
                 btnMatch.style.color = '#ffffff';
             }
             applyLeverageDirect(maxLev);
