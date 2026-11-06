@@ -132,8 +132,8 @@ DEFAULT_CONFIG = {
     "amount_mode": "fixed",
     "amount": 100,
     "amount_pct": 10,
-    "stop_loss_pct": 20.0,
-    "take_profit_pct": 100.0,
+    "stop_loss_pct": 2,
+    "take_profit_pct": 2,
     "trailing_roe_pct": 100.0,
     "tp_mode": "fixed",
     "mode": "both",
@@ -169,10 +169,9 @@ def load_config() -> dict:
             with open(path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             merged = {**DEFAULT_CONFIG, **cfg}
-            # Margin Risk: 20% SL (-20% ROE), 100% TP (+100% ROE / Ratio 1) with auto-reversal
+            # Enforce strict 1:1 TP & SL with auto-reversal
             merged["tp_mode"] = "fixed"
-            merged["stop_loss_pct"] = 20.0
-            merged["take_profit_pct"] = 100.0
+            merged["take_profit_pct"] = merged.get("stop_loss_pct", 2)
             merged["trailing_roe_pct"] = 100.0
             # Per-exchange credential memory: if a slot map exists, the flat
             # fields MUST mirror the ACTIVE exchange's own saved credentials.
@@ -415,10 +414,20 @@ def update_config():
     CONFIG["leverage"] = max(1, min(max_lev, int(CONFIG["leverage"])))
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
-    CONFIG["stop_loss_pct"] = 20.0
-    CONFIG["take_profit_pct"] = 100.0
-    CONFIG["trailing_roe_pct"] = 100.0
-    CONFIG["tp_mode"] = "fixed"
+    CONFIG["stop_loss_pct"] = max(0.5, min(50, float(CONFIG.get("stop_loss_pct", 2))))
+    CONFIG["trailing_roe_pct"] = max(20.0, min(500.0, float(CONFIG.get("trailing_roe_pct", 100.0))))
+    tp_m = (CONFIG.get("tp_mode") or "fixed").lower()
+    if tp_m in ("both", "fixed"):
+        CONFIG["tp_mode"] = "fixed"
+    elif tp_m in ("trailing", "ema_reversal"):
+        CONFIG["tp_mode"] = tp_m
+    else:
+        CONFIG["tp_mode"] = "fixed"
+
+    if CONFIG["tp_mode"] == "fixed":
+        CONFIG["take_profit_pct"] = CONFIG["stop_loss_pct"]
+    else:
+        CONFIG["take_profit_pct"] = CONFIG["stop_loss_pct"] * 3
     CONFIG["testnet"] = bool(CONFIG["testnet"])
     CONFIG["telegram_enabled"] = bool(CONFIG.get("telegram_enabled"))
     CONFIG["email_enabled"] = bool(CONFIG.get("email_enabled"))

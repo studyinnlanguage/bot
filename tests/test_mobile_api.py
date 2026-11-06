@@ -192,7 +192,7 @@ class TestConfigValidation:
         assert body["success"] is True
         assert body["config"]["symbols_list"] == ["BTCUSDT", "ETHUSDT"]
         assert body["config"]["leverage"] == 20
-        assert body["config"]["take_profit_pct"] == 100.0  # 100% margin TP
+        assert body["config"]["take_profit_pct"] == 1.5  # strict 1:1
         assert "api_key" not in body["config"]  # never echoed
 
     def test_leverage_clamped_by_exchange(self, client):
