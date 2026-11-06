@@ -756,19 +756,19 @@
                             <div class="hint">Bot dynamically computes USDT size based on current available balance.</div>
                         </div>
 
-                        <!-- Automated 1:1 Risk & Profit Settings -->
+                        <!-- Automated Risk & Profit Settings (SL 0.2% / TP 1.0%) -->
                         <div class="form-group">
-                            <label>Automated 1:1 Risk &amp; Target % (SL &amp; TP Distance)</label>
+                            <label>Automated Risk &amp; Target % (SL 0.2% &amp; TP 1.0%)</label>
                             <div style="display:flex; align-items:center; gap:10px;">
-                                <input type="number" id="stopLossPct" value="2" min="0.5" max="20" step="0.5" required style="flex:1;">
-                                <input type="hidden" id="takeProfitPct" value="2">
+                                <input type="number" id="stopLossPct" value="0.2" min="0.05" max="20" step="0.05" required style="flex:1;">
+                                <input type="hidden" id="takeProfitPct" value="1">
                                 <input type="hidden" id="tpMode" value="fixed">
                                 <span class="badge" style="background:rgba(46,207,138,0.15); color:var(--green); border:1px solid rgba(46,207,138,0.3); font-weight:700; padding:10px 14px; border-radius:8px; white-space:nowrap;">
-                                    ⚡ AUTO: 1:1 ACTIVE
+                                    ⚡ SL: 0.2% | TP: 1.0%
                                 </span>
                             </div>
                             <div class="hint" style="margin-top:6px;">
-                                🎯 <b>Fully Automated 1:1 Risk-to-Reward:</b> Take Profit (+<span id="autoTpDisplay">2.0</span>%) &amp; Stop Loss (-<span id="autoSlDisplay">2.0</span>%) are symmetrically locked. If trend flips opposite, bot cuts trade instantly and auto-reverses!
+                                🎯 <b>Automated Risk Management:</b> Take Profit (+<span id="autoTpDisplay">1.0</span>%) &amp; Stop Loss (-<span id="autoSlDisplay">0.2</span>%). If trend flips opposite, bot cuts trade instantly and auto-reverses!
                             </div>
                         </div>
 

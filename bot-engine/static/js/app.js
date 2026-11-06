@@ -1757,9 +1757,9 @@ async function loadSettings() {
         }
         if ($('amount')) $('amount').value = cfg.amount || 100;
         if ($('amountPct')) $('amountPct').value = cfg.amount_pct || 10;
-        const slVal = cfg.stop_loss_pct || 2;
+        const slVal = cfg.stop_loss_pct ?? 0.2;
         if ($('stopLossPct')) $('stopLossPct').value = slVal;
-        if ($('takeProfitPct')) $('takeProfitPct').value = slVal;
+        if ($('takeProfitPct')) $('takeProfitPct').value = cfg.take_profit_pct ?? 1.0;
         if ($('tpMode')) $('tpMode').value = 'fixed';
         if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
@@ -2037,8 +2037,8 @@ async function saveSettings() {
         amount_mode: document.querySelector('.toggle-btn.active')?.dataset.mode || 'fixed',
         amount: parseFloat($('amount').value),
         amount_pct: parseFloat($('amountPct').value),
-        stop_loss_pct: parseFloat($('stopLossPct').value) || 0,
-        take_profit_pct: parseFloat($('stopLossPct').value) || 0,
+        stop_loss_pct: parseFloat($('stopLossPct').value) || 0.2,
+        take_profit_pct: parseFloat($('takeProfitPct')?.value) || 1.0,
         trailing_roe_pct: 100,
         tp_mode: 'fixed',
         max_concurrent_trades: parseInt($('maxConcurrentTrades')?.value || 3),
@@ -2598,13 +2598,13 @@ function attachListeners() {
     }
 
     function updateTPModeUI() {
-        const sl = parseFloat(slInput?.value) || 2.0;
+        const sl = parseFloat(slInput?.value) || 0.2;
         const tpInput = $('takeProfitPct');
         if (tpInput) {
-            tpInput.value = sl.toFixed(1);
+            tpInput.value = '1';
         }
-        if ($('autoTpDisplay')) $('autoTpDisplay').textContent = sl.toFixed(1);
-        if ($('autoSlDisplay')) $('autoSlDisplay').textContent = sl.toFixed(1);
+        if ($('autoTpDisplay')) $('autoTpDisplay').textContent = '1.0';
+        if ($('autoSlDisplay')) $('autoSlDisplay').textContent = sl.toFixed(2);
         const tpModeInput = $('tpMode');
         if (tpModeInput) tpModeInput.value = 'fixed';
     }

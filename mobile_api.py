@@ -642,11 +642,11 @@ def m_bot_config():
             return jsonify({"success": False, "error": "Invalid amount percent"}), 400
     if "stop_loss_pct" in data:
         try:
-            sl = max(0.5, min(50, float(data["stop_loss_pct"]) or 2))
+            sl = max(0.05, min(50, float(data["stop_loss_pct"]) or 0.2))
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid stop loss"}), 400
         config["stop_loss_pct"] = sl
-        config["take_profit_pct"] = sl  # strict 1:1 TP/SL (engine enforces the same)
+        config["take_profit_pct"] = 1.0  # TP 1.0%
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:
