@@ -646,7 +646,7 @@ def m_bot_config():
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid stop loss"}), 400
         config["stop_loss_pct"] = sl
-        config["take_profit_pct"] = sl  # strict 1:1 TP/SL (engine enforces the same)
+        config["take_profit_pct"] = 100.0  # 100% margin (Ratio 1)
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:

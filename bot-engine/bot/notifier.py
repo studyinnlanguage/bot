@@ -343,8 +343,9 @@ class Notifier:
         title = "Bot Started"
         exchange = config.get("exchange", "binance").upper()
         symbols = ",".join(config.get("symbols_list", []))
-        sl_val = config.get("stop_loss_pct", 2)
-        tp_desc = f"Strict 1:1 TP ({sl_val}%) + Auto-Reversal"
+        sl_val = config.get("stop_loss_pct", 20.0)
+        tp_val = config.get("take_profit_pct", 100.0)
+        tp_desc = f"100% Margin TP (+100% ROE) + Auto-Reversal"
 
         msg = (
             f"Exchange: {exchange}\n"
@@ -352,8 +353,8 @@ class Notifier:
             f"Timeframe: {config.get('timeframe')}\n"
             f"Leverage: {config.get('leverage')}x\n"
             f"Mode: {config.get('mode')}\n"
-            f"SL: {config.get('stop_loss_pct', 0)}%\n"
-            f"TP: {tp_desc}\n"
+            f"SL: -{sl_val}% Margin\n"
+            f"TP: +{tp_val}% Margin\n"
             f"Environment: {'TESTNET' if config.get('testnet') else 'MAINNET'}"
         )
         return self.send(title, msg)
