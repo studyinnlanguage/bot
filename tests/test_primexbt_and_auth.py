@@ -54,6 +54,26 @@ class TestPrimeXBTIntegration:
         assert "Error -2014" in diag["error"]
         assert "Binance" in diag["cause"]
 
+        # validate_credentials (called by /api/test_connection) must ALSO catch 64-char Binance key
+        vc = trader.validate_credentials()
+        assert vc["ok"] is False
+        assert vc["error_code"] == -2014
+        assert "Binance" in vc["message"]
+
+    def test_primexbt_validate_credentials_supports_hmac(self, monkeypatch):
+        config = {
+            "api_key": "pxk_live_valid_key_123",
+            "api_secret": "px_hmac_secret_9876543210abcdef",
+            "testnet": True,
+        }
+        trader = PrimeXBTTrader(config)
+        assert trader.auth_mode == "hmac"
+        monkeypatch.setattr(trader, "get_balance_or_none", lambda: 1250.50)
+        vc = trader.validate_credentials()
+        assert vc["ok"] is True
+        assert vc["balance"] == 1250.50
+        assert vc["demo"] is True
+
     def test_primexbt_demo_virtual_balance(self):
         # DEMO mode without API keys loaded
         config = {"api_key": "", "api_secret": "", "testnet": True}

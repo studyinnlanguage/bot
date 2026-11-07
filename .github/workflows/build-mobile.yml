@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -68,19 +70,25 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.1.0-apk
+          name: WEEXIONIC-v2.1.1-apk
           path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
 
       - name: Upload AAB artifact (Play Store)
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.1.0-aab
+          name: WEEXIONIC-v2.1.1-aab
           path: mobile-app/android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Rename release binaries with version tag
+        if: github.event_name == 'release'
+        run: |
+          cp mobile-app/android/app/build/outputs/apk/release/app-release.apk "WEEXIONIC-${GITHUB_REF_NAME}.apk"
+          cp mobile-app/android/app/build/outputs/bundle/release/app-release.aab "WEEXIONIC-${GITHUB_REF_NAME}.aab"
 
       - name: Attach APK to release (when triggered by a release)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            mobile-app/android/app/build/outputs/apk/release/app-release.apk
-            mobile-app/android/app/build/outputs/bundle/release/app-release.aab
+            WEEXIONIC-${{ github.ref_name }}.apk
+            WEEXIONIC-${{ github.ref_name }}.aab

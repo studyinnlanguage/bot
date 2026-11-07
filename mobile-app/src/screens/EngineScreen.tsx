@@ -19,6 +19,7 @@ export function EngineScreen() {
   const { user, refreshUser } = useAuth();
   const [exchange, setExchange] = useState('binance');
   const [testnet, setTestnet] = useState(true);
+  const [savedExchanges, setSavedExchanges] = useState<Record<string, boolean>>({});
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [passphrase, setPassphrase] = useState('');
@@ -28,7 +29,7 @@ export function EngineScreen() {
   const [amountMode, setAmountMode] = useState<'fixed' | 'percent'>('fixed');
   const [amount, setAmount] = useState('100');
   const [amountPct, setAmountPct] = useState('10');
-  const [stopLossPct, setStopLossPct] = useState('2');
+  const [stopLossPct, setStopLossPct] = useState('0.2');
   const [mode, setMode] = useState('both');
   const [maxTrades, setMaxTrades] = useState('3');
   const [reentryCd, setReentryCd] = useState('180');
@@ -39,6 +40,9 @@ export function EngineScreen() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
+  const cleanInputCred = (v: string) =>
+    v.replace(/[\u200B-\u200F\uFEFF\u00A0]/g, '').trim();
+
   useFocusEffect(
     useCallback(() => {
       (async () => {
@@ -47,13 +51,14 @@ export function EngineScreen() {
           const cfg = r.config || {};
           setExchange(cfg.exchange || 'binance');
           setTestnet(!!cfg.testnet);
+          setSavedExchanges(cfg.saved_exchanges || {});
           setSymbolsText((cfg.symbols_list || []).join(', '));
           setTimeframe(cfg.timeframe || '5m');
           setLeverage(String(cfg.leverage ?? 10));
           setAmountMode(cfg.amount_mode === 'percent' ? 'percent' : 'fixed');
           setAmount(String(cfg.amount ?? 100));
           setAmountPct(String(cfg.amount_pct ?? 10));
-          setStopLossPct(String(cfg.stop_loss_pct ?? 2));
+          setStopLossPct(String(cfg.stop_loss_pct ?? 0.2));
           setMode(cfg.mode || 'both');
           setMaxTrades(String(cfg.max_concurrent_trades ?? 3));
           setReentryCd(String(cfg.reentry_cooldown_sec ?? 180));
@@ -67,26 +72,52 @@ export function EngineScreen() {
   );
 
   const ex = EXCHANGES.find(e => e.id === exchange) || EXCHANGES[0];
+  const hasSavedForEx =
+    savedExchanges[exchange] !== undefined
+      ? !!savedExchanges[exchange]
+      : !!(exchange === user?.bot_config?.exchange && user?.bot_config?.has_api_key);
+
+  const selectExchange = (nextEx: string) => {
+    if (nextEx === exchange) return;
+    setExchange(nextEx);
+    // Clear unsaved text inputs when switching exchange tabs so credentials
+    // typed for one exchange are never accidentally submitted under another.
+    setApiKey('');
+    setApiSecret('');
+    setPassphrase('');
+    setErr(null);
+    setOk(null);
+  };
+
+  const buildConfigPatch = () => {
+    const patch: Record<string, any> = {
+      exchange, testnet, symbols_list: symbolsText, timeframe,
+      leverage: Number(leverage), amount_mode: amountMode,
+      amount: Number(amount), amount_pct: Number(amountPct),
+      stop_loss_pct: Number(stopLossPct), mode,
+      max_concurrent_trades: Number(maxTrades),
+      reentry_cooldown_sec: Number(reentryCd),
+      min_ema_spread: Number(minSpread), fresh_window: Number(freshWindow),
+    };
+    const k = cleanInputCred(apiKey);
+    const s = cleanInputCred(apiSecret);
+    const p = cleanInputCred(passphrase);
+    if (k) patch.api_key = k;
+    if (s) patch.api_secret = s;
+    if (exchange === 'weex' && p) patch.api_passphrase = p;
+    return patch;
+  };
 
   const save = async () => {
     setBusy(true);
     setErr(null);
     setOk(null);
     try {
-      const patch: Record<string, any> = {
-        exchange, testnet, symbols_list: symbolsText, timeframe,
-        leverage: Number(leverage), amount_mode: amountMode,
-        amount: Number(amount), amount_pct: Number(amountPct),
-        stop_loss_pct: Number(stopLossPct), mode,
-        max_concurrent_trades: Number(maxTrades),
-        reentry_cooldown_sec: Number(reentryCd),
-        min_ema_spread: Number(minSpread), fresh_window: Number(freshWindow),
-      };
-      if (apiKey.trim()) patch.api_key = apiKey.trim();
-      if (apiSecret.trim()) patch.api_secret = apiSecret.trim();
-      if (exchange === 'weex' && passphrase.trim()) patch.api_passphrase = passphrase.trim();
-      const r = await botApi.saveConfig(patch);
-      setOk('Settings saved.' + (r.engine_sync ? ' Live engine synced.' : ' Takes effect on next bot start.'));
+      const r = await botApi.saveConfig(buildConfigPatch());
+      if (r?.config?.saved_exchanges) {
+        setSavedExchanges(r.config.saved_exchanges);
+      }
+      setOk('Settings saved.' + (r.engine_sync ? ' Live engine synced.' : ' Ready for next bot start.'));
       setApiKey('');
       setApiSecret('');
       setPassphrase('');
@@ -103,14 +134,43 @@ export function EngineScreen() {
     setErr(null);
     setOk(null);
     try {
-      const r = await botApi.testConnection();
-      if (r.success) {
-        Alert.alert('Connection OK', `${String(r.exchange || exchange).toUpperCase()}${r.demo ? ' (demo)' : ''} — Balance: $${Number(r.balance ?? 0).toFixed(2)}`);
+      const k = cleanInputCred(apiKey);
+      const s = cleanInputCred(apiSecret);
+      const p = cleanInputCred(passphrase);
+      // Auto-save newly entered keys or switched exchange/env so testing works
+      // immediately without forcing the user to scroll down & tap Save first.
+      if (k || s || p || exchange !== user?.bot_config?.exchange || testnet !== user?.bot_config?.testnet) {
+        const saveRes = await botApi.saveConfig(buildConfigPatch());
+        if (saveRes?.config?.saved_exchanges) {
+          setSavedExchanges(saveRes.config.saved_exchanges);
+        }
+        setApiKey('');
+        setApiSecret('');
+        setPassphrase('');
+        refreshUser();
+      }
+      const probe: Record<string, any> = { exchange, testnet };
+      if (k) probe.api_key = k;
+      if (s) probe.api_secret = s;
+      if (exchange === 'weex' && p) probe.api_passphrase = p;
+
+      const r = await botApi.testConnection(probe);
+      if (r.ok || r.success) {
+        const balStr = r.balance !== null && r.balance !== undefined
+          ? ` — Balance: $${Number(r.balance).toFixed(2)}`
+          : '';
+        Alert.alert(
+          'Connection OK ✅',
+          r.message || `${String(r.exchange || exchange).toUpperCase()}${r.demo ? ' (DEMO)' : ' (LIVE)'}${balStr}`,
+        );
       } else {
-        Alert.alert('Connection failed', r.message || r.error || 'API keys rejected by the exchange.');
+        Alert.alert(
+          'Connection failed',
+          r.message || r.error || 'API keys rejected by the exchange.',
+        );
       }
     } catch (e: any) {
-      Alert.alert('Connection failed', e?.message || 'Bot must be running to test.');
+      Alert.alert('Connection failed', e?.message || 'Unable to verify API keys right now.');
     } finally {
       setTesting(false);
     }
@@ -136,7 +196,7 @@ export function EngineScreen() {
         <Lbl style={{ marginBottom: 8 }}>EXCHANGE</Lbl>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
           {EXCHANGES.map(e => (
-            <Chip key={e.id} label={e.label} active={exchange === e.id} onPress={() => setExchange(e.id)} />
+            <Chip key={e.id} label={e.label} active={exchange === e.id} onPress={() => selectExchange(e.id)} />
           ))}
         </View>
         <Text style={{ color: C.dim2, fontSize: 11, marginBottom: 10 }}>{ex.note} · max leverage {ex.maxLev}x</Text>
@@ -168,20 +228,20 @@ export function EngineScreen() {
             : '⚠️ LIVE TRADING ACTIVE: Every order executes with real money on the live exchange.'}
         </Text>
 
-        <Field label="API KEY" value={apiKey} onChangeText={setApiKey}
-          placeholder={user?.bot_config?.has_api_key ? 'Saved — enter to replace' : 'Exchange API key'} secure={!apiKey ? false : true} />
-        <Field label="API SECRET" value={apiSecret} onChangeText={setApiSecret}
-          placeholder={user?.bot_config?.has_api_secret ? 'Saved — enter to replace' : 'Exchange API secret'} secure />
+        <Field label={`API KEY (${ex.label.toUpperCase()})`} value={apiKey} onChangeText={setApiKey}
+          placeholder={hasSavedForEx ? `Saved for ${ex.label} — enter to replace` : `Paste ${ex.label} API key`} secure={!apiKey ? false : true} />
+        <Field label={`API SECRET (${ex.label.toUpperCase()})`} value={apiSecret} onChangeText={setApiSecret}
+          placeholder={hasSavedForEx ? `Saved for ${ex.label} — enter to replace` : `Paste ${ex.label} API secret`} secure />
         {exchange === 'weex' && (
           <Field label="API PASSPHRASE (WEEX REQUIRES IT)" value={passphrase} onChangeText={setPassphrase}
-            placeholder={user?.bot_config?.has_passphrase ? 'Saved — enter to replace' : 'WEEX passphrase'} secure />
+            placeholder={hasSavedForEx ? 'Saved for WEEX — enter to replace' : 'Paste WEEX passphrase'} secure />
         )}
         {exchange === 'primexbt' && (
           <Text style={{ color: C.dim, fontSize: 11, marginBottom: 10, lineHeight: 16 }}>
             PrimeXBT PXTrader 2.0 API: Supports PXTrader 2.0 HMAC-SHA256 and Ed25519 signing. DEMO connects to PXTrader 2.0 Demo sandbox.
           </Text>
         )}
-        <GlassButton title={testing ? 'TESTING…' : '🔌 TEST CONNECTION (CHECK API KEYS)'} onPress={testConn} />
+        <GlassButton title={testing ? 'TESTING…' : '🔌 SAVE & TEST CONNECTION'} onPress={testConn} />
       </Card>
 
       <Card style={{ marginTop: 14 }}>
@@ -219,8 +279,8 @@ export function EngineScreen() {
         ) : (
           <Field label="% OF BALANCE PER TRADE (1–100)" value={amountPct} onChangeText={setAmountPct} keyboardType="numbers-and-punctuation" />
         )}
-        <Field label="STOP LOSS % (0.5–50) — TP IS STRICT 1:1" value={stopLossPct} onChangeText={setStopLossPct} keyboardType="numbers-and-punctuation"
-          hint="Take-profit is automatically placed at the same distance as the stop loss." />
+        <Field label="STOP LOSS % (0.05–50) — TP IS FIXED AT 1.0%" value={stopLossPct} onChangeText={setStopLossPct} keyboardType="numbers-and-punctuation"
+          hint="Default SL is 0.2% with Take-Profit fixed at 1.0%." />
         <Lbl style={{ marginBottom: 8 }}>DIRECTION MODE</Lbl>
         <View style={{ flexDirection: 'row' }}>
           {MODES.map(m => (

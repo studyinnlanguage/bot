@@ -13,4 +13,4 @@ export const API_BASE_URL: string = __DEV__ && DEV_API_URL ? DEV_API_URL : PROD_
 export const DEEP_LINK_OAUTH = 'weexionic://oauth';
 export const GOOGLE_OAUTH_ENTRY = `${API_BASE_URL}/auth/google?client=mobile`;
 
-export const APP_VERSION = '2.1.0';
+export const APP_VERSION = '2.1.1';

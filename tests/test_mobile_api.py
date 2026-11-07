@@ -315,3 +315,155 @@ class TestReferral:
         assert r.status_code == 201
         r = c.get("/api/mobile/user/referral", headers=_auth(referrer["access_token"]))
         assert len(r.get_json()["referred_users"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Mobile Google OAuth msid polling + live credential sync & test_connection
+# ---------------------------------------------------------------------------
+class TestMobileOAuthPollingAndCredSync:
+    def test_poll_oauth_pending_then_ready_and_single_use(self, client):
+        import time as _t
+        c, saas = client
+        msid = "wxm_testsession_1234567890abcdef"
+
+        # 1. Before Google callback finishes -> ready: False (200)
+        r0 = c.post("/api/mobile/auth/poll-oauth", json={"msid": msid})
+        assert r0.status_code == 200
+        assert r0.get_json() == {"success": True, "ready": False}
+
+        # 2. Simulate Google callback storing oauth_codes + oauth_mobile_sessions
+        uid = "oauth-poll-user-1"
+        saas.DB["users"][uid] = {
+            "id": uid,
+            "email": "googlepoll@test.com",
+            "name": "Google Poll",
+            "role": "user",
+            "banned": False,
+            "subscription": {"plan": "yearly", "status": "active", "expires_at": "9999-12-31T00:00:00Z"},
+            "bot_config": {"exchange": "binance", "testnet": True},
+        }
+        code = "wx_poll_code_abcdef123456"
+        now_ts = _t.time()
+        saas.DB.setdefault("oauth_codes", {})[code] = {
+            "user_id": uid, "created_at": now_ts, "expires_at": now_ts + 180, "used": False,
+        }
+        saas.DB.setdefault("oauth_mobile_sessions", {})[msid] = {
+            "code": code, "user_id": uid, "created_at": now_ts, "expires_at": now_ts + 180,
+        }
+
+        # 3. Manual app switch / poll -> ready: True with tokens!
+        r1 = c.post("/api/mobile/auth/poll-oauth", json={"msid": msid})
+        assert r1.status_code == 200
+        b1 = r1.get_json()
+        assert b1["success"] is True and b1["ready"] is True
+        assert b1["access_token"] and b1["refresh_token"]
+        assert b1["user"]["email"] == "googlepoll@test.com"
+
+        # 4. Subsequent poll or deep-link code reuse cannot replay
+        r2 = c.post("/api/mobile/auth/poll-oauth", json={"msid": msid})
+        assert r2.status_code == 200 and r2.get_json()["ready"] is False
+        r3 = c.post("/api/mobile/auth/exchange-code", json={"code": code})
+        assert r3.status_code == 400
+
+    def test_mobile_config_cleans_creds_and_syncs_live_engine(self, client):
+        import mobile_api
+        c, saas = client
+        data = _register(c, "sync_live@test.com")
+        uid = data["user"]["id"]
+        hdrs = _auth(data["access_token"])
+
+        captured = []
+        orig_status = mobile_api._cfg.get("get_bot_status")
+        orig_proxy = mobile_api._cfg.get("proxy_to_bot")
+        try:
+            # Simulate real DB["bot_processes"] (pid + port ONLY, NO "running" key!)
+            saas.DB.setdefault("bot_processes", {})[uid] = {
+                "pid": 99999, "port": 55123, "should_run": True,
+            }
+            mobile_api._cfg["get_bot_status"] = lambda u: {"running": u == uid, "port": 55123}
+            mobile_api._cfg["proxy_to_bot"] = lambda u, m, p, body=None: (
+                captured.append((u, m, p, body)) or {"success": True}
+            )
+
+            # Save Binance keys with mobile copy-paste noise (zero-width space, label, smart quotes)
+            r = c.post("/api/mobile/bot/config", headers=hdrs, json={
+                "exchange": "binance",
+                "api_key": "API Key: \u200b“BIN_CLEAN_KEY_123”\n",
+                "api_secret": "Secret: 'BIN_CLEAN_SEC_456'\u200c",
+            })
+            assert r.status_code == 200
+            assert len(captured) == 1
+            _, method, path, payload = captured[0]
+            assert method == "POST" and path == "/api/config"
+            assert payload["api_key"] == "BIN_CLEAN_KEY_123"
+            assert payload["api_secret"] == "BIN_CLEAN_SEC_456"
+            assert payload["api_keys"]["binance"]["api_key"] == "BIN_CLEAN_KEY_123"
+
+            # Switch to WEEX without entering WEEX keys yet -> flat keys sent to engine MUST be empty!
+            captured.clear()
+            r2 = c.post("/api/mobile/bot/config", headers=hdrs, json={"exchange": "weex"})
+            assert r2.status_code == 200
+            _, _, _, payload2 = captured[0]
+            assert payload2["exchange"] == "weex"
+            assert payload2["api_key"] == ""
+            assert payload2["api_keys"]["binance"]["api_key"] == "BIN_CLEAN_KEY_123"
+
+            # Save WEEX keys + passphrase -> synced cleanly!
+            captured.clear()
+            r3 = c.post("/api/mobile/bot/config", headers=hdrs, json={
+                "exchange": "weex",
+                "api_key": "WEX_KEY_1",
+                "api_secret": "WEX_SEC_1",
+                "api_passphrase": "WEX_PASS_1",
+            })
+            assert r3.status_code == 200
+            _, _, _, payload3 = captured[0]
+            assert payload3["api_key"] == "WEX_KEY_1"
+            assert payload3["api_passphrase"] == "WEX_PASS_1"
+            assert payload3["api_keys"]["weex"]["api_passphrase"] == "WEX_PASS_1"
+            assert payload3["api_keys"]["binance"]["api_key"] == "BIN_CLEAN_KEY_123"
+        finally:
+            saas.DB.get("bot_processes", {}).pop(uid, None)
+            mobile_api._cfg["get_bot_status"] = orig_status
+            mobile_api._cfg["proxy_to_bot"] = orig_proxy
+
+    def test_mobile_test_connection_normalizes_ok_and_success(self, client):
+        import mobile_api
+        c, saas = client
+        data = _register(c, "testconn@test.com")
+        uid = data["user"]["id"]
+        saas.DB["users"][uid]["subscription"] = {
+            "plan": "yearly", "status": "active", "expires_at": "9999-12-31T00:00:00Z",
+        }
+        hdrs = _auth(data["access_token"])
+
+        orig_status = mobile_api._cfg.get("get_bot_status")
+        orig_proxy = mobile_api._cfg.get("proxy_to_bot")
+        try:
+            mobile_api._cfg["get_bot_status"] = lambda u: {"running": True, "port": 55124}
+            # Engine validate_credentials returns {ok: True, balance: 250.0, ...} WITHOUT "success"
+            mobile_api._cfg["proxy_to_bot"] = lambda u, m, p, body=None: {
+                "ok": True, "balance": 250.0, "exchange": body["exchange"],
+                "demo": body["testnet"], "message": "Auth OK",
+            }
+            r_ok = c.post("/api/mobile/bot/test_connection", headers=hdrs, json={
+                "exchange": "primexbt", "testnet": True,
+                "api_key": "pxk_abc", "api_secret": "px_hmac_secret_123456",
+            })
+            assert r_ok.status_code == 200
+            body_ok = r_ok.get_json()
+            assert body_ok["ok"] is True and body_ok["success"] is True
+            assert body_ok["balance"] == 250.0
+
+            # Engine returns {ok: False, message: "..."} -> MUST still return HTTP 200 with success: False
+            mobile_api._cfg["proxy_to_bot"] = lambda u, m, p, body=None: {
+                "ok": False, "error_code": -2014, "message": "API-key format invalid",
+            }
+            r_fail = c.post("/api/mobile/bot/test_connection", headers=hdrs, json={"exchange": "binance"})
+            assert r_fail.status_code == 200
+            body_fail = r_fail.get_json()
+            assert body_fail["ok"] is False and body_fail["success"] is False
+            assert "format invalid" in body_fail["message"]
+        finally:
+            mobile_api._cfg["get_bot_status"] = orig_status
+            mobile_api._cfg["proxy_to_bot"] = orig_proxy

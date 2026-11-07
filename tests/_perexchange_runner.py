@@ -214,6 +214,33 @@ def _(instances, users):
     assert (cfg.get("api_keys") or {}).get("binance", {}).get("api_key") == "BINKEY"
 
 
+@scenario("S7_mobile_key_replacement_overwrites_stale_engine_file_key")
+def _(instances, users):
+    _write_engine_file(instances, {
+        "exchange": "binance", "testnet": True,
+        "api_key": "OLD_BROKEN_KEY", "api_secret": "OLD_BROKEN_SEC",
+        "api_keys": {"binance": {"api_key": "OLD_BROKEN_KEY", "api_secret": "OLD_BROKEN_SEC", "api_passphrase": ""}},
+        "symbols_list": ["BTCUSDT"], "symbol": "BTCUSDT",
+    })
+    users[UID]["bot_config"] = {
+        "exchange": "binance", "testnet": True,
+        "symbols_list": ["BTCUSDT"],
+        "api_key_enc": saas.encrypt("NEW_MOBILE_KEY"),
+        "api_secret_enc": saas.encrypt("NEW_MOBILE_SEC"),
+        "api_keys_enc": {
+            "binance": {
+                "api_key_enc": saas.encrypt("NEW_MOBILE_KEY"),
+                "api_secret_enc": saas.encrypt("NEW_MOBILE_SEC"),
+            }
+        },
+    }
+    saas.write_user_bot_config(UID)
+    cfg = _read_engine_file(instances)
+    assert cfg["api_key"] == "NEW_MOBILE_KEY", cfg.get("api_key")
+    assert cfg["api_secret"] == "NEW_MOBILE_SEC", cfg.get("api_secret")
+    assert cfg["api_keys"]["binance"]["api_key"] == "NEW_MOBILE_KEY"
+
+
 for _fn in list(SCENARIOS):
     _fn()
 

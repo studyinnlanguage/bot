@@ -958,7 +958,14 @@ def _google_redirect_uri_for_page():
     if GOOGLE_REDIRECT_URI:
         return GOOGLE_REDIRECT_URI
     try:
-        return request.url_root.rstrip("/") + "/auth/google/callback"
+        root = request.url_root.rstrip("/")
+        fwd_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+        host = (request.host or "").split(":")[0].lower()
+        if root.startswith("http://") and (fwd_proto == "https" or host not in ("localhost", "127.0.0.1", "")):
+            if fwd_proto == "https" or not request.host.startswith(("localhost", "127.0.0.1")):
+                if fwd_proto == "https":
+                    root = "https://" + root[len("http://"):]
+        return root + "/auth/google/callback"
     except Exception:
         return "https://YOUR-DOMAIN/auth/google/callback"
 
@@ -1265,10 +1272,12 @@ def write_user_bot_config(user_id: str) -> str:
             for _enc_f, _plain_f in (("api_key_enc", "api_key"),
                                      ("api_secret_enc", "api_secret"),
                                      ("api_passphrase_enc", "api_passphrase")):
-                if not _s.get(_plain_f) and _d.get(_enc_f):
+                if _d.get(_enc_f):
                     ok, val = decrypt_checked(_d[_enc_f])
                     if ok:
-                        _s[_plain_f] = str(val).strip().strip('"').strip("'")
+                        _clean_v = str(val).strip().strip('"').strip("'")
+                        if _clean_v:
+                            _s[_plain_f] = _clean_v
                     else:
                         _creds_invalid = True
                         logger.error("Credential %s/%s unreadable with current ENCRYPTION_KEY "
@@ -1291,21 +1300,26 @@ def write_user_bot_config(user_id: str) -> str:
             bot_config["api_secret"] = str(_new.get("api_secret") or "")
             bot_config["api_passphrase"] = str(_new.get("api_passphrase") or "")
         else:
-            # Same exchange: the legacy one-set DB credentials may still fill
-            # an empty flat field (older clients), then seed the active slot
-            # so both stay in sync.
+            # Same exchange: DB credentials (including updates saved via Mobile
+            # App or /api/bot/config) take precedence when readable; unreadable
+            # ciphertexts (ENCRYPTION_KEY changed) NEVER overwrite engine keys.
+            _act_ex = _db_exchange if _db_exchange in _VALID_EX else "binance"
+            _act_slot = dict(_slots.get(_act_ex) or {})
             for _plain_key, _enc_key in (("api_key", "api_key_enc"),
                                          ("api_secret", "api_secret_enc"),
                                          ("api_passphrase", "api_passphrase_enc")):
-                if not bot_config.get(_plain_key) and config.get(_enc_key):
+                if _act_slot.get(_plain_key):
+                    bot_config[_plain_key] = _act_slot[_plain_key]
+                elif config.get(_enc_key):
                     ok, val = decrypt_checked(config.get(_enc_key, ""))
                     if ok:
-                        bot_config[_plain_key] = val.strip().strip('"').strip("'")
+                        _clean_v = val.strip().strip('"').strip("'")
+                        if _clean_v:
+                            bot_config[_plain_key] = _clean_v
                     else:
                         _creds_invalid = True
                         logger.error("Credential %s unreadable with current ENCRYPTION_KEY "
                                      "(key changed after redeploy?). User must re-save it.", _enc_key)
-            _act_ex = _db_exchange if _db_exchange in _VALID_EX else "binance"
             if (bot_config.get("api_key") or bot_config.get("api_secret")) \
                     and not (_slots.get(_act_ex) or {}).get("api_key"):
                 _slots[_act_ex] = {
@@ -3231,18 +3245,27 @@ def google_auth():
     """Redirect to Google OAuth consent screen."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         return redirect("/auth/google/diag")
+    import re as _re
     import urllib.parse
-    # Mobile clients come back to the app via verified App Link / native intent
+    # Mobile clients come back to the app via verified App Link / native intent + msid polling
     is_mobile = request.args.get("client") == "mobile"
+    msid = _re.sub(r"[^A-Za-z0-9_\-]", "", (request.args.get("msid") or "").strip())[:64]
     if is_mobile:
         session["oauth_client"] = "mobile"
+        if msid:
+            session["oauth_msid"] = msid
     # Generate and store OAuth state (prefix with 'm:' for mobile clients to persist across browser tabs)
     state_token = secrets.token_hex(16)
-    oauth_state = f"m:{state_token}" if is_mobile else state_token
+    if is_mobile:
+        oauth_state = f"m:{state_token}:{msid}" if msid else f"m:{state_token}"
+    else:
+        oauth_state = state_token
     session["oauth_state"] = oauth_state
+    redirect_uri = _google_redirect_uri_for_page()
+    session["oauth_redirect_uri"] = redirect_uri
     params = {
         "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "access_type": "offline",
@@ -3256,6 +3279,7 @@ def google_auth():
 @app.route("/auth/google/callback")
 def google_callback():
     """Handle Google OAuth callback - create or login user."""
+    import re as _re
     code = request.args.get("code")
     error = request.args.get("error")
     # Verify OAuth state to prevent CSRF attacks
@@ -3266,6 +3290,17 @@ def google_callback():
         or returned_state.startswith("m:")
         or request.args.get("client") == "mobile"
     )
+    # Extract mobile polling session id (msid) if embedded in state ("m:<hex>:<msid>")
+    msid = ""
+    if returned_state.startswith("m:"):
+        state_parts = returned_state.split(":", 2)
+        if len(state_parts) == 3:
+            msid = _re.sub(r"[^A-Za-z0-9_\-]", "", state_parts[2])[:64]
+    if not msid:
+        msid = _re.sub(r"[^A-Za-z0-9_\-]", "", str(session.pop("oauth_msid", "") or ""))[:64]
+    else:
+        session.pop("oauth_msid", None)
+
     is_valid_state = bool(expected_state and secrets.compare_digest(returned_state, expected_state))
     if not is_valid_state and not (is_mobile and returned_state.startswith("m:") and len(returned_state) >= 18):
         logger.warning("Google OAuth state mismatch — possible CSRF attack. IP=%s", request.remote_addr)
@@ -3287,12 +3322,13 @@ def google_callback():
             "Temporary ho sakta hai - Retry dabao. Repeat ho to /auth/google/diag kholo.")
 
     try:
+        redirect_uri = session.pop("oauth_redirect_uri", None) or _google_redirect_uri_for_page()
         # Exchange code for access token
         token_data = {
             "code": code,
             "client_id": GOOGLE_CLIENT_ID,
             "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }
         resp = req_lib.post("https://oauth2.googleapis.com/token", data=token_data, timeout=10)
@@ -3374,8 +3410,8 @@ def google_callback():
                 "bot_config": {
                     "exchange": "binance", "testnet": True, "symbols_list": [],
                     "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
-                    "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
-                    "take_profit_pct": 6, "tp_mode": "both", "mode": "both",
+                    "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.2,
+                    "take_profit_pct": 1.0, "tp_mode": "fixed", "mode": "both",
                     "max_concurrent_trades": 3,
                     "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
                 },
@@ -3398,21 +3434,42 @@ def google_callback():
         session.permanent = True
         logger.info("Google login: %s", google_email)
 
-        # Mobile OAuth round-trip: return securely via single-use auth code and native intent
+        # Mobile OAuth round-trip: return securely via single-use auth code, native intent AND msid polling
         if is_mobile:
+            import urllib.parse as _up
             session.pop("oauth_client", None)
             auth_code = f"wx_{secrets.token_urlsafe(32)}"
             now_ts = time.time()
-            DB.setdefault("oauth_codes", {})[auth_code] = {
+            oauth_codes = DB.setdefault("oauth_codes", {})
+            for _k, _v in list(oauth_codes.items()):
+                if now_ts > float((_v or {}).get("expires_at", 0)) + 60:
+                    oauth_codes.pop(_k, None)
+            oauth_codes[auth_code] = {
                 "user_id": user["id"],
                 "created_at": now_ts,
                 "expires_at": now_ts + 180,  # 3 minutes TTL
                 "used": False,
             }
+            if msid and len(msid) >= 16:
+                mobile_sessions = DB.setdefault("oauth_mobile_sessions", {})
+                for _mk, _mv in list(mobile_sessions.items()):
+                    if now_ts > float((_mv or {}).get("expires_at", 0)) + 60:
+                        mobile_sessions.pop(_mk, None)
+                mobile_sessions[msid] = {
+                    "code": auth_code,
+                    "user_id": user["id"],
+                    "created_at": now_ts,
+                    "expires_at": now_ts + 180,
+                }
             save_db(DB)
-            intent_url = f"intent://oauth?code={auth_code}#Intent;scheme=weexionic;package=com.weexionic.app;end"
-            handoff_url = f"weexionic://oauth?code={auth_code}"
             applink_url = f"https://weexionic.duckdns.org/app/oauth?code={auth_code}"
+            fallback_enc = _up.quote(applink_url, safe="")
+            intent_url = (
+                f"intent://oauth?code={auth_code}"
+                f"#Intent;scheme=weexionic;package=com.weexionic.app;"
+                f"S.browser_fallback_url={fallback_enc};end"
+            )
+            handoff_url = f"weexionic://oauth?code={auth_code}"
             return render_template(
                 "saas_oauth_handoff.html",
                 user=user,
@@ -3441,6 +3498,7 @@ def assetlinks():
                 "namespace": "android_app",
                 "package_name": "com.weexionic.app",
                 "sha256_cert_fingerprints": [
+                    "1A:2A:5D:7C:7F:51:30:68:CA:62:6D:72:24:71:DB:33:5C:76:BE:F3:39:99:C0:BE:E0:E6:9A:E6:5F:9F:27:21",
                     "15:02:DF:D3:5F:B6:33:DE:6B:EB:98:C0:59:7C:1E:5C:A0:A6:45:C7:A9:7F:A7:20:94:3B:56:45:21:8B:E7:F4",
                     "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C",
                 ],
@@ -4472,9 +4530,12 @@ mobile_init(
     rate_limit=_check_rate_limit,
     encrypt=encrypt,
     decrypt=decrypt,
+    decrypt_checked=decrypt_checked,
     verify_password=verify_password,
     check_subscription=check_subscription,
     proxy_to_bot=proxy_to_bot,
+    get_bot_status=get_bot_status,
+    write_bot_config=write_user_bot_config,
     ensure_bot=ensure_bot_engine_running,
     start_bot=start_user_bot,
     stop_bot=stop_user_bot,

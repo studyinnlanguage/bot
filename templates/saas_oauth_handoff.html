@@ -150,12 +150,12 @@
             <span class="status-dot"></span>
             Returning to WEEXIONIC App...
         </div>
-        <p>Your secure session is verified. You will be redirected to the native app automatically.</p>
+        <p>Your Google account is verified! Tap the button below to return to the WEEXIONIC app — or simply switch back to the WEEXIONIC app manually (you are already signed in automatically).</p>
         
-        <a id="handoff-btn" href="{{ intent_url }}" class="btn-neon">Return to WEEXIONIC App</a>
+        <a id="handoff-btn" href="{{ handoff_url }}" class="btn-neon">Open WEEXIONIC App</a>
         
         <br>
-        <a href="{{ handoff_url }}" class="btn-alt">Or open via custom link (weexionic://)</a>
+        <a href="{{ intent_url }}" class="btn-alt">Alternative launch (Android Intent)</a>
     </div>
 
     <script>
@@ -163,17 +163,16 @@
         const handoffUrl = {{ handoff_url | tojson }};
         
         function redirect() {
-            // First try launching the Android Intent targeting com.weexionic.app
-            window.location.href = intentUrl;
-            // Fallback after 600ms to custom scheme
+            // Try custom scheme first (cleanest on RN singleTask), then Android Intent
+            try { window.location.href = handoffUrl; } catch (e) {}
             setTimeout(() => {
-                window.location.href = handoffUrl;
-            }, 600);
+                try { window.location.href = intentUrl; } catch (e) {}
+            }, 650);
         }
 
         // Run immediately on page load
         window.addEventListener('DOMContentLoaded', redirect);
-        setTimeout(redirect, 100);
+        setTimeout(redirect, 120);
     </script>
 </body>
 </html>

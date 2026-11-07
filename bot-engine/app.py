@@ -376,15 +376,16 @@ def update_config():
     # -> "API-key format invalid" / length mismatch) and overwritten on save
     # (switch back -> keys gone).
     incoming_exchange = resolve_exchange(data.get("exchange") or CONFIG.get("exchange"))
+    # Preserve any legacy flat credentials into prev_exchange's slot before
+    # merging external slots or switching exchanges (never overwrites an existing slot).
+    if incoming_exchange != prev_exchange or isinstance(data.get("api_keys"), dict):
+        archive_flat_into_slot(CONFIG, prev_exchange)
     # 1) Merge a payload-supplied slot map first (mobile API sync sends
     #    api_keys so the engine learns every exchange's credentials).
     if isinstance(data.get("api_keys"), dict):
         merge_external_slots(CONFIG, data["api_keys"])
-    # 2) Live exchange switch: archive the current flat credentials under the
-    #    exchange they were used on (legacy migration), then auto-load the
-    #    NEW exchange's own saved credentials.
-    if incoming_exchange != prev_exchange:
-        archive_flat_into_slot(CONFIG, prev_exchange)
+    # 2) Hydrate flat fields on exchange switch OR external slot sync.
+    if incoming_exchange != prev_exchange or isinstance(data.get("api_keys"), dict):
         hydrate_flat_from_slot(CONFIG, incoming_exchange)
     # 3) Newly typed credentials go into the ACTIVE exchange's slot and are
     #    mirrored to the flat fields (a switch + new keys in one save both work).
@@ -1050,24 +1051,59 @@ def start_preview():
 def test_connection():
     """Uniform per-exchange credential check (read-only, no orders).
 
-    Returns the adapter's validate_credentials() result: {ok, error_code,
-    error, message, balance, can_trade, env, exchange, demo}. Falls back to
-    the older test_connection() only for an adapter that lacks the new method.
+    Returns the adapter's validate_credentials() result with both `ok` and
+    `success` booleans populated: {ok, success, error_code, error, message,
+    balance, can_trade, env, exchange, demo}. Accepts optional override fields
+    in POST JSON ({exchange, testnet, api_key, api_secret, api_passphrase}) so
+    both Web and Mobile can test unsaved or newly-saved credentials directly.
     """
     try:
-        trader = get_trader(CONFIG)
+        override = request.get_json(silent=True) or {}
+        probe_cfg = dict(CONFIG)
+        if isinstance(override, dict):
+            if override.get("exchange"):
+                probe_cfg["exchange"] = resolve_exchange(override.get("exchange"))
+            if "testnet" in override and override["testnet"] is not None:
+                probe_cfg["testnet"] = bool(override["testnet"])
+            for cred_k in ("api_key", "api_secret", "api_passphrase"):
+                if cred_k in override and clean_cred(override.get(cred_k)):
+                    probe_cfg[cred_k] = clean_cred(override.get(cred_k))
+
+        ex = resolve_exchange(probe_cfg.get("exchange"))
+        demo_flag = bool(probe_cfg.get("testnet", True))
+        if not clean_cred(probe_cfg.get("api_key")) or not clean_cred(probe_cfg.get("api_secret")):
+            msg = f"{ex.upper()} API Key aur Secret dono enter karke Save karein."
+            return jsonify({
+                "ok": False, "success": False, "error_code": 400,
+                "error": msg, "message": msg, "balance": None,
+                "exchange": ex, "demo": demo_flag,
+            })
+        if ex == "weex" and not clean_cred(probe_cfg.get("api_passphrase")):
+            msg = ("WEEX credentials incomplete: API Key, Secret aur Passphrase teeno chahiye "
+                   "(Passphrase wahi jo API key banate waqt set ki thi).")
+            return jsonify({
+                "ok": False, "success": False, "error_code": 400,
+                "error": msg, "message": msg, "balance": None,
+                "exchange": "weex", "demo": demo_flag,
+            })
+
+        trader = get_trader(probe_cfg)
         if hasattr(trader, "validate_credentials"):
             result = trader.validate_credentials()
-            ENGINE.auth_check = result
-            ENGINE.connection["auth_check"] = result
-            ENGINE.connection["env"] = getattr(trader, "env_label", lambda: "UNKNOWN")()
-            ENGINE.connection["api_auth"] = "ok" if result.get("ok") else "failed"
-            socketio.emit("connection", dict(ENGINE.connection))
+            result["success"] = bool(result.get("ok"))
+            if ex == resolve_exchange(CONFIG.get("exchange")):
+                ENGINE.auth_check = result
+                ENGINE.connection["auth_check"] = result
+                ENGINE.connection["env"] = getattr(trader, "env_label", lambda: "UNKNOWN")()
+                ENGINE.connection["api_auth"] = "ok" if result.get("ok") else "failed"
+                socketio.emit("connection", dict(ENGINE.connection))
             return jsonify(result)
         result = trader.test_connection()
+        result["ok"] = bool(result.get("success"))
         return jsonify(result)
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        err_str = str(e)
+        return jsonify({"ok": False, "success": False, "error": err_str, "message": err_str})
 
 
 def _honest_demo_flag(trader) -> bool:

@@ -413,6 +413,10 @@ def m_exchange_code():
 
     # Single-use: mark used immediately
     code_record["used"] = True
+    # Also clean up any linked mobile polling session for this code
+    for _mk, _mv in list(db.get("oauth_mobile_sessions", {}).items()):
+        if isinstance(_mv, dict) and _mv.get("code") == code:
+            db["oauth_mobile_sessions"].pop(_mk, None)
     _save()
 
     user_id = code_record.get("user_id")
@@ -423,6 +427,72 @@ def m_exchange_code():
         return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
 
     return jsonify({"success": True, "user": _user_snapshot(user), **_issue_tokens(user)})
+
+
+@mobile_bp.post("/auth/poll-oauth")
+def m_poll_oauth():
+    """Poll completion of a browser-initiated mobile Google OAuth flow by msid.
+
+    Allows the mobile app to complete sign-in automatically even when Chrome /
+    Android Custom Tabs block non-gesture custom-scheme redirects or when the
+    user manually switches back to the WEEXIONIC app after selecting their
+    Google account.
+    """
+    import re as _re
+    data = request.get_json(force=True, silent=True) or {}
+    msid = _re.sub(r"[^A-Za-z0-9_\-]", "", str(data.get("msid") or "").strip())[:64]
+    if len(msid) < 16:
+        return jsonify({"success": False, "error": "Valid mobile session id (msid) is required"}), 400
+
+    ip = request.remote_addr or "unknown"
+    if _cfg.get("rate_limit") and not _cfg["rate_limit"](f"m_poll_oauth:{ip}:{msid[:16]}", 180, 180):
+        return jsonify({"success": False, "error": "Too many poll requests"}), 429
+
+    db = _db()
+    mobile_sessions = db.setdefault("oauth_mobile_sessions", {})
+    sess_record = mobile_sessions.get(msid)
+    if not sess_record:
+        return jsonify({"success": True, "ready": False})
+
+    now_ts = time.time()
+    if now_ts > float(sess_record.get("expires_at", 0)):
+        code = sess_record.get("code")
+        mobile_sessions.pop(msid, None)
+        if code:
+            db.get("oauth_codes", {}).pop(code, None)
+        _save()
+        return jsonify({
+            "success": False,
+            "ready": False,
+            "expired": True,
+            "error": "Google sign-in session expired. Please try again.",
+        }), 400
+
+    # Atomically consume the mobile session + underlying single-use oauth_code
+    mobile_sessions.pop(msid, None)
+    code = sess_record.get("code") or ""
+    oauth_codes = db.setdefault("oauth_codes", {})
+    code_record = oauth_codes.get(code)
+    if code_record:
+        if code_record.get("used"):
+            _save()
+            return jsonify({"success": True, "ready": False, "already_consumed": True})
+        code_record["used"] = True
+    _save()
+
+    user_id = (code_record or {}).get("user_id") or sess_record.get("user_id")
+    user = db.get("users", {}).get(user_id)
+    if not user:
+        return jsonify({"success": False, "error": "User account not found"}), 404
+    if user.get("banned"):
+        return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
+
+    return jsonify({
+        "success": True,
+        "ready": True,
+        "user": _user_snapshot(user),
+        **_issue_tokens(user),
+    })
 
 
 @mobile_bp.post("/auth/logout")
@@ -491,6 +561,93 @@ def _proxy_passthrough(path: str):
     return jsonify(result), code
 
 
+def _clean_mobile_cred(raw_val) -> str:
+    """Strip invisible zero-width chars, smart quotes, labels & stray whitespace
+    frequently introduced when copying API keys on mobile keyboards/clipboards."""
+    import re as _re
+    if raw_val is None:
+        return ""
+    s = str(raw_val)
+    # Strip zero-width & non-breaking spaces common in mobile copy-paste
+    s = _re.sub(r"[\u200b-\u200f\ufeff\u00a0]", "", s).strip()
+    # Preserve multi-line PEM blocks for PrimeXBT Ed25519 keys
+    if "-----BEGIN" in s:
+        return s.strip('"').strip("'").strip()
+    # Strip accidental "API Key: ..." / "Secret: ..." prefixes
+    s = _re.sub(r"^(?:api[\s_-]?(?:key|secret|passphrase)|secret[\s_-]?key|passphrase|secret|key)\s*[:=]\s*",
+                "", s, flags=_re.IGNORECASE)
+    # Collapse internal newlines/tabs from wrapped mobile paste & strip quotes
+    s = "".join(s.splitlines()).strip()
+    s = s.strip('"').strip("'").strip("\u201c\u201d\u2018\u2019").strip()
+    return s
+
+
+def _decrypt_cred(cipher_text: str) -> tuple[bool, str]:
+    if not cipher_text:
+        return True, ""
+    if callable(_cfg.get("decrypt_checked")):
+        ok, val = _cfg["decrypt_checked"](cipher_text)
+        return bool(ok), _clean_mobile_cred(val) if ok else ""
+    try:
+        val = _cfg["decrypt"](cipher_text)
+        return bool(val), _clean_mobile_cred(val)
+    except Exception:
+        return False, ""
+
+
+def _is_engine_running(user_id: str) -> bool:
+    """True when the user's bot-engine subprocess is actually alive."""
+    if callable(_cfg.get("get_bot_status")):
+        try:
+            st = _cfg["get_bot_status"](user_id) or {}
+            return bool(st.get("running"))
+        except Exception:
+            pass
+    proc = (_db().get("bot_processes") or {}).get(user_id) or {}
+    return bool(proc.get("running") or proc.get("pid"))
+
+
+def _build_engine_config_payload(user: dict) -> dict:
+    """Build full /api/config payload with ALL decrypted per-exchange slots
+    plus active exchange flat credentials."""
+    config = user.get("bot_config", {}) or {}
+    payload = {k: v for k, v in config.items() if not k.endswith("_enc")}
+    ex_now = str(config.get("exchange") or "binance").lower()
+    if ex_now not in ("binance", "weex", "primexbt"):
+        ex_now = "binance"
+    payload["exchange"] = ex_now
+
+    slots_enc = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
+    api_keys_plain: dict = {}
+    for ex in ("binance", "weex", "primexbt"):
+        s_enc = dict(slots_enc.get(ex) or {})
+        s_plain = {"api_key": "", "api_secret": "", "api_passphrase": ""}
+        for src_f, dst_f in (("api_key_enc", "api_key"),
+                             ("api_secret_enc", "api_secret"),
+                             ("api_passphrase_enc", "api_passphrase")):
+            if s_enc.get(src_f):
+                ok, val = _decrypt_cred(s_enc[src_f])
+                if ok and val:
+                    s_plain[dst_f] = val
+        api_keys_plain[ex] = s_plain
+
+    # Active exchange flat fields: prefer active slot, fallback to flat *_enc
+    act_slot = dict(api_keys_plain.get(ex_now) or {})
+    for src_f, dst_f in (("api_key_enc", "api_key"),
+                         ("api_secret_enc", "api_secret"),
+                         ("api_passphrase_enc", "api_passphrase")):
+        val = act_slot.get(dst_f) or ""
+        if not val and config.get(src_f):
+            ok, dec = _decrypt_cred(config[src_f])
+            if ok and dec:
+                val = dec
+                act_slot[dst_f] = dec
+        payload[dst_f] = val
+    api_keys_plain[ex_now] = act_slot
+    payload["api_keys"] = api_keys_plain
+    return payload
+
+
 @mobile_bp.post("/bot/start")
 def m_bot_start():
     user = _current_mobile_user()
@@ -500,7 +657,21 @@ def m_bot_start():
     if gated:
         return gated
     result = _cfg["start_bot"](user["id"])
-    return jsonify(result), (200 if result.get("success") else 502)
+    if not result.get("success"):
+        return jsonify(result), 400
+    # Ensure latest DB config + credentials are synced to the engine process
+    # and trigger /api/start so trading workers actually start (start_user_bot
+    # only ensures the engine subprocess is alive).
+    try:
+        _cfg["proxy_to_bot"](user["id"], "POST", "/api/config", _build_engine_config_payload(user))
+    except Exception as e:
+        logger.warning("Mobile start config sync warning for %s: %s", user["id"], e)
+    engine_start = _cfg["proxy_to_bot"](user["id"], "POST", "/api/start", {})
+    if isinstance(engine_start, dict) and engine_start.get("success") is False:
+        err_msg = str(engine_start.get("error") or "Failed to start trading engine")
+        if "already running" not in err_msg.lower():
+            return jsonify({"success": False, "error": err_msg, "details": engine_start}), 400
+    return jsonify({**result, "engine_start": engine_start}), 200
 
 
 @mobile_bp.post("/bot/stop")
@@ -588,20 +759,20 @@ def m_bot_config():
             act0.setdefault("api_passphrase_enc", config.get("api_passphrase_enc") or "")
             _slots[new_ex] = act0
 
-    if "api_key" in data and data["api_key"]:
-        _enc = _cfg["encrypt"](str(data["api_key"]).strip())
+    if "api_key" in data and _clean_mobile_cred(data["api_key"]):
+        _enc = _cfg["encrypt"](_clean_mobile_cred(data["api_key"]))
         config["api_key_enc"] = _enc
         _s = dict(_slots.get(new_ex) or {})
         _s["api_key_enc"] = _enc
         _slots[new_ex] = _s
-    if "api_secret" in data and data["api_secret"]:
-        _enc = _cfg["encrypt"](str(data["api_secret"]).strip())
+    if "api_secret" in data and _clean_mobile_cred(data["api_secret"]):
+        _enc = _cfg["encrypt"](_clean_mobile_cred(data["api_secret"]))
         config["api_secret_enc"] = _enc
         _s = dict(_slots.get(new_ex) or {})
         _s["api_secret_enc"] = _enc
         _slots[new_ex] = _s
-    if "api_passphrase" in data and data["api_passphrase"]:
-        _enc = _cfg["encrypt"](str(data["api_passphrase"]).strip())
+    if "api_passphrase" in data and _clean_mobile_cred(data["api_passphrase"]):
+        _enc = _cfg["encrypt"](_clean_mobile_cred(data["api_passphrase"]))
         config["api_passphrase_enc"] = _enc
         _s = dict(_slots.get(new_ex) or {})
         _s["api_passphrase_enc"] = _enc
@@ -690,33 +861,22 @@ def m_bot_config():
 
     _save()
 
-    # Live-sync to the engine when it is running (same semantics as the web flow)
-    engine_result = None
-    status = _db().get("bot_processes", {}).get(user["id"])
-    if status and status.get("running"):
-        engine_payload = {k: v for k, v in config.items() if not k.endswith("_enc")}
-        for src, dst in (("api_key_enc", "api_key"), ("api_secret_enc", "api_secret"),
-                         ("api_passphrase_enc", "api_passphrase")):
-            if config.get(src):
-                try:
-                    engine_payload[dst] = _cfg["decrypt"](config[src])
-                except Exception:
-                    pass
-        # Per-exchange slot map for the engine (plain values over the internal
-        # token-protected proxy) so the engine's slots learn every exchange.
+    # Keep on-disk engine config.json in sync if user instance directory exists
+    if callable(_cfg.get("write_bot_config")):
         try:
-            _ex_now = str(config.get("exchange") or "binance").lower()
-            _slot_src = dict((config.get("api_keys_enc") or {}).get(_ex_now) or {})
-            _slot_plain = {}
-            for src_f, dst_f in (("api_key_enc", "api_key"), ("api_secret_enc", "api_secret"),
-                                 ("api_passphrase_enc", "api_passphrase")):
-                _enc_v = _slot_src.get(src_f) or config.get(src_f)
-                if _enc_v:
-                    _slot_plain[dst_f] = _cfg["decrypt"](_enc_v)
-            if _slot_plain.get("api_key") and _slot_plain.get("api_secret"):
-                engine_payload["api_keys"] = {_ex_now: _slot_plain}
-        except Exception:
-            pass
+            from pathlib import Path as _Path
+            _inst_dir = _Path("user_instances") / str(user["id"])
+            if _inst_dir.exists() or _is_engine_running(user["id"]):
+                _cfg["write_bot_config"](user["id"])
+        except Exception as _we:
+            logger.warning("Mobile write_bot_config warning for %s: %s", user["id"], _we)
+
+    # Live-sync to the engine when it is ACTUALLY running
+    # (Previously checked DB["bot_processes"][uid].get("running"), which was
+    # always None/False because bot_processes only stores pid/port/should_run!)
+    engine_result = None
+    if _is_engine_running(user["id"]):
+        engine_payload = _build_engine_config_payload(user)
         engine_result = _cfg["proxy_to_bot"](user["id"], "POST", "/api/config", engine_payload)
 
     _slots_out = config.get("api_keys_enc") if isinstance(config.get("api_keys_enc"), dict) else {}
@@ -810,7 +970,63 @@ def m_bot_active_symbol():
 
 @mobile_bp.post("/bot/test_connection")
 def m_bot_test_connection():
-    return _proxy_passthrough("/api/test_connection")
+    """Validate exchange credentials cleanly for the mobile app.
+
+    1) Ensures the user's bot-engine process is spawned even if symbols_list is
+       still empty (start_user_bot blocks empty symbols_list, whereas users
+       routinely test API keys BEFORE picking coins).
+    2) Passes decrypted saved credentials (overridden by any freshly typed keys
+       in the POST body) directly to /api/test_connection.
+    3) Normalizes {ok, success, message, error} and returns HTTP 200 for normal
+       credential validation results so the mobile UI displays the exact
+       exchange diagnostic instead of a generic HTTP 502 gateway error.
+    """
+    user = _current_mobile_user()
+    if not user:
+        return _unauthorized()
+    gated = _require_sub(user)
+    if gated:
+        return gated
+
+    if not _is_engine_running(user["id"]) and callable(_cfg.get("ensure_bot")):
+        try:
+            _cfg["ensure_bot"](user["id"])
+        except Exception as e:
+            logger.warning("ensure_bot before test_connection failed for %s: %s", user["id"], e)
+
+    data = request.get_json(force=True, silent=True) or {}
+    base_payload = _build_engine_config_payload(user)
+    probe_ex = str(data.get("exchange") or base_payload.get("exchange") or "binance").lower().strip()
+    if probe_ex not in ("binance", "weex", "primexbt"):
+        probe_ex = "binance"
+    slot_for_ex = dict((base_payload.get("api_keys") or {}).get(probe_ex) or {})
+
+    probe_body = {
+        "exchange": probe_ex,
+        "testnet": bool(data["testnet"]) if "testnet" in data else bool(base_payload.get("testnet", True)),
+        "api_key": _clean_mobile_cred(data.get("api_key")) or slot_for_ex.get("api_key") or (
+            base_payload.get("api_key") if probe_ex == base_payload.get("exchange") else ""
+        ),
+        "api_secret": _clean_mobile_cred(data.get("api_secret")) or slot_for_ex.get("api_secret") or (
+            base_payload.get("api_secret") if probe_ex == base_payload.get("exchange") else ""
+        ),
+        "api_passphrase": _clean_mobile_cred(data.get("api_passphrase")) or slot_for_ex.get("api_passphrase") or (
+            base_payload.get("api_passphrase") if probe_ex == base_payload.get("exchange") else ""
+        ),
+    }
+
+    result = _cfg["proxy_to_bot"](user["id"], "POST", "/api/test_connection", probe_body)
+    if not isinstance(result, dict):
+        return jsonify({"success": False, "ok": False, "error": "Invalid response from bot engine"}), 502
+    if result.get("error") == "Bot is not running":
+        return jsonify({"success": False, "ok": False, "error": "Bot engine could not start. Please try again."}), 502
+
+    ok_flag = bool(result["ok"]) if "ok" in result else bool(result.get("success"))
+    result["ok"] = ok_flag
+    result["success"] = ok_flag
+    if not ok_flag and not result.get("message") and result.get("error"):
+        result["message"] = str(result["error"])
+    return jsonify(result), 200
 
 
 @mobile_bp.post("/bot/test_notification")

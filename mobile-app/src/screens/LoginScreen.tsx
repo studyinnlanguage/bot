@@ -1,20 +1,20 @@
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
-  Linking,
 } from 'react-native';
 import { Card, ErrorNote, Field, GoldButton, Logo, OkNote } from '../components/ui';
 import { C } from '../theme/theme';
 import { useAuth } from '../store/auth';
-import { GOOGLE_OAUTH_ENTRY, APP_VERSION } from '../config/env';
+import { APP_VERSION } from '../config/env';
 
 export function LoginScreen() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, startGoogleOAuth, cancelGoogleOAuth, oauthPending } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,9 +44,11 @@ export function LoginScreen() {
 
   const google = async () => {
     setErr(null);
+    setOk(null);
     try {
-      await Linking.openURL(GOOGLE_OAUTH_ENTRY);
+      await startGoogleOAuth();
     } catch {
+      cancelGoogleOAuth();
       setErr('Could not open Google sign-in. Please try again.');
     }
   };
@@ -114,11 +116,21 @@ export function LoginScreen() {
               flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
               backgroundColor: '#FFFFFF', borderRadius: 14, paddingVertical: 13, gap: 10,
             }}>
-            <GoogleG />
+            {oauthPending ? <ActivityIndicator size="small" color="#4285F4" /> : <GoogleG />}
             <Text style={{ color: '#1F1F1F', fontWeight: '700', fontSize: 14 }}>
-              Continue with Google
+              {oauthPending ? 'Completing Google Sign-In…' : 'Continue with Google'}
             </Text>
           </TouchableOpacity>
+          {oauthPending && (
+            <View style={{ marginTop: 10, alignItems: 'center' }}>
+              <Text style={{ color: C.dim, fontSize: 11.5, textAlign: 'center', lineHeight: 16 }}>
+                Select your Google account in the browser — once done, return to this app and you will be signed in automatically.
+              </Text>
+              <TouchableOpacity onPress={cancelGoogleOAuth} style={{ marginTop: 6, padding: 4 }}>
+                <Text style={{ color: C.neon, fontSize: 12, fontWeight: '700' }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </Card>
 
         <Text style={{ color: C.dim2, fontSize: 10.5, textAlign: 'center', marginTop: 18, lineHeight: 16 }}>

@@ -45,6 +45,16 @@ export const authApi = {
     api.post('/api/mobile/auth/google', { id_token: idToken }) as Promise<AuthResponse>,
   exchangeCode: (code: string) =>
     api.post('/api/mobile/auth/exchange-code', { code }) as Promise<AuthResponse>,
+  pollOauth: (msid: string) =>
+    api.post('/api/mobile/auth/poll-oauth', { msid }) as Promise<{
+      success: boolean;
+      ready: boolean;
+      expired?: boolean;
+      already_consumed?: boolean;
+      user?: UserSnapshot;
+      access_token?: string;
+      refresh_token?: string;
+    }>,
   logout: (refreshToken: string) =>
     api.post('/api/mobile/auth/logout', { refresh_token: refreshToken }),
   me: () => api.get('/api/mobile/auth/me') as Promise<{ success: boolean; user: UserSnapshot; bot_running: boolean }>,
@@ -71,7 +81,8 @@ export const botApi = {
   leverage: (leverage: number, symbol?: string) =>
     api.post('/api/mobile/bot/leverage', { leverage, symbol }) as Promise<any>,
   activeSymbol: (symbol: string) => api.post('/api/mobile/bot/active_symbol', { symbol }) as Promise<any>,
-  testConnection: () => api.post('/api/mobile/bot/test_connection', {}) as Promise<any>,
+  testConnection: (override?: Record<string, any>) =>
+    api.post('/api/mobile/bot/test_connection', override || {}) as Promise<any>,
   testNotification: () => api.post('/api/mobile/bot/test_notification', {}) as Promise<any>,
 };
 
