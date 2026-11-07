@@ -50,7 +50,7 @@
                 <span>🛡️</span>
                 <span>Legal &amp; Risk</span>
             </a>
-            <a href="/?logout=1" class="btn-logout" title="Logout from bot" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>window.location.href='/?logout=1');return false;">⏻</a>
+            <a href="/?logout=1" class="btn-logout" title="Logout from bot" aria-label="Logout from bot" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>window.location.href='/?logout=1');return false;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></a>
         </div>
     </header>
 

@@ -1218,29 +1218,59 @@
 
         @media (max-width: 1024px) {
             .hero-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 gap: 36px;
+            }
+            .hero-grid > *,
+            .pricing-grid > *,
+            .features-grid > *,
+            .steps-grid > *,
+            .footer-grid > * {
+                min-width: 0;
+                max-width: 100%;
+                box-sizing: border-box;
             }
             .hero-desc {
                 max-width: 100%;
             }
             .features-grid {
-                grid-template-columns: repeat(2, 1fr);
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
             .footer-grid {
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
+        }
+
+        .nav-dash-mobile {
+            display: none;
+        }
+        .strategy-blueprint-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 36px 30px;
+            max-width: 980px;
+            margin: 0 auto;
+            box-sizing: border-box;
+        }
+        .strategy-ema-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
         }
 
         @media (max-width: 768px) {
             .container {
                 padding: 0 16px;
+                width: 100%;
                 max-width: 100%;
                 box-sizing: border-box;
             }
             .top-bar {
-                padding: 6px 12px;
+                padding: 6px 10px;
                 font-size: 11px;
+                line-height: 1.35;
             }
             .top-bar-content {
                 flex-direction: column;
@@ -1256,18 +1286,24 @@
                 flex-wrap: wrap;
                 text-align: center;
                 max-width: 100%;
+                gap: 6px;
             }
             .top-bar-left span:last-child {
-                display: inline-block;
+                display: inline;
                 max-width: 100%;
                 white-space: normal;
-                vertical-align: middle;
+                overflow-wrap: break-word;
             }
             .top-bar-contacts {
                 justify-content: center;
-                gap: 10px;
+                gap: 4px 12px;
                 font-size: 11px;
                 flex-wrap: wrap;
+                max-width: 100%;
+            }
+            .top-contact-link {
+                max-width: 100%;
+                overflow-wrap: anywhere;
             }
 
             /* Mobile Header & Navbar */
@@ -1277,33 +1313,58 @@
             .nav-wrapper {
                 gap: 8px;
                 justify-content: space-between;
+                width: 100%;
+                max-width: 100%;
             }
             .brand-link {
                 gap: 8px;
                 flex-shrink: 1;
                 min-width: 0;
+                overflow: hidden;
             }
             .brand-logo {
-                width: 36px;
-                height: 36px;
+                width: 34px;
+                height: 34px;
+            }
+            .brand-text {
+                min-width: 0;
             }
             .brand-text h1 {
                 font-size: 13.5px;
                 white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
             .brand-sub {
                 display: none;
             }
             .nav-actions {
-                gap: 8px;
+                gap: 6px;
                 flex-shrink: 0;
             }
             .nav-actions .btn-ghost {
                 padding: 6px 10px;
                 font-size: 12px;
                 border-radius: 6px;
+                white-space: nowrap;
             }
             .nav-actions .btn-primary {
+                display: none;
+            }
+            .nav-actions .btn-primary.nav-dash-btn {
+                display: inline-flex;
+                padding: 6px 10px;
+                font-size: 11.5px;
+                border-radius: 6px;
+                white-space: nowrap;
+            }
+            .nav-dash-desktop {
+                display: none;
+            }
+            .nav-dash-mobile {
+                display: inline;
+            }
+            .nav-actions .nav-logout-btn {
                 display: none;
             }
             .mobile-menu-btn {
@@ -1319,6 +1380,7 @@
                 border-radius: 8px;
                 color: var(--text-primary);
                 cursor: pointer;
+                flex-shrink: 0;
             }
             .mobile-menu-btn:active {
                 background: rgba(240,185,11, 0.2);
@@ -1427,22 +1489,39 @@
 
             /* Hero on Mobile */
             .hero {
-                padding: 28px 0 36px;
+                padding: 24px 0 34px;
+            }
+            .hero-grid {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 26px;
+                width: 100%;
+                max-width: 100%;
+            }
+            .hero-content,
+            .hero-visual {
+                min-width: 0;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
             }
             .hero-tag {
                 font-size: 10px;
-                padding: 4px 10px;
+                padding: 5px 10px;
                 letter-spacing: 0.4px;
                 max-width: 100%;
                 white-space: normal;
-                text-align: center;
-                line-height: 1.4;
+                text-align: left;
+                line-height: 1.35;
                 display: inline-flex;
+                align-items: center;
                 margin-bottom: 12px;
                 box-sizing: border-box;
             }
+            .hero-tag .pulse-dot {
+                flex-shrink: 0;
+            }
             .hero-title {
-                font-size: clamp(22px, 6vw, 32px) !important;
+                font-size: clamp(21px, 6vw, 32px) !important;
                 line-height: 1.22 !important;
                 margin-bottom: 14px !important;
                 word-break: normal !important;
@@ -1453,22 +1532,25 @@
                 font-size: 13.5px !important;
                 line-height: 1.6 !important;
                 color: var(--text-secondary) !important;
-                margin-bottom: 22px !important;
+                margin-bottom: 20px !important;
                 max-width: 100% !important;
+                overflow-wrap: break-word !important;
             }
             .hero-cta-group {
                 flex-direction: column;
-                gap: 12px;
+                gap: 10px;
                 width: 100%;
-                margin-bottom: 26px;
+                max-width: 100%;
+                margin-bottom: 22px;
             }
             .hero-cta-group .btn-neon,
             .hero-cta-group .btn-ghost {
                 width: 100% !important;
+                max-width: 100% !important;
                 box-sizing: border-box !important;
                 justify-content: center !important;
-                padding: 14px 18px !important;
-                font-size: 14.5px !important;
+                padding: 13px 14px !important;
+                font-size: 14px !important;
                 font-weight: 700 !important;
                 white-space: normal !important;
                 text-align: center !important;
@@ -1479,62 +1561,142 @@
                 flex-direction: column;
                 gap: 6px;
                 align-items: flex-start;
-                margin-top: 16px;
+                margin-top: 14px;
+                max-width: 100%;
             }
+            .trust-item {
+                font-size: 12px;
+                line-height: 1.4;
+                max-width: 100%;
+            }
+            .terminal-preview-card,
             .term-preview {
                 max-width: 100%;
                 width: 100%;
                 overflow: hidden;
                 box-sizing: border-box;
             }
+            .term-header {
+                padding: 10px 12px;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .term-title {
+                font-size: 10px;
+                flex: 1 1 120px;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
             .term-body {
                 padding: 12px;
             }
             .term-stats-grid {
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 6px;
+                margin-bottom: 12px;
             }
             .term-stat-box {
-                padding: 6px 8px;
+                padding: 8px 6px;
+                min-width: 0;
             }
+            .term-stat-label {
+                font-size: 9.5px;
+            }
+            .term-stat-value,
             .stat-box-val {
-                font-size: 13px;
+                font-size: 12px;
+                overflow-wrap: anywhere;
             }
-            .term-emas-bar {
-                grid-template-columns: repeat(2, 1fr);
+            .term-signal-card {
+                padding: 12px;
+                margin-bottom: 12px;
+            }
+            .signal-top {
+                flex-wrap: wrap;
                 gap: 6px;
+            }
+            .signal-details {
+                flex-wrap: wrap;
+                gap: 6px 10px;
+                font-size: 11px;
+            }
+            .term-ema-ladder,
+            .term-emas-bar {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
+                margin-bottom: 12px;
+            }
+            .ema-pill {
+                font-size: 10.5px;
+                padding: 6px 4px;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .term-log-stream {
+                padding: 10px;
+                font-size: 10.5px;
+            }
+            .term-log-line {
+                overflow-wrap: anywhere;
+                word-break: break-word;
             }
 
             /* Sections & Pricing */
             .section {
-                padding: 48px 0;
+                padding: 44px 0;
             }
             .section-header {
-                margin-bottom: 30px;
+                margin-bottom: 28px;
             }
             .section-title {
-                font-size: clamp(22px, 5.5vw, 28px);
+                font-size: clamp(21px, 5.5vw, 28px);
+                overflow-wrap: break-word;
             }
             .section-desc {
                 font-size: 13.5px;
             }
             .pricing-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 max-width: 420px;
                 margin: 0 auto;
-                gap: 20px;
+                gap: 24px;
             }
             .pricing-card {
-                padding: 24px 18px;
+                padding: 26px 18px 22px;
                 max-width: 100%;
                 box-sizing: border-box;
             }
             .plan-amount {
                 font-size: 38px;
             }
+            .plan-features-list li {
+                font-size: 13px;
+                align-items: flex-start;
+            }
+            .btn-buy-plan {
+                padding: 13px 14px;
+                font-size: 13.5px;
+                white-space: normal;
+                text-align: center;
+                line-height: 1.3;
+            }
             .features-grid, .steps-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 gap: 16px;
+            }
+            .feature-card, .step-card {
+                padding: 22px 18px;
+            }
+            .strategy-blueprint-card {
+                padding: 22px 16px;
+            }
+            .strategy-ema-grid {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 12px;
             }
             .exchanges-bar {
                 padding: 20px 14px;
@@ -1546,11 +1708,28 @@
             .exchange-chip {
                 padding: 8px 14px;
                 font-size: 12px;
+                max-width: 100%;
+                white-space: normal;
+                text-align: center;
+                justify-content: center;
+            }
+            .faq-question {
+                padding: 15px 16px;
+                font-size: 14px;
+                gap: 10px;
+            }
+            .faq-answer {
+                padding: 12px 16px 16px;
+                font-size: 13px;
             }
             .support-banner {
                 flex-direction: column;
                 align-items: flex-start;
-                padding: 24px 18px;
+                padding: 22px 16px;
+                gap: 18px;
+            }
+            .support-info h3 {
+                font-size: 20px;
             }
             .support-actions {
                 width: 100%;
@@ -1559,14 +1738,23 @@
             .btn-whatsapp, .btn-email-cta {
                 width: 100%;
                 justify-content: center;
+                text-align: center;
+                white-space: normal;
+                padding: 12px 14px;
+                font-size: 13px;
+                box-sizing: border-box;
             }
             .footer-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 gap: 24px;
+            }
+            .footer-links a {
+                overflow-wrap: anywhere;
             }
             .footer-bottom {
                 flex-direction: column;
                 text-align: center;
+                overflow-wrap: anywhere;
             }
             .modal-card {
                 width: calc(100% - 20px);
@@ -1584,35 +1772,88 @@
                 padding: 0 12px;
             }
             .hero-title {
-                font-size: 24px !important;
-                line-height: 1.25 !important;
+                font-size: clamp(20px, 6.2vw, 24px) !important;
+                line-height: 1.24 !important;
             }
             .hero-tag {
                 font-size: 9.5px;
-                padding: 3px 8px;
+                padding: 4px 8px;
+            }
+            .hero-cta-group .btn-neon,
+            .hero-cta-group .btn-ghost {
+                font-size: 13px !important;
+                padding: 12px 12px !important;
             }
             .term-stats-grid {
-                grid-template-columns: 1fr;
-                gap: 5px;
+                grid-template-columns: minmax(0, 1fr);
+                gap: 6px;
             }
+            .term-stat-box {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 7px 10px;
+            }
+            .term-stat-label {
+                margin-bottom: 0;
+            }
+            .term-ema-ladder,
             .term-emas-bar {
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
             .pricing-card {
-                padding: 20px 14px;
+                padding: 22px 14px 18px;
             }
             .plan-amount {
-                font-size: 32px;
+                font-size: 34px;
             }
-            .top-bar-left span:last-child {
-                max-width: 190px;
+            .exchange-chip {
+                width: 100%;
             }
             .brand-text h1 {
                 font-size: 13px;
             }
             .brand-logo {
+                width: 30px;
+                height: 30px;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .container {
+                padding: 0 10px;
+            }
+            .top-bar {
+                padding: 5px 8px;
+                font-size: 10.5px;
+            }
+            .top-bar-left,
+            .top-bar-contacts {
+                font-size: 10.5px;
+            }
+            .brand-text h1 {
+                font-size: 12px;
+            }
+            .nav-actions .btn-ghost,
+            .nav-actions .btn-primary.nav-dash-btn {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+            .mobile-menu-btn {
                 width: 32px;
                 height: 32px;
+                font-size: 16px;
+            }
+            .hero-title {
+                font-size: 19.5px !important;
+            }
+            .hero-desc {
+                font-size: 12.5px !important;
+            }
+            .hero-cta-group .btn-neon,
+            .hero-cta-group .btn-ghost {
+                font-size: 12.5px !important;
+                padding: 11px 10px !important;
             }
         }
     </style>
@@ -1685,8 +1926,9 @@
                         <a href="/bot/" onclick="closeMobileMenu()" class="btn-primary" style="display:flex; justify-content:center; text-align:center; padding:12px 16px; border-radius:8px; width:100%; font-weight:700; text-decoration:none; margin-bottom:8px;">
                             ⚡ Open Dashboard
                         </a>
-                        <a href="/?logout=1" class="btn-ghost" style="display:flex; justify-content:center; text-align:center; padding:10px 16px; border-radius:8px; width:100%; font-weight:600; text-decoration:none;">
-                            ⏻ Sign Out
+                        <a href="/?logout=1" class="btn-ghost" style="display:flex; align-items:center; justify-content:center; gap:6px; text-align:center; padding:10px 16px; border-radius:8px; width:100%; font-weight:600; text-decoration:none;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                            <span>Sign Out</span>
                         </a>
                     </li>
                     {% endif %}
@@ -1694,10 +1936,13 @@
 
                 <div class="nav-actions">
                     {% if user %}
-                        <a href="/bot/" class="btn-primary">
-                            <span>⚡ Open Dashboard</span>
+                        <a href="/bot/" class="btn-primary nav-dash-btn">
+                            <span class="nav-dash-desktop">⚡ Open Dashboard</span>
+                            <span class="nav-dash-mobile">⚡ Bot</span>
                         </a>
-                        <a href="/?logout=1" class="btn-ghost" title="Logout">⏻</a>
+                        <a href="/?logout=1" class="btn-ghost nav-logout-btn" title="Logout" aria-label="Logout">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                        </a>
                     {% else %}
                         <a href="/login" class="btn-ghost">Sign In</a>
                         <a href="#pricing" class="btn-primary">Get Started</a>
@@ -2034,8 +2279,8 @@
                 </p>
             </div>
 
-            <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 36px 30px; max-width: 980px; margin: 0 auto;">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 24px;">
+            <div class="strategy-blueprint-card">
+                <div class="strategy-ema-grid">
                     <div style="background:#060a12; border:1px solid rgba(240,185,11,0.3); border-radius:8px; padding:16px;">
                         <div style="color:var(--green); font-weight:800; font-size:16px; margin-bottom:4px;">EMA 8 (Fast Scalp)</div>
                         <div style="font-size:12.5px; color:var(--text-secondary);">Captures immediate short-term momentum and initial trend impulse triggers.</div>
