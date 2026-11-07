@@ -97,12 +97,12 @@ class SymbolWorker(threading.Thread):
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
-        # Adaptive spread filter (RELAXED): 0.20% for high-beta meme coins, 0.15% for
-        # majors/alts. Old 0.40%/0.50% values blocked 60-95% of valid fresh crosses
-        # (EMA8-EMA55 rarely separate that far intraday) -> bot took almost zero trades.
-        # Override per deployment via config key "min_ema_spread" if needed.
-        # min_ema_spread <= 0 (or absent) = AUTO per-symbol default below.
-        default_spread = 0.20 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.15
+        # Adaptive spread filter (FAST ENTRY): 0.05% for high-beta meme coins, 0.03% for
+        # majors/alts. Old 0.15%/0.20% values delayed entries by 3-6 candles (entering at the
+        # top of pumps like $10.88 instead of $10.83) and caused 80%+ of crosses to expire
+        # past fresh_window=2 before spread opened!
+        # min_ema_spread <= 0 (or absent) = FAST AUTO per-symbol default below.
+        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
         try:
             cfg_spread = float(self.config.get("min_ema_spread", 0) or 0)
         except (TypeError, ValueError):
@@ -132,7 +132,7 @@ class SymbolWorker(threading.Thread):
     def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
         """Live-update fresh_window (2–8 candles), min_ema_spread, and stop_loss_pct on running worker."""
         self.config = cfg
-        default_spread = 0.20 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.15
+        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
         try:
             cfg_spread = float(cfg.get("min_ema_spread", 0) or 0)
         except (TypeError, ValueError):
@@ -2354,7 +2354,7 @@ class BotEngine:
                         any_tuning_changed = True
                         applied_fw = new_fw
             if any_tuning_changed and applied_fw is not None:
-                spread_lbl = f"{float(new_config.get('min_ema_spread', 0))}%" if float(new_config.get('min_ema_spread', 0) or 0) > 0 else "Auto (0.15%/0.20%)"
+                spread_lbl = f"{float(new_config.get('min_ema_spread', 0))}%" if float(new_config.get('min_ema_spread', 0) or 0) > 0 else "Auto (0.03%/0.05%)"
                 sl_lbl = float(new_config.get("stop_loss_pct", 0.2) or 0.2)
                 self._emit("log", {
                     "level": "success",
@@ -2537,13 +2537,13 @@ class BotEngine:
     @staticmethod
     def _poll_seconds(timeframe: str) -> int:
         """How often to re-check the strategy and SL/TP.
-        Faster polling = SL/TP triggers faster."""
+        Faster polling = fresh crosses and SL/TP trigger immediately without candle-close lag."""
         mapping = {
-            "1m": 5, "3m": 8, "5m": 12, "15m": 20,
-            "30m": 30, "1h": 45, "2h": 60, "4h": 90,
-            "1d": 120, "1w": 300,
+            "1m": 3, "3m": 3, "5m": 4, "15m": 6,
+            "30m": 10, "1h": 15, "2h": 20, "4h": 30,
+            "1d": 60, "1w": 120,
         }
-        return mapping.get(timeframe, 12)
+        return mapping.get(timeframe, 4)
 
     def status(self) -> dict:
         symbols = self._symbols_list() if self.is_running else []

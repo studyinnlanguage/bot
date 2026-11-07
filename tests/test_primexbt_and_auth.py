@@ -164,3 +164,37 @@ class TestOAuthAndWalletEnhancements:
         assert res_dup.status_code == 400
         assert "already been used" in res_dup.get_json()["error"]
 
+    def test_mobile_google_callback_returns_http_302_intent_redirect(self, app_client, monkeypatch):
+        """Mobile Google OAuth callback must return an HTTP 302 redirect (preserving Chrome's
+        user-gesture chain) directly to intent://oauth?code=... on Android, never 200 HTML."""
+        client, saas_app = app_client
+        saas_app.GOOGLE_CLIENT_ID = "dummy_cid"
+        saas_app.GOOGLE_CLIENT_SECRET = "dummy_csec"
+
+        class _FakeResp:
+            def __init__(self, payload):
+                self._p = payload
+            def json(self):
+                return self._p
+
+        monkeypatch.setattr(saas_app, "save_db", lambda *a, **k: None)
+        monkeypatch.setattr(saas_app.req_lib, "post", lambda *a, **k: _FakeResp({"access_token": "tok_123"}))
+        monkeypatch.setattr(saas_app.req_lib, "get", lambda *a, **k: _FakeResp({
+            "email": "mobile_302@weexionic.com",
+            "email_verified": True,
+            "name": "Mobile 302",
+            "id": "gid_302",
+        }))
+
+        msid = "wxm_testsession_1234567890abcd"
+        res = client.get(
+            f"/auth/google/callback?code=goog_code_1&state=m:abcdef0123456789abcdef0123456789:{msid}",
+            headers={"User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36"},
+            follow_redirects=False,
+        )
+        assert res.status_code == 302
+        loc = res.headers.get("Location", "")
+        assert loc.startswith("intent://oauth?code=wx_")
+        assert "package=com.weexionic.app" in loc
+
+

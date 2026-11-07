@@ -216,7 +216,7 @@ class TestEngineApi:
 
         chk = subprocess.run(
             [sys.executable, "-c",
-             "import sys, json; sys.path.insert(0, '.'); import app; c = app.load_config(); print(json.dumps({"
+             f"import sys, json; sys.path.insert(0, {str(tmp)!r}); import app; c = app.load_config(); print(json.dumps({{"
              "'sl': c['stop_loss_pct'], 'tp': c['take_profit_pct'], "
              "'sp': c['min_ema_spread'], 'fw': c['fresh_window']}))"],
             cwd=tmp, capture_output=True, text=True, timeout=15,

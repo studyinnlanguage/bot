@@ -152,27 +152,21 @@
         </div>
         <p>Your Google account is verified! Tap the button below to return to the WEEXIONIC app — or simply switch back to the WEEXIONIC app manually (you are already signed in automatically).</p>
         
-        <a id="handoff-btn" href="{{ handoff_url }}" class="btn-neon">Open WEEXIONIC App</a>
+        <a id="handoff-btn" href="{{ intent_url }}" class="btn-neon">Open WEEXIONIC App</a>
         
         <br>
-        <a href="{{ intent_url }}" class="btn-alt">Alternative launch (Android Intent)</a>
+        <a href="{{ handoff_url }}" class="btn-alt">Alternative launch (Direct App Link)</a>
     </div>
 
     <script>
-        const intentUrl = {{ intent_url | tojson }};
         const handoffUrl = {{ handoff_url | tojson }};
-        
-        function redirect() {
-            // Try custom scheme first (cleanest on RN singleTask), then Android Intent
-            try { window.location.href = handoffUrl; } catch (e) {}
+        // Attempt custom scheme once on load without S.browser_fallback_url self-reload loop.
+        // Tapping the button above carries a real user gesture for guaranteed Android Intent launch.
+        window.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
-                try { window.location.href = intentUrl; } catch (e) {}
-            }, 650);
-        }
-
-        // Run immediately on page load
-        window.addEventListener('DOMContentLoaded', redirect);
-        setTimeout(redirect, 120);
+                try { window.location.href = handoffUrl; } catch (e) {}
+            }, 80);
+        });
     </script>
 </body>
 </html>

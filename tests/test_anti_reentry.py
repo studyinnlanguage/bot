@@ -389,3 +389,42 @@ def test_manual_engine_fresh_window_2_to_8_live_sync():
     assert w.strategy.fresh_window == 8
     eng.sync_config({**eng.config, "symbols_list": ["BTCUSDT"], "fresh_window": 0})
     assert w.strategy.fresh_window == 2
+
+
+def test_same_direction_breakout_after_tangle_is_not_missed():
+    """If a coin was in SELL (e.g. at startup), then EMAs tangle inside EMA55 (HOLD)
+    without ever reaching a full BUY fan, and then breaks down into a brand-new SELL cross,
+    the strategy MUST detect just_crossed=True instead of missing it."""
+    s = EMAQuadStrategy(min_spread_pct=0.03, fresh_window=2)
+    df1 = _synth_trend(pre_osc=120, fan=8, direction="SELL")
+    r_init = s.analyze(df1)
+    assert r_init is not None and r_init.signal == Signal.SELL
+    s.seed_startup_state(r_init.signal)
+
+    # Append oscillation (EMAs tangle with EMA55 -> HOLD, no full BUY trend) + new SELL breakout
+    tail = _synth_trend(pre_osc=140, fan=8, direction="SELL")
+    tail.index = pd.date_range(df1.index[-1] + pd.Timedelta("5min"),
+                               periods=len(tail), freq="5min")
+    df2 = pd.concat([df1, tail])
+
+    fired = False
+    for cut in range(len(df1) + 1, len(df2) + 1):
+        r = s.analyze(df2.iloc[:cut])
+        if r is not None and r.just_crossed and r.signal == Signal.SELL:
+            fired = True
+            break
+    assert fired, "same-direction breakout after EMA55 re-tangle was missed!"
+
+
+def test_fast_auto_spread_and_polling_defaults():
+    """Auto spread (min_ema_spread=0) must use fast 0.03% (majors) / 0.05% (memes)
+    and 5m polling must be <= 4s so fresh crosses are never entered 5 candles late."""
+    eng = _make_engine()
+    trader = MagicMock()
+    w_btc = _make_live_worker(eng, "BTCUSDT", trader, {"min_ema_spread": 0})
+    w_pepe = _make_live_worker(eng, "1000PEPEUSDT", trader, {"min_ema_spread": 0})
+    assert abs(w_btc.strategy.min_spread_pct - 0.03) < 1e-9
+    assert abs(w_pepe.strategy.min_spread_pct - 0.05) < 1e-9
+    assert BotEngine._poll_seconds("5m") <= 4
+    assert BotEngine._poll_seconds("1m") <= 3
+

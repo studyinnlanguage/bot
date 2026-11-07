@@ -1,6 +1,6 @@
 // Auth context — session state + login/register/google/logout actions.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Linking } from 'react-native';
+import { AppState, Linking, NativeModules, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi, type UserSnapshot } from '../api/endpoints';
 import { tokenStore } from '../api/client';
@@ -133,9 +133,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (params.code) {
         setLoading(true);
-        await clearPendingOauth();
+        pollBusyRef.current = true;
         const res = await authApi.exchangeCode(params.code);
         if (res.access_token && res.refresh_token) {
+          await clearPendingOauth();
           await tokenStore.save(res.access_token, res.refresh_token);
           userRef.current = res.user;
           setUser(res.user);
@@ -146,9 +147,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       // Deep link code may have already been consumed by msid polling — verify
+      pollBusyRef.current = false;
       await checkPendingOauth();
       console.warn('OAuth deep link handling note:', e);
     } finally {
+      pollBusyRef.current = false;
       setLoading(false);
     }
   };
@@ -200,7 +203,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     const sep = GOOGLE_OAUTH_ENTRY.includes('?') ? '&' : '?';
     const targetUrl = `${GOOGLE_OAUTH_ENTRY}${sep}msid=${encodeURIComponent(msid)}`;
-    await Linking.openURL(targetUrl);
+    if (Platform.OS === 'android' && NativeModules.OAuthCustomTab?.open) {
+      await NativeModules.OAuthCustomTab.open(targetUrl);
+    } else {
+      await Linking.openURL(targetUrl);
+    }
   }, []);
 
   const cancelGoogleOAuth = useCallback(() => {

@@ -70,25 +70,32 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.1.1-apk
+          name: WEEXIONIC-v2.1.2-apk
           path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
 
       - name: Upload AAB artifact (Play Store)
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.1.1-aab
+          name: WEEXIONIC-v2.1.2-aab
           path: mobile-app/android/app/build/outputs/bundle/release/app-release.aab
 
       - name: Rename release binaries with version tag
-        if: github.event_name == 'release'
         run: |
-          cp mobile-app/android/app/build/outputs/apk/release/app-release.apk "WEEXIONIC-${GITHUB_REF_NAME}.apk"
-          cp mobile-app/android/app/build/outputs/bundle/release/app-release.aab "WEEXIONIC-${GITHUB_REF_NAME}.aab"
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [ "$TAG_NAME" = "main" ] || [ -z "$TAG_NAME" ]; then
+            TAG_NAME="v2.1.2"
+          fi
+          echo "RELEASE_TAG=${TAG_NAME}" >> "$GITHUB_ENV"
+          cp mobile-app/android/app/build/outputs/apk/release/app-release.apk "WEEXIONIC-${TAG_NAME}.apk"
+          cp mobile-app/android/app/build/outputs/bundle/release/app-release.aab "WEEXIONIC-${TAG_NAME}.aab"
 
-      - name: Attach APK to release (when triggered by a release)
-        if: github.event_name == 'release'
+      - name: Publish APK & AAB to GitHub Release
+        if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: WEEXIONIC Mobile ${{ env.RELEASE_TAG }}
+          body: "WEEXIONIC Android Release (${{ env.RELEASE_TAG }}) — Instant Google OAuth Custom Tab handoff & fast EMA crossover execution."
           files: |
-            WEEXIONIC-${{ github.ref_name }}.apk
-            WEEXIONIC-${{ github.ref_name }}.aab
+            WEEXIONIC-${{ env.RELEASE_TAG }}.apk
+            WEEXIONIC-${{ env.RELEASE_TAG }}.aab

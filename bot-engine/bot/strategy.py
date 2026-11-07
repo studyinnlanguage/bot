@@ -51,7 +51,7 @@ class EMAQuadStrategy:
     """Quad-EMA crossover strategy with sequential alignment & anti-chop spread guard."""
 
     def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55,
-                 min_spread_pct=0.15, fresh_window=2):
+                 min_spread_pct=0.03, fresh_window=2):
         self.indicators = IndicatorSet(ema_short, ema_mid1, ema_mid2, ema_long)
         self.ema_short = ema_short
         self.ema_mid1 = ema_mid1
@@ -222,11 +222,19 @@ class EMAQuadStrategy:
                 pass
 
         # 4. Anti-Whipsaw Flicker State Transition:
-        # If signal dips into HOLD due to chop spread, DO NOT reset _trade_entered_for_signal.
-        # Only reset it when the signal explicitly crosses to the OPPOSITE side.
-        if signal in (Signal.BUY, Signal.SELL):
+        # - If EMA55 stays at the bottom/top extreme and only spread wobbles briefly into HOLD,
+        #   keep _trade_entered_for_signal locked so chop micro-wobbles do not double-enter.
+        # - HOWEVER, once EMA55 physically returns inside/tangles with the 8/13/21 bundle
+        #   (not ema55_at_bottom and not ema55_at_top), that old trend fan has ended! Clear
+        #   _last_trend_side and _trade_entered_for_signal so the next genuine breakout in
+        #   EITHER direction (even same direction after consolidation) fires immediately!
+        if not ema55_at_bottom and not ema55_at_top:
+            self._last_trend_side = None
+            self._trade_entered_for_signal = False
+            self._prev_signal = Signal.HOLD
+        elif signal in (Signal.BUY, Signal.SELL):
             if signal != self._last_trend_side:
-                # Genuine trend flip to opposite direction
+                # Genuine trend flip to opposite direction (or fresh breakout after tangle)
                 self._trade_entered_for_signal = False
                 self._last_trend_side = signal
             self._prev_signal = signal

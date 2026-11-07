@@ -3477,14 +3477,15 @@ def google_callback():
                 f"S.browser_fallback_url={fallback_enc};end"
             )
             handoff_url = f"weexionic://oauth?code={auth_code}"
-            return render_template(
-                "saas_oauth_handoff.html",
-                user=user,
-                auth_code=auth_code,
-                intent_url=intent_url,
-                handoff_url=handoff_url,
-                applink_url=applink_url,
-            )
+            ua = (request.headers.get("User-Agent") or "").lower()
+            # CRITICAL: Return an HTTP 302 redirect (NOT 200 HTML) so Chrome Android /
+            # Chrome Custom Tabs preserve the user's tap gesture from Google's account
+            # chooser and immediately launch com.weexionic.app without stopping in the browser!
+            target_redirect = intent_url if "android" in ua else handoff_url
+            return Response("", status=302, headers={
+                "Location": target_redirect,
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            })
         return redirect("/")
 
     except Exception as e:
