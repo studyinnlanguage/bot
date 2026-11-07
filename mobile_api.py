@@ -248,8 +248,8 @@ def m_register():
         "bot_config": {
             "exchange": "binance", "testnet": True, "symbols_list": [],
             "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
-            "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
-            "take_profit_pct": 6, "tp_mode": "fixed", "mode": "both",
+            "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.2,
+            "take_profit_pct": 1.0, "tp_mode": "fixed", "mode": "both",
             "max_concurrent_trades": 3,
             "reentry_cooldown_sec": 180,
             "min_ema_spread": 0,
@@ -367,8 +367,8 @@ def m_google():
             "bot_config": {
                 "exchange": "binance", "testnet": True, "symbols_list": [],
                 "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
-                "amount": 100, "amount_pct": 10, "stop_loss_pct": 2,
-                "take_profit_pct": 6, "tp_mode": "fixed", "mode": "both",
+                "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.2,
+                "take_profit_pct": 1.0, "tp_mode": "fixed", "mode": "both",
                 "max_concurrent_trades": 3,
                 "reentry_cooldown_sec": 180,
                 "min_ema_spread": 0,
@@ -645,6 +645,8 @@ def _build_engine_config_payload(user: dict) -> dict:
         payload[dst_f] = val
     api_keys_plain[ex_now] = act_slot
     payload["api_keys"] = api_keys_plain
+    payload["take_profit_pct"] = 1.0
+    payload["tp_mode"] = "fixed"
     return payload
 
 
@@ -821,7 +823,8 @@ def m_bot_config():
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid stop loss"}), 400
         config["stop_loss_pct"] = sl
-        config["take_profit_pct"] = 1.0  # TP 1.0%
+    config["take_profit_pct"] = 1.0  # TP strictly locked at 1.0%
+    config["tp_mode"] = "fixed"
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:

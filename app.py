@@ -1241,6 +1241,15 @@ def write_user_bot_config(user_id: str) -> str:
             bot_config["reentry_cooldown_sec"] = int(config["reentry_cooldown_sec"])
         if "max_concurrent_trades" in config and config["max_concurrent_trades"] is not None:
             bot_config["max_concurrent_trades"] = max(1, min(3, int(config["max_concurrent_trades"])))
+        if config.get("tp_mode") == "both" and config.get("take_profit_pct") == 6 and config.get("stop_loss_pct") == 2:
+            bot_config["stop_loss_pct"] = 0.2
+        elif "stop_loss_pct" in config and config["stop_loss_pct"] is not None:
+            try:
+                bot_config["stop_loss_pct"] = max(0.05, min(50, float(config["stop_loss_pct"]) or 0.2))
+            except (TypeError, ValueError):
+                bot_config["stop_loss_pct"] = 0.2
+        bot_config["take_profit_pct"] = 1.0
+        bot_config["tp_mode"] = "fixed"
         _db_symbols = [str(s).upper().strip() for s in (config.get("symbols_list") or []) if str(s).strip()]
         _exchange_changed = bool(_db_exchange and _file_exchange and _db_exchange != _file_exchange)
         if _db_symbols and (not bot_config.get("symbols_list") or _exchange_changed):
@@ -1364,9 +1373,9 @@ def write_user_bot_config(user_id: str) -> str:
             "amount_mode": config.get("amount_mode", "fixed"),
             "amount": config.get("amount", 100),
             "amount_pct": config.get("amount_pct", 10),
-            "stop_loss_pct": config.get("stop_loss_pct", 2),
-            "take_profit_pct": config.get("take_profit_pct", 6),
-            "tp_mode": config.get("tp_mode", "both"),
+            "stop_loss_pct": config.get("stop_loss_pct", 0.2),
+            "take_profit_pct": 1.0,
+            "tp_mode": "fixed",
             "mode": config.get("mode", "both"),
             "max_concurrent_trades": config.get("max_concurrent_trades", 3),
             "reentry_cooldown_sec": config.get("reentry_cooldown_sec", 180),
@@ -1588,6 +1597,8 @@ def _sync_engine_config_to_db(user: dict, data: dict):
         if "stop_loss_pct" in data and data["stop_loss_pct"] is not None:
             sl = max(0.05, min(50, float(data["stop_loss_pct"]) or 0.2))
             config["stop_loss_pct"] = sl
+        config["take_profit_pct"] = 1.0
+        config["tp_mode"] = "fixed"
     except (TypeError, ValueError):
         pass
     try:
@@ -2622,14 +2633,10 @@ def api_bot_config():
     if "amount_pct" in data:
         config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
     if "stop_loss_pct" in data:
-        sl = max(0.5, min(50, float(data["stop_loss_pct"]) or 2))
+        sl = max(0.05, min(50, float(data["stop_loss_pct"]) or 0.2))
         config["stop_loss_pct"] = sl
-        config["take_profit_pct"] = sl * 3
-    if "tp_mode" in data:
-        tp_mode = str(data["tp_mode"]).lower()
-        if tp_mode not in ("fixed", "ema_reversal", "both"):
-            tp_mode = "both"
-        config["tp_mode"] = tp_mode
+    config["take_profit_pct"] = 1.0
+    config["tp_mode"] = "fixed"
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:
@@ -3882,9 +3889,9 @@ def api_quick_buy():
                     "amount_mode": "fixed",
                     "amount": 100,
                     "amount_pct": 10,
-                    "stop_loss_pct": 2,
-                    "take_profit_pct": 6,
-                    "tp_mode": "both",
+                    "stop_loss_pct": 0.2,
+                    "take_profit_pct": 1.0,
+                    "tp_mode": "fixed",
                     "mode": "both",
                     "max_concurrent_trades": 3,
                     "api_key_enc": "",

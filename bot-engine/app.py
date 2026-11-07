@@ -169,11 +169,21 @@ def load_config() -> dict:
             with open(path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             merged = {**DEFAULT_CONFIG, **cfg}
-            # Fixed TP 1.0% & SL 0.2% with auto-reversal
+            # Fixed TP 1.0% & user-adjustable SL (default 0.2%) with auto-reversal
             merged["tp_mode"] = "fixed"
-            merged["stop_loss_pct"] = 0.2
+            if cfg.get("tp_mode") == "both" and cfg.get("take_profit_pct") == 6 and cfg.get("stop_loss_pct") == 2:
+                merged["stop_loss_pct"] = 0.2
+            else:
+                try:
+                    merged["stop_loss_pct"] = max(0.05, min(50.0, float(merged.get("stop_loss_pct", 0.2) or 0.2)))
+                except (ValueError, TypeError):
+                    merged["stop_loss_pct"] = 0.2
             merged["take_profit_pct"] = 1.0
             merged["trailing_roe_pct"] = 100.0
+            try:
+                merged["min_ema_spread"] = max(0.0, min(5.0, float(merged.get("min_ema_spread", 0) or 0)))
+            except (ValueError, TypeError):
+                merged["min_ema_spread"] = 0.0
             try:
                 merged["fresh_window"] = max(2, min(8, int(merged.get("fresh_window", 2) or 2)))
             except (ValueError, TypeError):
@@ -421,7 +431,8 @@ def update_config():
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
     CONFIG["stop_loss_pct"] = max(0.05, min(50, float(CONFIG.get("stop_loss_pct", 0.2))))
-    CONFIG["take_profit_pct"] = max(0.05, min(100, float(CONFIG.get("take_profit_pct", 1.0))))
+    # Take Profit is strictly fixed at 1.0% (never let stale cached JS or old DB overwrite to 0.2% 1:1)
+    CONFIG["take_profit_pct"] = 1.0
     CONFIG["trailing_roe_pct"] = 100.0
     CONFIG["tp_mode"] = "fixed"
     CONFIG["testnet"] = bool(CONFIG["testnet"])
@@ -462,6 +473,9 @@ def update_config():
     if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
         ENGINE.config["min_ema_spread"] = CONFIG["min_ema_spread"]
         ENGINE.config["fresh_window"] = CONFIG["fresh_window"]
+        ENGINE.config["stop_loss_pct"] = CONFIG["stop_loss_pct"]
+        ENGINE.config["take_profit_pct"] = 1.0
+        ENGINE.config["tp_mode"] = "fixed"
 
     save_config(CONFIG)
 
@@ -496,19 +510,19 @@ def update_config():
         except Exception as _ve:
             logger.warning("Save-time credential validation failed: %s", _ve)
 
-    # Immediately apply leverage on exchange if credentials are present
+    # Immediately apply leverage & live-sync settings to running workers
     if CONFIG.get("api_key") and CONFIG.get("api_secret"):
         try:
             ENGINE.apply_leverage(CONFIG["leverage"])
         except Exception as _e:
             logger.warning("Could not auto-apply leverage on config save: %s", _e)
-        try:
-            if not ENGINE.is_running:
-                ENGINE.start_monitor(CONFIG)
-            else:
-                ENGINE.sync_config(CONFIG)
-        except Exception as _e:
-            logger.warning("Could not sync engine config on save: %s", _e)
+    try:
+        if ENGINE.is_running:
+            ENGINE.sync_config(CONFIG)
+        elif CONFIG.get("api_key") and CONFIG.get("api_secret"):
+            ENGINE.start_monitor(CONFIG)
+    except Exception as _e:
+        logger.warning("Could not sync engine config on save: %s", _e)
 
     _SECRET_FIELDS = ("api_secret", "email_password", "telegram_bot_token", "whatsapp_apikey",
                       "api_key", "api_passphrase", "api_keys")

@@ -193,11 +193,11 @@
                                 <strong id="posPnl" class="pnl-zero">$0.00</strong>
                             </div>
                             <div class="pos-row">
-                                <span>Take Profit (1:1 Target)</span>
+                                <span>Take Profit (+1.0% Target)</span>
                                 <strong id="posTrailingTp" style="color:var(--green-success)">--</strong>
                             </div>
                             <div class="pos-row">
-                                <span>Stop Loss (1:1 SL)</span>
+                                <span id="posSlLabel">Stop Loss (-0.2% SL)</span>
                                 <strong id="posCurrentSl" style="color:var(--red-danger)">--</strong>
                             </div>
                             <div class="pos-row pos-row-leverage">
@@ -387,8 +387,8 @@
                     <div class="pos-metric-sub" id="posTabRoe">ROE: 0.00%</div>
                 </div>
                 <div class="pos-metric-card">
-                    <div class="pos-metric-label">1:1 Target (TP / SL)</div>
-                    <div class="pos-metric-value" id="posTabStage">1:1 Auto</div>
+                    <div class="pos-metric-label">Target (TP 1% / SL 0.2%)</div>
+                    <div class="pos-metric-value" id="posTabStage">TP 1% / SL 0.2%</div>
                     <div class="pos-metric-sub" id="posTabTpTarget">Target: --</div>
                 </div>
             </div>
@@ -421,10 +421,10 @@
                             <span>Estimated ROE (%)</span><strong id="posFocusRoe">0.00%</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Take Profit (1:1 Target)</span><strong id="posFocusTrailingTp" style="color:var(--green-success)">--</strong>
+                            <span>Take Profit (+1.0% Target)</span><strong id="posFocusTrailingTp" style="color:var(--green-success)">--</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Stop Loss (1:1 SL)</span><strong id="posFocusCurrentSl" style="color:var(--red-danger)">--</strong>
+                            <span id="posFocusSlLabel">Stop Loss (-0.2% SL)</span><strong id="posFocusCurrentSl" style="color:var(--red-danger)">--</strong>
                         </div>
                         <div class="pos-row">
                             <span>Configured Leverage</span><strong id="posFocusLeverage">{{ config.leverage | default(10) }}x</strong>
@@ -466,8 +466,8 @@
                                     <th>Entry</th>
                                     <th>Mark</th>
                                     <th>Unrealized PnL</th>
-                                    <th>1:1 Take Profit</th>
-                                    <th>1:1 Stop Loss</th>
+                                    <th>Take Profit (+1.0%)</th>
+                                    <th id="tableSlHeader">Stop Loss (-0.2%)</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -756,19 +756,19 @@
                             <div class="hint">Bot dynamically computes USDT size based on current available balance.</div>
                         </div>
 
-                        <!-- Automated Risk & Profit Settings (SL 0.2% / TP 1.0%) -->
+                        <!-- Automated Risk & Profit Settings (Custom SL % / Fixed TP 1.0%) -->
                         <div class="form-group">
-                            <label>Automated Risk &amp; Target % (SL 0.2% &amp; TP 1.0%)</label>
+                            <label>Stop Loss % (Custom Adjustable) &amp; Fixed Take Profit (1.0%)</label>
                             <div style="display:flex; align-items:center; gap:10px;">
-                                <input type="number" id="stopLossPct" value="0.2" min="0.05" max="20" step="0.05" required style="flex:1;">
+                                <input type="number" id="stopLossPct" value="0.2" min="0.05" max="50" step="0.01" required style="flex:1;">
                                 <input type="hidden" id="takeProfitPct" value="1">
                                 <input type="hidden" id="tpMode" value="fixed">
                                 <span class="badge" style="background:rgba(46,207,138,0.15); color:var(--green); border:1px solid rgba(46,207,138,0.3); font-weight:700; padding:10px 14px; border-radius:8px; white-space:nowrap;">
-                                    ⚡ SL: 0.2% | TP: 1.0%
+                                    ⚡ SL: <span id="badgeSlVal">0.2</span>% | TP: 1.0%
                                 </span>
                             </div>
                             <div class="hint" style="margin-top:6px;">
-                                🎯 <b>Automated Risk Management:</b> Take Profit (+<span id="autoTpDisplay">1.0</span>%) &amp; Stop Loss (-<span id="autoSlDisplay">0.2</span>%). If trend flips opposite, bot cuts trade instantly and auto-reverses!
+                                🎯 <b>Automated Risk Management:</b> Take Profit (+<span id="autoTpDisplay">1.0</span>% Fixed) &amp; Stop Loss (-<span id="autoSlDisplay">0.20</span>% Adjustable). If trend flips opposite, bot cuts trade instantly and auto-reverses!
                             </div>
                         </div>
 
@@ -809,15 +809,15 @@
 
                         <div class="hint-card" style="margin-top:12px; border-left:4px solid var(--gold);">
                             <b>🤖 100% AUTOMATED EXECUTION:</b> 
-                            Strict 1:1 Take Profit + 1:1 Stop Loss + Instant EMA55 Opposite Flip Reversal. Zero manual switching needed — the engine runs hands-free on auto mode.
+                            Take Profit (+1.0%) + Stop Loss (-<span id="cardSlDisplay">0.20</span>%) + Instant EMA55 Opposite Flip Reversal. Zero manual switching needed — the engine runs hands-free on auto mode.
                         </div>
 
                         <!-- Advanced Strategy Tuning (engine fields) -->
                         <div class="form-row" style="margin-top:18px;">
                             <div class="form-group">
                                 <label>Min EMA Spread % (0 = Auto)</label>
-                                <input type="number" id="minEmaSpread" value="0" min="0" max="5" step="0.05">
-                                <div class="hint">0 = engine auto per-symbol (majors 0.15%, memes 0.20%). Signal noise filter.</div>
+                                <input type="number" id="minEmaSpread" value="0" min="0" max="5" step="0.01">
+                                <div class="hint">0 = engine auto per-symbol (majors 0.15%, memes 0.20%). Custom value (e.g. 0.05, 0.10, 0.15) sets exact spread filter.</div>
                             </div>
                             <div class="form-group">
                                 <label>Fresh Cross Window (2–8 candles)</label>
@@ -1153,7 +1153,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="{{ url_for('static', filename='js/app.js', v='variantb') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='tpsl213') }}"></script>
     <script>
         // ---- Global Workspace Tab Switching System ----
         function switchWorkspaceTab(tab) {

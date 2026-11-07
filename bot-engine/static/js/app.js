@@ -1085,13 +1085,13 @@ function updatePositionUI(data) {
     const lev = (hasOpenTrade && rawLev > 1) ? rawLev : (rawLev > 1 && !$('leverage')?.value ? rawLev : cfgLev);
     if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
 
-    // 1:1 Take Profit Target & 1:1 Stop Loss
+    // Take Profit (+1.0% Target) & Stop Loss (-0.2% SL)
     const trailingEl = $('posTrailingTp');
     const targetRoe = Number(data.target_roe) || 100;
 
     if (trailingEl) {
         if (data.side && data.side !== 'NONE' && data.tp_price) {
-            trailingEl.textContent = `$${fmt(data.tp_price)} (1:1 Target)`;
+            trailingEl.textContent = `$${fmt(data.tp_price)} (+1.0% TP)`;
             trailingEl.style.color = '#2ecf8a';
         } else {
             trailingEl.textContent = '--';
@@ -1101,7 +1101,7 @@ function updatePositionUI(data) {
     const slEl = $('posCurrentSl');
     if (slEl) {
         if (data.side && data.side !== 'NONE' && data.sl_price) {
-            slEl.textContent = `$${fmt(data.sl_price)} (1:1 SL)`;
+            slEl.textContent = `$${fmt(data.sl_price)} (SL)`;
             slEl.style.color = '#f6465d';
         } else {
             slEl.textContent = '--';
@@ -1221,7 +1221,7 @@ function updatePositionUI(data) {
     // Extra engine position fields: TP mode / Target ROE / TP stage
     if ($('posFocusTpMode')) {
         const tm = data.tp_mode || 'fixed';
-        $('posFocusTpMode').textContent = tm === 'fixed' ? '1:1 FIXED' : tm.toUpperCase();
+        $('posFocusTpMode').textContent = tm === 'fixed' ? 'TP 1.0% / SL 0.2%' : tm.toUpperCase();
     }
     if ($('posFocusTargetRoe')) {
         const troe = Number(data.target_roe);
@@ -1242,15 +1242,15 @@ function updatePositionUI(data) {
                     lineStyle: dashed ? 2 : 0, axisLabelVisible: true, title: title,
                 });
                 _posPriceLines.push(mkLine(Number(data.entry_price), '#f0b90b', 'ENTRY', false));
-                if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#2ecf8a', 'TP 1:1', true));
-                if (data.sl_price) _posPriceLines.push(mkLine(Number(data.sl_price), '#f6465d', 'SL 1:1', true));
+                if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#2ecf8a', 'TP +1.0%', true));
+                if (data.sl_price) _posPriceLines.push(mkLine(Number(data.sl_price), '#f6465d', 'SL', true));
             }
         }
     } catch (plErr) { console.warn('price lines:', plErr); }
 
     if ($('posFocusTrailingTp')) $('posFocusTrailingTp').textContent = trailingEl ? trailingEl.textContent : '--';
     if ($('posFocusCurrentSl')) $('posFocusCurrentSl').textContent = slEl ? slEl.textContent : '--';
-    if ($('posTabStage')) $('posTabStage').textContent = data.side && data.side !== 'NONE' ? '1:1 Active' : '1:1 Auto';
+    if ($('posTabStage')) $('posTabStage').textContent = data.side && data.side !== 'NONE' ? 'TP 1% / SL 0.2%' : 'TP 1% / SL 0.2%';
     if ($('posTabTpTarget')) $('posTabTpTarget').textContent = data.tp_price ? `TP: $${fmt(data.tp_price)}` : 'Target: --';
 
     // Update positions table
@@ -2025,6 +2025,9 @@ async function saveSettings() {
         return;
     }
     const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
+    const slParsed = parseFloat($('stopLossPct')?.value);
+    const spreadParsed = parseFloat($('minEmaSpread')?.value);
+    const fwParsed = parseInt($('freshWindow')?.value, 10);
     const cfg = {
         exchange: exchange,
         api_key: $('apiKey')?.value?.trim() || undefined,
@@ -2037,8 +2040,8 @@ async function saveSettings() {
         amount_mode: document.querySelector('.toggle-btn.active')?.dataset.mode || 'fixed',
         amount: parseFloat($('amount').value),
         amount_pct: parseFloat($('amountPct').value),
-        stop_loss_pct: parseFloat($('stopLossPct').value) || 0.2,
-        take_profit_pct: parseFloat($('takeProfitPct')?.value) || 1.0,
+        stop_loss_pct: (!isNaN(slParsed) && slParsed >= 0.05) ? slParsed : 0.2,
+        take_profit_pct: 1.0,
         trailing_roe_pct: 100,
         tp_mode: 'fixed',
         max_concurrent_trades: parseInt($('maxConcurrentTrades')?.value || 3),
@@ -2046,8 +2049,8 @@ async function saveSettings() {
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
         // Advanced engine tuning (live-synced to active workers)
-        min_ema_spread: parseFloat($('minEmaSpread')?.value) || 0,
-        fresh_window: Math.min(8, Math.max(2, parseInt($('freshWindow')?.value) || 2)),
+        min_ema_spread: (!isNaN(spreadParsed) && spreadParsed >= 0) ? spreadParsed : 0,
+        fresh_window: Math.min(8, Math.max(2, (!isNaN(fwParsed) ? fwParsed : 2))),
         auto_start: $('autoStart')?.checked || false,
         // Notifications
         telegram_enabled: $('telegramEnabled')?.checked || false,
@@ -2095,10 +2098,8 @@ async function saveSettings() {
             if ($('emailPassword')) { $('emailPassword').value = ''; $('emailPassword').placeholder = 'Saved'; }
             if ($('whatsappApikey')) { $('whatsappApikey').value = ''; $('whatsappApikey').placeholder = 'Saved'; }
             updateEnvBadge(cfg.testnet, exchange);
-            if (cfg.stop_loss_pct > 0) log('info', `Stop Loss ACTIVE: ${cfg.stop_loss_pct}%`);
+            if (cfg.stop_loss_pct > 0) log('info', `Stop Loss ACTIVE: ${cfg.stop_loss_pct}% | Take Profit FIXED: 1.0% | Candles: ${cfg.fresh_window} | Min Spread: ${cfg.min_ema_spread > 0 ? cfg.min_ema_spread + '%' : 'Auto'}`);
             else log('info', `Stop Loss OFF`);
-            if (cfg.take_profit_pct > 0) log('info', `Take Profit ACTIVE: ${cfg.take_profit_pct}%`);
-            else log('info', `Take Profit: opposite-signal only`);
             // Log notification status
             const notifs = [];
             if (cfg.telegram_enabled) notifs.push('Telegram');
@@ -2598,13 +2599,20 @@ function attachListeners() {
     }
 
     function updateTPModeUI() {
-        const sl = parseFloat(slInput?.value) || 0.2;
+        const rawSl = parseFloat(slInput?.value);
+        const sl = (!isNaN(rawSl) && rawSl >= 0.05) ? rawSl : 0.2;
+        const slFmt = Number(sl.toFixed(2)).toString();
         const tpInput = $('takeProfitPct');
         if (tpInput) {
             tpInput.value = '1';
         }
         if ($('autoTpDisplay')) $('autoTpDisplay').textContent = '1.0';
         if ($('autoSlDisplay')) $('autoSlDisplay').textContent = sl.toFixed(2);
+        if ($('badgeSlVal')) $('badgeSlVal').textContent = slFmt;
+        if ($('cardSlDisplay')) $('cardSlDisplay').textContent = sl.toFixed(2);
+        if ($('posSlLabel')) $('posSlLabel').textContent = `Stop Loss (-${slFmt}% SL)`;
+        if ($('posFocusSlLabel')) $('posFocusSlLabel').textContent = `Stop Loss (-${slFmt}% SL)`;
+        if ($('tableSlHeader')) $('tableSlHeader').textContent = `Stop Loss (-${slFmt}%)`;
         const tpModeInput = $('tpMode');
         if (tpModeInput) tpModeInput.value = 'fixed';
     }

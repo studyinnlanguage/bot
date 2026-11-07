@@ -113,6 +113,10 @@ class SymbolWorker(threading.Thread):
             fresh_window = max(2, min(8, int(self.config.get("fresh_window", 2) or 2)))
         except (TypeError, ValueError):
             fresh_window = 2
+        try:
+            self._last_sl_pct = max(0.05, float(self.config.get("stop_loss_pct", 0.2) or 0.2))
+        except (TypeError, ValueError):
+            self._last_sl_pct = 0.2
         self.strategy = EMAQuadStrategy(min_spread_pct=min_spread, fresh_window=fresh_window)
         self._startup_seeded = False
         self._reversal_armed_ts = 0.0
@@ -126,7 +130,7 @@ class SymbolWorker(threading.Thread):
         self.state = "starting"
 
     def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
-        """Live-update fresh_window (2–8 candles) and min_ema_spread on running worker."""
+        """Live-update fresh_window (2–8 candles), min_ema_spread, and stop_loss_pct on running worker."""
         self.config = cfg
         default_spread = 0.20 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.15
         try:
@@ -138,9 +142,19 @@ class SymbolWorker(threading.Thread):
             new_fw = max(2, min(8, int(cfg.get("fresh_window", 2) or 2)))
         except (TypeError, ValueError):
             new_fw = 2
-        changed = (self.strategy.fresh_window != new_fw) or (abs(self.strategy.min_spread_pct - new_spread) > 1e-6)
+        try:
+            new_sl = max(0.05, float(cfg.get("stop_loss_pct", 0.2) or 0.2))
+        except (TypeError, ValueError):
+            new_sl = 0.2
+        prev_sl = getattr(self, "_last_sl_pct", 0.2)
+        changed = (
+            (self.strategy.fresh_window != new_fw)
+            or (abs(self.strategy.min_spread_pct - new_spread) > 1e-6)
+            or (abs(prev_sl - new_sl) > 1e-6)
+        )
         self.strategy.min_spread_pct = new_spread
         self.strategy.fresh_window = new_fw
+        self._last_sl_pct = new_sl
         return changed, new_fw, new_spread
 
     def _get_effective_leverage(self, symbol: str) -> int:
@@ -447,7 +461,7 @@ class SymbolWorker(threading.Thread):
                             f"Current signal={cur_sig_str} | "
                             f"Mark={pos.mark_price:.4f} Entry={entry_val:.4f} | "
                             f"SL={sl_fmt} TP={tp_fmt} | "
-                            f"1:1 TP & Auto-Reversal Active")
+                            f"TP 1.0% / SL 0.2% & Auto-Reversal Active")
                 })
 
             sl_hit, tp_hit, reason = self._check_software_sl_tp(pos, result)
@@ -732,7 +746,7 @@ class SymbolWorker(threading.Thread):
 
             if entry > 0 and needs_init:
                 sl_pct_val = float(cfg.get("stop_loss_pct", 0.2))
-                tp_pct_val = float(cfg.get("take_profit_pct", 1.0))
+                tp_pct_val = 1.0
                 inferred_entry_signal = Signal.BUY if actual_side == "LONG" else Signal.SELL
                 self._set_software_sl_tp(
                     symbol, actual_side, entry, sl_pct_val, tp_pct_val,
@@ -756,11 +770,18 @@ class SymbolWorker(threading.Thread):
                     except Exception as he:
                         logger.error("Failed to auto-register restored trade in history: %s", he)
 
-                # Purge any legacy 6% fixed TP orders on exchange & sync SL to safe level
+                # Purge any legacy/stale TP orders on exchange & sync SL + 1.0% TP
                 if self.sl_price and self.sl_price > 0:
                     self._update_exchange_sl(actual_side, self.sl_price, abs(pos.size))
+                    try:
+                        trader = self.engine.trader or self.engine.monitor_trader
+                        if trader and hasattr(trader, "place_take_profit") and self.tp_price and self.tp_price > 0:
+                            close_side = "SELL" if actual_side == "LONG" else "BUY"
+                            trader.place_take_profit(symbol, close_side, self.tp_price, abs(pos.size))
+                    except Exception:
+                        pass
                 self._exchange_tp_cleaned = True
-                tp_log = f"TP=STRICT 1:1 (+{self.target_roe_pct:.0f}% ROE target=${self.tp_price:.4f})"
+                tp_log = f"TP=+1.0% (+{self.target_roe_pct:.0f}% ROE target=${self.tp_price:.4f})"
                 self.engine._emit("log", {
                     "level": "warn",
                     "msg": (f"[{symbol}] ⚠️ AUTO-RESTORED SL/TP for {actual_side} position | "
@@ -1017,7 +1038,7 @@ class SymbolWorker(threading.Thread):
         #   - 'both'         : both active, whichever triggers first
         # ===================================================================
         STRICT_SL_MIN = 0.05
-        # SL fixed at 0.2%, TP fixed at 1.0%
+        # SL default 0.2%, TP strictly locked at 1.0% (5:1 RR — never 0.2% 1:1)
         sl_pct = cfg.get("stop_loss_pct", 0.2)
         try:
             sl_pct = float(sl_pct)
@@ -1026,14 +1047,7 @@ class SymbolWorker(threading.Thread):
         if sl_pct < STRICT_SL_MIN:
             sl_pct = 0.2
 
-        tp_pct = cfg.get("take_profit_pct", 1.0)
-        try:
-            tp_pct = float(tp_pct)
-        except (TypeError, ValueError):
-            tp_pct = 1.0
-        if tp_pct <= 0:
-            tp_pct = 1.0
-
+        tp_pct = 1.0
         tp_mode = "fixed"
 
         # Determine effective leverage from user config
@@ -1143,7 +1157,7 @@ class SymbolWorker(threading.Thread):
                         "level": "success",
                         "msg": (f"[{symbol}] ✅ Exchange SL attached | "
                                 f"SL={order.get('sl_price', 'N/A')} | "
-                                f"(Target=Strict 1:1 TP)")
+                                f"(Target=TP +1.0%)")
                     })
                 try:
                     self.engine.notifier.notify_trade_open(
@@ -1225,7 +1239,7 @@ class SymbolWorker(threading.Thread):
                         "level": "success",
                         "msg": (f"[{symbol}] ✅ Exchange SL attached | "
                                 f"SL={order.get('sl_price', 'N/A')} | "
-                                f"(Target=Strict 1:1 TP)")
+                                f"(Target=TP +1.0%)")
                     })
                 try:
                     self.engine.notifier.notify_trade_open(
@@ -1363,7 +1377,7 @@ class SymbolWorker(threading.Thread):
                 return (False, True,
                         f"⚡ EMA55-REVERSAL (SHORT->EMA55 now BOTTOM, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
 
-        # ---------- 2) STOP-LOSS CHECK (Strict 1:1 Risk) ----------
+        # ---------- 2) STOP-LOSS CHECK ----------
         sl_hit = False
         if side == "LONG" and mark <= self.sl_price:
             sl_hit = True
@@ -1371,19 +1385,19 @@ class SymbolWorker(threading.Thread):
             sl_hit = True
 
         if sl_hit:
-            reason = f"⚡ 1:1 SL HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
+            reason = f"⚡ STOP LOSS HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
             return (True, False, reason)
 
-        # ---------- 3) TAKE-PROFIT CHECK (Strict 1:1 Reward Exit) ----------
+        # ---------- 3) TAKE-PROFIT CHECK (+1.0% Target) ----------
         if self.tp_price is not None:
             if side == "LONG" and mark >= self.tp_price:
                 pnl_pct = (mark - self.entry_price) / self.entry_price * 100 if self.entry_price > 0 else 0
                 return (False, True,
-                        f"🎯 1:1 TAKE PROFIT HIT (price {mark:.4f} >= TP {self.tp_price:.4f}, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+                        f"🎯 TAKE PROFIT HIT (price {mark:.4f} >= TP {self.tp_price:.4f}, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
             elif side == "SHORT" and mark <= self.tp_price:
                 pnl_pct = (self.entry_price - mark) / self.entry_price * 100 if self.entry_price > 0 else 0
                 return (False, True,
-                        f"🎯 1:1 TAKE PROFIT HIT (price {mark:.4f} <= TP {self.tp_price:.4f}, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+                        f"🎯 TAKE PROFIT HIT (price {mark:.4f} <= TP {self.tp_price:.4f}, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
 
         return (False, False, "")
 
@@ -2282,7 +2296,7 @@ class BotEngine:
 
         self._emit("status", {"running": True, "message": "Bot started"})
         sl_pct_val = config.get("stop_loss_pct", 0.2)
-        tp_pct_val = config.get("take_profit_pct", 1.0)
+        tp_pct_val = 1.0
         sl_info = f"SL={sl_pct_val}%"
         tp_info = f"TP={tp_pct_val}% + AUTO-REVERSAL"
         exchange = (config.get("exchange") or "binance").upper()
@@ -2329,7 +2343,7 @@ class BotEngine:
                 w.start()
                 self._emit("log", {"level": "info", "msg": f"[{sym}] ▶️ Added to active trading watchlist. Worker started."})
 
-            # Update config & live strategy tuning (fresh_window 2–8, min_ema_spread) on surviving workers
+            # Update config & live strategy tuning (fresh_window 2–8, min_ema_spread, stop_loss_pct) on surviving workers
             any_tuning_changed = False
             applied_fw = None
             for sym in (current_symbols & new_symbols):
@@ -2340,9 +2354,11 @@ class BotEngine:
                         any_tuning_changed = True
                         applied_fw = new_fw
             if any_tuning_changed and applied_fw is not None:
+                spread_lbl = f"{float(new_config.get('min_ema_spread', 0))}%" if float(new_config.get('min_ema_spread', 0) or 0) > 0 else "Auto (0.15%/0.20%)"
+                sl_lbl = float(new_config.get("stop_loss_pct", 0.2) or 0.2)
                 self._emit("log", {
                     "level": "success",
-                    "msg": f"⚙️ Strategy tuning live-updated on active workers: Fresh Cross Window = {applied_fw} candles (2–8), Min EMA Spread = {new_config.get('min_ema_spread', 0) or 'Auto'}"
+                    "msg": f"⚙️ Settings live-updated on active workers: Candles = {applied_fw} (2–8), Stop Loss = {sl_lbl:.2f}%, Min EMA Spread = {spread_lbl} | Take Profit = 1.0%"
                 })
 
         if new_symbols and self.active_symbol not in new_symbols:
@@ -2564,8 +2580,8 @@ class BotEngine:
             "amount_mode": self.config.get("amount_mode", "fixed"),
             "amount": self.config.get("amount"),
             "amount_pct": self.config.get("amount_pct", 10),
-            "stop_loss_pct": self.config.get("stop_loss_pct", 2),
-            "take_profit_pct": self.config.get("take_profit_pct", 6),
+            "stop_loss_pct": self.config.get("stop_loss_pct", 0.2),
+            "take_profit_pct": 1.0,
             "tp_mode": self.config.get("tp_mode", "fixed"),
             "mode": self.config.get("mode", "both"),
             "testnet": self.config.get("testnet", True),

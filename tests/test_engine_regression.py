@@ -168,3 +168,64 @@ class TestEngineApi:
 
         code, body = _post_cfg({"fresh_window": 1})
         assert code == 200 and body["config"]["fresh_window"] == 2
+
+    def test_take_profit_strictly_locked_at_1_pct_against_stale_cache(self, engine):
+        """Even if a stale cached browser JS or old DB sends take_profit_pct=0.2 (old 1:1),
+        /api/config must strictly lock take_profit_pct to 1.0% while keeping stop_loss_pct=0.2%."""
+        base, hdr = engine
+        req = urllib.request.Request(
+            base + "/api/config", method="POST",
+            headers={**hdr, "Content-Type": "application/json"},
+            data=json.dumps({"stop_loss_pct": 0.2, "take_profit_pct": 0.2}).encode(),
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            code, body = r.status, json.loads(r.read().decode())
+        assert code == 200
+        assert abs(body["config"]["stop_loss_pct"] - 0.2) < 1e-9
+        assert abs(body["config"]["take_profit_pct"] - 1.0) < 1e-9
+
+    def test_custom_sl_spread_and_candles_persist_and_live_sync(self, engine):
+        """User must be able to adjust fresh_window (2..8), stop_loss_pct, and min_ema_spread
+        freely from the dashboard, have them persist across restarts, and live-sync to workers."""
+        base, hdr = engine
+        req = urllib.request.Request(
+            base + "/api/config", method="POST",
+            headers={**hdr, "Content-Type": "application/json"},
+            data=json.dumps({
+                "stop_loss_pct": 0.35,
+                "min_ema_spread": 0.08,
+                "fresh_window": 5,
+                "take_profit_pct": 0.2,  # even if stale payload sends 0.2, TP stays 1.0
+            }).encode(),
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            code, body = r.status, json.loads(r.read().decode())
+        assert code == 200
+        assert abs(body["config"]["stop_loss_pct"] - 0.35) < 1e-9
+        assert abs(body["config"]["min_ema_spread"] - 0.08) < 1e-9
+        assert body["config"]["fresh_window"] == 5
+        assert abs(body["config"]["take_profit_pct"] - 1.0) < 1e-9
+
+        # Verify config.json persisted custom values & survives a fresh load_config() import
+        tmp = Path(tempfile.gettempdir()) / "wx_engine_test"
+        saved = json.loads((tmp / "config.json").read_text(encoding="utf-8"))
+        assert abs(saved["stop_loss_pct"] - 0.35) < 1e-9
+        assert abs(saved["min_ema_spread"] - 0.08) < 1e-9
+        assert saved["fresh_window"] == 5
+        assert abs(saved["take_profit_pct"] - 1.0) < 1e-9
+
+        chk = subprocess.run(
+            [sys.executable, "-c",
+             "import sys, json; sys.path.insert(0, '.'); import app; c = app.load_config(); print(json.dumps({"
+             "'sl': c['stop_loss_pct'], 'tp': c['take_profit_pct'], "
+             "'sp': c['min_ema_spread'], 'fw': c['fresh_window']}))"],
+            cwd=tmp, capture_output=True, text=True, timeout=15,
+        )
+        assert chk.returncode == 0, chk.stderr
+        reloaded = json.loads(chk.stdout.strip().splitlines()[-1])
+        assert abs(reloaded["sl"] - 0.35) < 1e-9
+        assert abs(reloaded["tp"] - 1.0) < 1e-9
+        assert abs(reloaded["sp"] - 0.08) < 1e-9
+        assert reloaded["fw"] == 5
+
+
