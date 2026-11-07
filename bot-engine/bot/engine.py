@@ -108,10 +108,14 @@ class SymbolWorker(threading.Thread):
         except (TypeError, ValueError):
             cfg_spread = 0.0
         min_spread = cfg_spread if cfg_spread > 0 else default_spread
-        # Fresh-cross lookback (closed candles). Was hard-coded 2 -> entries expired
-        # before the spread filter released. 8 gives late-expanding trends a chance.
-        fresh_window = max(2, int(self.config.get("fresh_window", 8)))
+        # Fresh-cross lookback (closed candles, 2–8 configurable in Engine UI, default 2).
+        try:
+            fresh_window = max(2, min(8, int(self.config.get("fresh_window", 2) or 2)))
+        except (TypeError, ValueError):
+            fresh_window = 2
         self.strategy = EMAQuadStrategy(min_spread_pct=min_spread, fresh_window=fresh_window)
+        self._startup_seeded = False
+        self._reversal_armed_ts = 0.0
         # Leverage readiness event — workers wait on this before trading
         self._leverage_ready = leverage_ready
         # Settlement cooldown tracking to prevent race conditions on close & open
@@ -120,6 +124,24 @@ class SymbolWorker(threading.Thread):
         # Explicit lifecycle state for the dashboard:
         # starting -> waiting_leverage -> running -> stopped | error:<msg>
         self.state = "starting"
+
+    def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
+        """Live-update fresh_window (2–8 candles) and min_ema_spread on running worker."""
+        self.config = cfg
+        default_spread = 0.20 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.15
+        try:
+            cfg_spread = float(cfg.get("min_ema_spread", 0) or 0)
+        except (TypeError, ValueError):
+            cfg_spread = 0.0
+        new_spread = cfg_spread if cfg_spread > 0 else default_spread
+        try:
+            new_fw = max(2, min(8, int(cfg.get("fresh_window", 2) or 2)))
+        except (TypeError, ValueError):
+            new_fw = 2
+        changed = (self.strategy.fresh_window != new_fw) or (abs(self.strategy.min_spread_pct - new_spread) > 1e-6)
+        self.strategy.min_spread_pct = new_spread
+        self.strategy.fresh_window = new_fw
+        return changed, new_fw, new_spread
 
     def _get_effective_leverage(self, symbol: str) -> int:
         """Get the true active leverage for this symbol from config (or active open position)."""
@@ -177,6 +199,7 @@ class SymbolWorker(threading.Thread):
                 if seed_result:
                     # STRICT RULE: Seed startup state so bot NEVER enters on startup without a fresh crossover!
                     self.strategy.seed_startup_state(seed_result.signal)
+                    self._startup_seeded = True
                     self.waiting_for_new_cross = True
                     self.last_signal = seed_result.signal
                     self.engine._emit("signal", {
@@ -392,6 +415,15 @@ class SymbolWorker(threading.Thread):
             })
             return
 
+        if not getattr(self, "_startup_seeded", False):
+            # Fallback startup guard if initial pre-seed timed out on boot:
+            # lock all pre-startup crosses before any trade logic runs.
+            self.strategy.seed_startup_state(result.signal)
+            self._startup_seeded = True
+            self.waiting_for_new_cross = True
+            self.last_signal = result.signal
+            result.just_crossed = False
+
         signal = result.signal
         e8, e13, e21, e55 = result.ema_8, result.ema_13, result.ema_21, result.ema_55
 
@@ -501,19 +533,12 @@ class SymbolWorker(threading.Thread):
                     # fresh crossover before the next entry (anti-whipsaw protection).
                     self.waiting_for_new_cross = True
                     self.reversal_pending_side = None
-                    # ===== SAME-COIN RE-ENTRY COOLDOWN =====
-                    # Block an instant re-open of this coin after SL/TP exit.
-                    try:
-                        self.engine.set_reentry_cooldown(symbol, reason=f"exit: {reason}")
-                    except Exception as ce:
-                        logger.warning("Re-entry cooldown set failed: %s", ce)
                     if is_ema_reversal_tp:
                         self.strategy.reset_for_reversal()
-                        # BUGFIX (dead code restored): arm the immediate OPPOSITE-side
-                        # re-entry. `reversal_pending_side` was never SET anywhere before,
-                        # so the pending-reversal entry path could never run and the bot
-                        # silently sat out the new trend after every EMA55 flip exit.
+                        # Immediate opposite-side flip ONLY if slot is available on next tick
+                        # (expires within 60s; never sits queued waiting for other coins).
                         self.reversal_pending_side = "SHORT" if close_side_label == "LONG" else "LONG"
+                        self._reversal_armed_ts = time.time()
                         self.waiting_for_new_cross = False
                         self.engine._emit("log", {
                             "level": "info",
@@ -523,6 +548,12 @@ class SymbolWorker(threading.Thread):
                                     f"opposite signal is still active.")
                         })
                     else:
+                        # ===== SAME-COIN RE-ENTRY COOLDOWN =====
+                        # Block an instant re-open of this coin after normal SL/TP exit.
+                        try:
+                            self.engine.set_reentry_cooldown(symbol, reason=f"exit: {reason}")
+                        except Exception as ce:
+                            logger.warning("Re-entry cooldown set failed: %s", ce)
                         self.strategy.reset_cross_state()
                     # Notification
                     try:
@@ -766,6 +797,7 @@ class SymbolWorker(threading.Thread):
         # Emit signal to UI (for indicator panel) - but DON'T spam logs
         # Only emit if signal changed from last tick
         signal_changed = (signal != self.last_signal)
+        self.last_signal = signal
         self.engine._emit("signal", {
             "symbol": symbol,
             "signal": signal.value,
@@ -814,10 +846,20 @@ class SymbolWorker(threading.Thread):
         if pending_reversal:
             target_side = self.reversal_pending_side
             desired_sig = Signal.BUY if target_side == "LONG" else Signal.SELL
+            # Expire stale pending reversal (> 60s old) so it can never fire late
+            if time.time() - getattr(self, "_reversal_armed_ts", 0.0) > 60.0:
+                self.reversal_pending_side = None
+                self.waiting_for_new_cross = True
+                self.strategy.consume_current_cross()
+                self.engine._emit("log", {
+                    "level": "warn",
+                    "msg": f"[{symbol}] ⏭️ Pending reversal expired (>60s) — consumed stale flip, waiting for a new cross."
+                })
+                return
             if signal != desired_sig:
                 # Signal drifted (e.g. went to HOLD briefly) before re-entry.
                 # CRITICAL FIX: Clear reversal_pending_side so it doesn't get
-                # stuck forever. Fall through to normal fresh-cross logic below.
+                # stuck forever.
                 self.engine._emit("log", {
                     "level": "warn",
                     "msg": (f"[{symbol}] ⚠️ Reversal signal drifted — "
@@ -838,61 +880,76 @@ class SymbolWorker(threading.Thread):
                     self.engine.trader.close_position(symbol)
                 except Exception as e:
                     logger.warning(f"[{symbol}] Reversal cleanup close failed: {e}")
-            # CONCURRENT TRADES + COOLDOWN: reversal re-entry must respect the
-            # same limits as a normal entry. If blocked, KEEP the pending flag
-            # and wait (slot may free up / cooldown may expire) — the drift
-            # check above clears the flag if the signal goes stale.
-            can_open, rv_reason = self.engine.can_open_new_trade(symbol)
-            if not can_open:
-                now_rv = time.time()
-                if now_rv - getattr(self, '_last_rv_locked_log_time', 0) > 60:
+            # CONCURRENT TRADES + COOLDOWN: NEVER hold/queue a blocked reversal!
+            # If slots are full or cooldown is active, consume & clear immediately
+            # so freeing a slot later (SL/manual close) does NOT fire an old reversal.
+            with self.engine._trade_entry_lock:
+                can_open, rv_reason = self.engine.can_open_new_trade(symbol)
+                if not can_open:
+                    self.reversal_pending_side = None
+                    self.waiting_for_new_cross = True
+                    self.strategy.consume_current_cross()
                     self.engine._emit("log", {
                         "level": "info",
-                        "msg": f"[{symbol}] Reversal re-entry waiting: {rv_reason}"
+                        "msg": (f"[{symbol}] ⏭️ Reversal re-entry skipped & consumed ({rv_reason}) — "
+                                f"waiting for a brand-new cross.")
                     })
-                    self._last_rv_locked_log_time = now_rv
-                return
-            self.reversal_pending_side = None
-            self.waiting_for_new_cross = False
-            if hasattr(self, '_waiting_logged'):
-                delattr(self, '_waiting_logged')
+                    return
+                self.engine.register_entry_intent(symbol, desired_sig.value)
+                self.reversal_pending_side = None
+                self.waiting_for_new_cross = False
+                if hasattr(self, '_waiting_logged'):
+                    delattr(self, '_waiting_logged')
+                self.strategy.mark_trade_entered()
         else:
             # No position open for this symbol.
             # If signal is HOLD -> wait for BUY or SELL
             if signal == Signal.HOLD:
                 return
 
-            # CONCURRENT ACTIVE TRADES CONTROL:
-            # User can choose 1, 2, or 3 simultaneous active coin trades (default: 3).
-            can_open, reason = self.engine.can_open_new_trade(symbol)
-            if not can_open:
-                now = time.time()
-                if now - getattr(self, '_last_locked_log_time', 0) > 60:
-                    self.engine._emit("log", {
-                        "level": "info",
-                        "msg": f"[{symbol}] In {signal.value} setup, but {reason}. Holding until an active trade slot frees up."
-                    })
-                    self._last_locked_log_time = now
-                return
-
             # STRICT REQUIREMENT: Bot MUST ONLY enter on a confirmed FRESH cross of Line 55 across ALL lines!
             if not result.just_crossed:
+                return
+
+            # CONCURRENT ACTIVE TRADES CONTROL:
+            # If slots are full or same-coin cooldown is active when a fresh cross happens,
+            # CONSUME the cross immediately instead of holding it armed in queue!
+            # That way, when another coin later hits SL or is manually closed, this worker
+            # will NOT instantly jump into a 10–40 min old stale signal.
+            can_open, reason = self.engine.can_open_new_trade(symbol)
+            if not can_open:
+                self.strategy.consume_current_cross()
+                self.waiting_for_new_cross = True
+                self.engine._emit("log", {
+                    "level": "info",
+                    "msg": (f"[{symbol}] ⏭️ Fresh {signal.value} cross skipped & consumed ({reason}) — "
+                            f"purane signal pe trade nahi khulega, slot khali hone ke baad naye cross ka wait karega.")
+                })
                 return
 
             # Active signal & fresh cross! Guard against multiple entries on same closed candle
             candle_id = str(df.index[-2]) if len(df) >= 2 else str(time.time())
             if getattr(self, '_last_trade_candle_id', None) == candle_id:
+                self.strategy.consume_current_cross()
                 return
 
             now = time.time()
             if now - self._last_cross_time < 30:
-                # Too soon after last cross - ignore (prevents rapid false crosses)
+                # Too soon after last cross - consume & ignore (prevents rapid false crosses)
+                self.strategy.consume_current_cross()
                 return
 
             # Acquire thread-safe entry lock to prevent simultaneous entry collisions
             with self.engine._trade_entry_lock:
-                can_open, _ = self.engine.can_open_new_trade(symbol)
+                can_open, lock_reason = self.engine.can_open_new_trade(symbol)
                 if not can_open:
+                    self.strategy.consume_current_cross()
+                    self.waiting_for_new_cross = True
+                    self.engine._emit("log", {
+                        "level": "info",
+                        "msg": (f"[{symbol}] ⏭️ Simultaneous {signal.value} cross skipped & consumed ({lock_reason}) — "
+                                f"waiting for a brand-new cross.")
+                    })
                     return
                 # Atomic slot claim: other workers crossing on the same candle
                 # now see this entry as pending and can not exceed the limit.
@@ -2272,11 +2329,21 @@ class BotEngine:
                 w.start()
                 self._emit("log", {"level": "info", "msg": f"[{sym}] ▶️ Added to active trading watchlist. Worker started."})
 
-            # Update config on surviving workers
+            # Update config & live strategy tuning (fresh_window 2–8, min_ema_spread) on surviving workers
+            any_tuning_changed = False
+            applied_fw = None
             for sym in (current_symbols & new_symbols):
                 w = self.workers.get(sym)
                 if w:
-                    w.config = new_config
+                    changed, new_fw, _ = w.update_strategy_tuning(new_config)
+                    if changed:
+                        any_tuning_changed = True
+                        applied_fw = new_fw
+            if any_tuning_changed and applied_fw is not None:
+                self._emit("log", {
+                    "level": "success",
+                    "msg": f"⚙️ Strategy tuning live-updated on active workers: Fresh Cross Window = {applied_fw} candles (2–8), Min EMA Spread = {new_config.get('min_ema_spread', 0) or 'Auto'}"
+                })
 
         if new_symbols and self.active_symbol not in new_symbols:
             self.set_active_symbol(list(new_symbols)[0])

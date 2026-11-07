@@ -199,3 +199,193 @@ def test_full_limit_blocks_even_without_positions_or_intents():
     eng.register_entry_intent("ETHUSDT", "LONG")
     ok, _ = eng.can_open_new_trade("SOLUSDT")
     assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# BUG D — slot-blocked crosses & reversals MUST be consumed (no instant jump
+#         onto another coin's stale signal after SL hit or Manual Close)
+# ---------------------------------------------------------------------------
+
+def _make_live_worker(eng, symbol, trader_mock, cfg_extra=None):
+    from bot.engine import SymbolWorker
+    cfg = {
+        "timeframe": "5m", "leverage": 20, "amount_mode": "fixed", "amount": 50,
+        "amount_pct": 10, "stop_loss_pct": 0.2, "take_profit_pct": 1.0,
+        "tp_mode": "fixed", "mode": "both", "max_concurrent_trades": eng.config.get("max_concurrent_trades", 1),
+        "reentry_cooldown_sec": eng.config.get("reentry_cooldown_sec", 180),
+        "min_ema_spread": 0, "fresh_window": 2,
+        **(cfg_extra or {}),
+    }
+    eng.config.update(cfg)
+    eng.trader = trader_mock
+    eng._trade_entry_lock = __import__("threading").Lock()
+    eng.notifier = MagicMock()
+    eng.history = MagicMock()
+    eng.active_symbol = symbol
+    eng.set_connection_state = lambda *a, **k: None
+    w = SymbolWorker(eng, symbol, cfg)
+    w._startup_seeded = True
+    eng.workers[symbol] = w
+    return w
+
+
+def test_slot_blocked_cross_consumed_no_instant_other_coin_trade():
+    """When Coin A holds the slot, Coin B's fresh cross must be consumed immediately
+    so that when Coin A later closes (SL hit / manual close), Coin B does NOT
+    immediately open a trade on that stale cross."""
+    eng = _make_engine(max_trades=1, cooldown=180)
+    _worker_with_position(eng, "BTCUSDT", "LONG")  # Coin A occupies the only slot
+
+    # Build a DataFrame where the very latest closed candle has a fresh SELL cross
+    full_df = _synth_trend(pre_osc=120, fan=8, direction="SELL")
+    cross_df = None
+    probe = EMAQuadStrategy(fresh_window=2)
+    probe_init = full_df.iloc[:120]
+    probe.analyze(probe_init)
+    probe.seed_startup_state(Signal.HOLD)
+    for cut in range(121, len(full_df) + 1):
+        sub = full_df.iloc[:cut]
+        res = probe.analyze(sub)
+        if res is not None and res.just_crossed:
+            cross_df = sub
+            break
+    assert cross_df is not None, "failed to synthesize a 2-candle fresh cross"
+
+    trader = MagicMock()
+    trader.get_klines.return_value = cross_df
+    trader.get_mark_price.return_value = float(cross_df.iloc[-1]["close"])
+    trader.get_position.return_value = SimpleNamespace(
+        side="NONE", size=0.0, entry_price=0.0, mark_price=float(cross_df.iloc[-1]["close"]),
+        unrealized_pnl=0.0, leverage=20,
+    )
+    trader.get_symbol_filters.return_value = {"min_qty": 0.001, "max_qty": 1e6, "step_size": 0.001}
+    trader.compute_quantity.return_value = 1.0
+    trader.open_short.return_value = {"success": True, "quantity": 1.0, "order": {"orderId": "1"}}
+
+    eth_worker = _make_live_worker(eng, "ETHUSDT", trader, {"fresh_window": 6})
+    eth_worker.strategy.analyze(full_df.iloc[:120])
+    eth_worker.strategy.seed_startup_state(Signal.HOLD)
+
+    # Tick 1 while Coin A's slot is FULL -> ETHUSDT sees fresh cross, must consume & NOT open
+    eth_worker._tick()
+    assert trader.open_short.call_count == 0, "opened trade despite full slot limit!"
+
+    # Now Coin A hits SL or is manually closed -> slot frees up!
+    eng.workers["BTCUSDT"].position_side = None
+    eng.workers["BTCUSDT"].expected_pos_side = None
+    eng.workers["BTCUSDT"].entry_price = None
+    ok, _ = eng.can_open_new_trade("ETHUSDT")
+    assert ok is True
+
+    # Next ticks on ETHUSDT (even with fresh_window=6 still covering that cross!) -> MUST NOT open!
+    for extra in range(0, len(full_df) - len(cross_df) + 1):
+        trader.get_klines.return_value = full_df.iloc[:len(cross_df) + extra]
+        eth_worker._tick()
+    assert trader.open_short.call_count == 0, "opened trade on stale cross right after slot freed!"
+
+
+def test_blocked_pending_reversal_consumed_never_queued():
+    """If a pending reversal is blocked by concurrent trade limits, it must be
+    cleared & consumed immediately rather than waiting to pounce when a slot frees."""
+    eng = _make_engine(max_trades=1, cooldown=180)
+    _worker_with_position(eng, "BTCUSDT", "LONG")  # Another coin holds the slot
+
+    df = _synth_trend(pre_osc=120, fan=8, direction="SELL")
+    trader = MagicMock()
+    trader.get_klines.return_value = df
+    trader.get_mark_price.return_value = float(df.iloc[-1]["close"])
+    trader.get_position.return_value = SimpleNamespace(
+        side="NONE", size=0.0, entry_price=0.0, mark_price=float(df.iloc[-1]["close"]),
+        unrealized_pnl=0.0, leverage=20,
+    )
+    trader.open_short.return_value = {"success": True, "quantity": 1.0}
+
+    sol_worker = _make_live_worker(eng, "SOLUSDT", trader)
+    sol_worker.reversal_pending_side = "SHORT"
+    sol_worker._reversal_armed_ts = time.time()
+
+    # Tick while slot is blocked -> reversal flag must be cleared immediately
+    sol_worker._tick()
+    assert sol_worker.reversal_pending_side is None
+    assert trader.open_short.call_count == 0
+
+    # Free BTC slot -> SOL must STILL not open on the old trend
+    eng.workers["BTCUSDT"].position_side = None
+    eng.workers["BTCUSDT"].expected_pos_side = None
+    eng.workers["BTCUSDT"].entry_price = None
+    sol_worker._tick()
+    assert trader.open_short.call_count == 0
+
+
+def test_startup_seed_blocks_pre_startup_chop_cross_and_allows_post_startup_cross():
+    """Pre-startup cross masked by flat spread (HOLD at startup) must NOT fire when
+    spread opens later; a genuinely new cross AFTER startup MUST fire."""
+    full_df = _synth_trend(pre_osc=120, fan=8, direction="SELL")
+
+    # Find exact candle `c_cross` where EMA55 first enters top extreme (SELL cross)
+    probe = EMAQuadStrategy(min_spread_pct=0.15, fresh_window=6)
+    c_cross = None
+    for cut in range(121, len(full_df) + 1):
+        sub = full_df.iloc[:cut]
+        enr = probe.indicators.compute(sub)
+        if probe._is_ema55_at_top(enr.iloc[-2]):
+            c_cross = cut
+            break
+    assert c_cross is not None
+
+    # 1) Startup happens AT `c_cross` with high spread requirement so startup signal is HOLD
+    s_pre = EMAQuadStrategy(min_spread_pct=5.0, fresh_window=6)
+    r_seed = s_pre.analyze(full_df.iloc[:c_cross])
+    assert r_seed is not None and r_seed.signal == Signal.HOLD
+    s_pre.seed_startup_state(r_seed.signal)
+    # Now relax spread back to normal 0.15% on subsequent candles -> pre-startup cross MUST stay blocked!
+    s_pre.min_spread_pct = 0.15
+    for cut in range(c_cross, len(full_df) + 1):
+        r = s_pre.analyze(full_df.iloc[:cut])
+        assert r.just_crossed is False, "pre-startup chop cross falsely fired after startup!"
+
+    # 2) Startup happens BEFORE `c_cross` (at candle 120, before SELL cross) -> new SELL cross MUST fire!
+    s_post = EMAQuadStrategy(min_spread_pct=0.15, fresh_window=2)
+    r0 = s_post.analyze(full_df.iloc[:120])
+    s_post.seed_startup_state(r0.signal)
+    fired = False
+    for cut in range(121, len(full_df) + 1):
+        r = s_post.analyze(full_df.iloc[:cut])
+        if r is not None and r.just_crossed and r.signal == Signal.SELL:
+            fired = True
+            break
+    assert fired, "genuinely new post-startup cross was blocked!"
+
+
+def test_manual_engine_fresh_window_2_to_8_live_sync():
+    """Engine fresh_window defaults to 2, clamps to 2..8, and sync_config live-updates
+    running workers without needing a restart."""
+    s_default = EMAQuadStrategy()
+    assert s_default.fresh_window == 2
+    assert EMAQuadStrategy(fresh_window=1).fresh_window == 2
+    assert EMAQuadStrategy(fresh_window=50).fresh_window == 8
+    assert EMAQuadStrategy(fresh_window=5).fresh_window == 5
+
+    eng = _make_engine(max_trades=3, cooldown=180)
+    eng.is_running = True
+    eng.notifier = MagicMock()
+    eng._symbols_list = lambda: ["BTCUSDT"]
+    trader = MagicMock()
+    w = _make_live_worker(eng, "BTCUSDT", trader, {"fresh_window": 2, "min_ema_spread": 0})
+    assert w.strategy.fresh_window == 2
+
+    # User updates Fresh Cross Window to 6 and Min EMA Spread to 0.30 in Engine UI
+    eng.sync_config({
+        **eng.config,
+        "symbols_list": ["BTCUSDT"],
+        "fresh_window": 6,
+        "min_ema_spread": 0.30,
+    })
+    assert w.strategy.fresh_window == 6
+    assert abs(w.strategy.min_spread_pct - 0.30) < 1e-9
+
+    # Out-of-range values clamp cleanly to 2..8
+    eng.sync_config({**eng.config, "symbols_list": ["BTCUSDT"], "fresh_window": 99})
+    assert w.strategy.fresh_window == 8
+    eng.sync_config({**eng.config, "symbols_list": ["BTCUSDT"], "fresh_window": 0})
+    assert w.strategy.fresh_window == 2

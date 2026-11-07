@@ -53,8 +53,8 @@ def fetch_binance_klines(symbol="BTCUSDT", interval="5m", limit=1000):
         })
 
 
-def run_backtest(df, tp_pct=1.0, sl_pct=0.2):
-    strat = EMAQuadStrategy(min_spread_pct=0.15, fresh_window=8)
+def run_backtest(df, tp_pct=1.0, sl_pct=0.2, fresh_window=2):
+    strat = EMAQuadStrategy(min_spread_pct=0.15, fresh_window=fresh_window)
     trades = []
     active_trade = None
 

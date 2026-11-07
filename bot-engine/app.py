@@ -153,7 +153,7 @@ DEFAULT_CONFIG = {
     "max_concurrent_trades": 3,
     "reentry_cooldown_sec": 180,
     "min_ema_spread": 0,
-    "fresh_window": 8,
+    "fresh_window": 2,
 }
 
 
@@ -174,6 +174,10 @@ def load_config() -> dict:
             merged["stop_loss_pct"] = 0.2
             merged["take_profit_pct"] = 1.0
             merged["trailing_roe_pct"] = 100.0
+            try:
+                merged["fresh_window"] = max(2, min(8, int(merged.get("fresh_window", 2) or 2)))
+            except (ValueError, TypeError):
+                merged["fresh_window"] = 2
             # Per-exchange credential memory: if a slot map exists, the flat
             # fields MUST mirror the ACTIVE exchange's own saved credentials.
             # (A legacy file without slots keeps its flat credentials as-is;
@@ -451,9 +455,9 @@ def update_config():
     except (ValueError, TypeError):
         CONFIG["min_ema_spread"] = 0
     try:
-        CONFIG["fresh_window"] = max(2, min(50, int(CONFIG.get("fresh_window", 8))))
+        CONFIG["fresh_window"] = max(2, min(8, int(CONFIG.get("fresh_window", 2) or 2)))
     except (ValueError, TypeError):
-        CONFIG["fresh_window"] = 8
+        CONFIG["fresh_window"] = 2
     if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
         ENGINE.config["min_ema_spread"] = CONFIG["min_ema_spread"]
         ENGINE.config["fresh_window"] = CONFIG["fresh_window"]

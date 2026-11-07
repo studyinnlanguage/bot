@@ -33,7 +33,7 @@ export function EngineScreen() {
   const [maxTrades, setMaxTrades] = useState('3');
   const [reentryCd, setReentryCd] = useState('180');
   const [minSpread, setMinSpread] = useState('0');
-  const [freshWindow, setFreshWindow] = useState('8');
+  const [freshWindow, setFreshWindow] = useState('2');
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -58,7 +58,7 @@ export function EngineScreen() {
           setMaxTrades(String(cfg.max_concurrent_trades ?? 3));
           setReentryCd(String(cfg.reentry_cooldown_sec ?? 180));
           setMinSpread(String(cfg.min_ema_spread ?? 0));
-          setFreshWindow(String(cfg.fresh_window ?? 8));
+          setFreshWindow(String(cfg.fresh_window ?? 2));
         } catch (e: any) {
           setErr(e?.message || 'Failed to load config');
         }
@@ -235,8 +235,8 @@ export function EngineScreen() {
       <Card style={{ marginTop: 14 }}>
         <SectionTitle>STRATEGY TUNING (EMA QUAD)</SectionTitle>
         <Field label="MIN EMA SPREAD % (0 = AUTO: 0.15 MAJORS / 0.20 MEMES)" value={minSpread} onChangeText={setMinSpread} keyboardType="numbers-and-punctuation" />
-        <Field label="FRESH CROSS WINDOW (CANDLES, 2–50)" value={freshWindow} onChangeText={setFreshWindow} keyboardType="numbers-and-punctuation"
-          hint="Signals are only traded when the EMA55 cross happened within this many candles." />
+        <Field label="FRESH CROSS WINDOW (CANDLES, 2–8)" value={freshWindow} onChangeText={setFreshWindow} keyboardType="numbers-and-punctuation"
+          hint="Signals are only traded when the EMA55 cross happened within this many candles (2–8, default 2)." />
       </Card>
 
       <GoldButton title="SAVE ALL SETTINGS" onPress={save} loading={busy} style={{ marginTop: 16 }} />

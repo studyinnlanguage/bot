@@ -145,3 +145,26 @@ class TestEngineApi:
         # with no positions the engine still responds cleanly (200) — no NameError 500
         assert code == 200, body
         assert body["success"] is True
+
+    def test_fresh_window_2_to_8_clamped_and_persisted(self, engine):
+        """Fresh Cross Window option in Manual Engine must accept 2..8 and clamp out-of-range values."""
+        base, hdr = engine
+
+        def _post_cfg(patch):
+            req = urllib.request.Request(
+                base + "/api/config", method="POST",
+                headers={**hdr, "Content-Type": "application/json"},
+                data=json.dumps(patch).encode(),
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return r.status, json.loads(r.read().decode())
+
+        code, body = _post_cfg({"fresh_window": 4, "min_ema_spread": 0.25})
+        assert code == 200 and body["config"]["fresh_window"] == 4
+        assert abs(body["config"]["min_ema_spread"] - 0.25) < 1e-9
+
+        code, body = _post_cfg({"fresh_window": 25})
+        assert code == 200 and body["config"]["fresh_window"] == 8
+
+        code, body = _post_cfg({"fresh_window": 1})
+        assert code == 200 and body["config"]["fresh_window"] == 2

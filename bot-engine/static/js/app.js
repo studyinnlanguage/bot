@@ -1771,7 +1771,7 @@ async function loadSettings() {
         updateSavedCredsUI(exchange, window._savedExchanges, cfg);
         // Advanced engine tuning fields
         if ($('minEmaSpread')) $('minEmaSpread').value = (cfg.min_ema_spread != null) ? cfg.min_ema_spread : 0;
-        if ($('freshWindow')) $('freshWindow').value = (cfg.fresh_window != null) ? cfg.fresh_window : 8;
+        if ($('freshWindow')) $('freshWindow').value = (cfg.fresh_window != null) ? Math.min(8, Math.max(2, parseInt(cfg.fresh_window) || 2)) : 2;
         if ($('autoStart')) $('autoStart').checked = !!cfg.auto_start;
         // Remember whether keys are REALLY saved server-side (inputs are
         // cleared after every save, so the badge must not trust them)
@@ -2045,9 +2045,9 @@ async function saveSettings() {
         reentry_cooldown_sec: parseInt($('reentryCooldownSec')?.value || 180),
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
-        // Advanced engine tuning
+        // Advanced engine tuning (live-synced to active workers)
         min_ema_spread: parseFloat($('minEmaSpread')?.value) || 0,
-        fresh_window: parseInt($('freshWindow')?.value) || 8,
+        fresh_window: Math.min(8, Math.max(2, parseInt($('freshWindow')?.value) || 2)),
         auto_start: $('autoStart')?.checked || false,
         // Notifications
         telegram_enabled: $('telegramEnabled')?.checked || false,

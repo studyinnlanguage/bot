@@ -1226,6 +1226,14 @@ def write_user_bot_config(user_id: str) -> str:
             bot_config["exchange"] = _db_exchange
         if "testnet" in config:
             bot_config["testnet"] = bool(config["testnet"])
+        if "fresh_window" in config and config["fresh_window"] is not None:
+            bot_config["fresh_window"] = max(2, min(8, int(config["fresh_window"]) or 2))
+        if "min_ema_spread" in config and config["min_ema_spread"] is not None:
+            bot_config["min_ema_spread"] = float(config["min_ema_spread"] or 0)
+        if "reentry_cooldown_sec" in config and config["reentry_cooldown_sec"] is not None:
+            bot_config["reentry_cooldown_sec"] = int(config["reentry_cooldown_sec"])
+        if "max_concurrent_trades" in config and config["max_concurrent_trades"] is not None:
+            bot_config["max_concurrent_trades"] = max(1, min(3, int(config["max_concurrent_trades"])))
         _db_symbols = [str(s).upper().strip() for s in (config.get("symbols_list") or []) if str(s).strip()]
         _exchange_changed = bool(_db_exchange and _file_exchange and _db_exchange != _file_exchange)
         if _db_symbols and (not bot_config.get("symbols_list") or _exchange_changed):
@@ -1347,6 +1355,9 @@ def write_user_bot_config(user_id: str) -> str:
             "tp_mode": config.get("tp_mode", "both"),
             "mode": config.get("mode", "both"),
             "max_concurrent_trades": config.get("max_concurrent_trades", 3),
+            "reentry_cooldown_sec": config.get("reentry_cooldown_sec", 180),
+            "min_ema_spread": config.get("min_ema_spread", 0),
+            "fresh_window": max(2, min(8, int(config.get("fresh_window", 2) or 2))),
             "auto_start": False,
             "telegram_enabled": config.get("telegram_enabled", False),
             "telegram_bot_token": decrypt(config.get("telegram_bot_token_enc", "")),
@@ -1561,9 +1572,28 @@ def _sync_engine_config_to_db(user: dict, data: dict):
         if "amount_pct" in data and data["amount_pct"] is not None:
             config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
         if "stop_loss_pct" in data and data["stop_loss_pct"] is not None:
-            sl = max(0.5, min(50, float(data["stop_loss_pct"]) or 2))
+            sl = max(0.05, min(50, float(data["stop_loss_pct"]) or 0.2))
             config["stop_loss_pct"] = sl
-            config["take_profit_pct"] = sl * 3
+    except (TypeError, ValueError):
+        pass
+    try:
+        if "max_concurrent_trades" in data and data["max_concurrent_trades"] is not None:
+            config["max_concurrent_trades"] = max(1, min(3, int(data["max_concurrent_trades"])))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if "reentry_cooldown_sec" in data and data["reentry_cooldown_sec"] is not None:
+            config["reentry_cooldown_sec"] = max(0, min(7200, int(float(data["reentry_cooldown_sec"]))))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if "min_ema_spread" in data and data["min_ema_spread"] is not None:
+            config["min_ema_spread"] = max(0.0, min(5.0, float(data["min_ema_spread"]) or 0.0))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if "fresh_window" in data and data["fresh_window"] is not None:
+            config["fresh_window"] = max(2, min(8, int(data["fresh_window"]) or 2))
     except (TypeError, ValueError):
         pass
     save_db(DB)
@@ -2594,6 +2624,21 @@ def api_bot_config():
             config["max_concurrent_trades"] = max(1, min(3, mct))
         except (ValueError, TypeError):
             config["max_concurrent_trades"] = 3
+    if "reentry_cooldown_sec" in data:
+        try:
+            config["reentry_cooldown_sec"] = max(0, min(7200, int(float(data["reentry_cooldown_sec"]))))
+        except (ValueError, TypeError):
+            config["reentry_cooldown_sec"] = 180
+    if "min_ema_spread" in data:
+        try:
+            config["min_ema_spread"] = max(0.0, min(5.0, float(data["min_ema_spread"]) or 0.0))
+        except (ValueError, TypeError):
+            config["min_ema_spread"] = 0.0
+    if "fresh_window" in data:
+        try:
+            config["fresh_window"] = max(2, min(8, int(data["fresh_window"]) or 2))
+        except (ValueError, TypeError):
+            config["fresh_window"] = 2
 
     save_db(DB)
     return jsonify({

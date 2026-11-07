@@ -252,6 +252,8 @@ def m_register():
             "take_profit_pct": 6, "tp_mode": "fixed", "mode": "both",
             "max_concurrent_trades": 3,
             "reentry_cooldown_sec": 180,
+            "min_ema_spread": 0,
+            "fresh_window": 2,
             "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
         },
     }
@@ -369,6 +371,8 @@ def m_google():
                 "take_profit_pct": 6, "tp_mode": "fixed", "mode": "both",
                 "max_concurrent_trades": 3,
                 "reentry_cooldown_sec": 180,
+                "min_ema_spread": 0,
+                "fresh_window": 2,
                 "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
             },
         }
@@ -666,9 +670,9 @@ def m_bot_config():
             config["min_ema_spread"] = 0
     if "fresh_window" in data:
         try:
-            config["fresh_window"] = max(2, min(50, int(data["fresh_window"]) or 8))
+            config["fresh_window"] = max(2, min(8, int(data["fresh_window"]) or 2))
         except (TypeError, ValueError):
-            config["fresh_window"] = 8
+            config["fresh_window"] = 2
     # Notifications (Radar tab)
     for key in ("telegram_enabled", "email_enabled", "whatsapp_enabled"):
         if key in data:
