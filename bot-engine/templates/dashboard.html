@@ -758,17 +758,17 @@
 
                         <!-- Automated Risk & Profit Settings (Custom SL % / Fixed TP 1.0%) -->
                         <div class="form-group">
-                            <label>Stop Loss % (Custom Adjustable) &amp; Fixed Take Profit (1.0%)</label>
+                            <label>Stop Loss % (Price Move) &amp; Fixed Take Profit (1.0% = +50% ROE @ 50x)</label>
                             <div style="display:flex; align-items:center; gap:10px;">
                                 <input type="number" id="stopLossPct" value="0.2" min="0.05" max="50" step="0.01" required style="flex:1;">
                                 <input type="hidden" id="takeProfitPct" value="1">
                                 <input type="hidden" id="tpMode" value="fixed">
                                 <span class="badge" style="background:rgba(46,207,138,0.15); color:var(--green); border:1px solid rgba(46,207,138,0.3); font-weight:700; padding:10px 14px; border-radius:8px; white-space:nowrap;">
-                                    ⚡ SL: <span id="badgeSlVal">0.2</span>% | TP: 1.0%
+                                    ⚡ <span id="badgeSlVal">SL: 0.2% (-10% ROE)</span> | TP: 1.0% (+50% ROE)
                                 </span>
                             </div>
                             <div class="hint" style="margin-top:6px;">
-                                🎯 <b>Automated Risk Management:</b> Take Profit (+<span id="autoTpDisplay">1.0</span>% Fixed) &amp; Stop Loss (-<span id="autoSlDisplay">0.20</span>% Adjustable). If trend flips opposite, bot cuts trade instantly and auto-reverses!
+                                🎯 <b>Automated Risk Management:</b> Take Profit (+<span id="autoTpDisplay">1.0</span>% Price = +50% ROE) &amp; Stop Loss (-<span id="autoSlDisplay">0.20%</span> Price). <i>Dhyan dein: 50x leverage pe 0.20% price move = 10% ROE loss. 2% likhne se -100% loss ho jayega!</i>
                             </div>
                         </div>
 
@@ -817,7 +817,7 @@
                             <div class="form-group">
                                 <label>Min EMA Spread % (0 = Fast Auto)</label>
                                 <input type="number" id="minEmaSpread" value="0" min="0" max="5" step="0.01">
-                                <div class="hint">0 = Fast Auto (0.03% majors, 0.05% memes — instant cross entry). High value (0.15%+) rakhne se entry late hoti hai!</div>
+                                <div class="hint">0 = Fast Auto (0.08% majors, 0.12% memes — chop protection). High value (0.25%+) rakhne se entry late hoti hai!</div>
                             </div>
                             <div class="form-group">
                                 <label>Fresh Cross Window (2–8 candles)</label>

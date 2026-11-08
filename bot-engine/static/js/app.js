@@ -2609,16 +2609,18 @@ function attachListeners() {
         const rawSl = parseFloat(slInput?.value);
         const sl = (!isNaN(rawSl) && rawSl >= 0.05) ? rawSl : 0.2;
         const slFmt = Number(sl.toFixed(2)).toString();
+        const lev = parseInt($('leverage')?.value) || 50;
+        const roeLoss = (sl * lev).toFixed(0);
         const tpInput = $('takeProfitPct');
         if (tpInput) {
             tpInput.value = '1';
         }
         if ($('autoTpDisplay')) $('autoTpDisplay').textContent = '1.0';
-        if ($('autoSlDisplay')) $('autoSlDisplay').textContent = sl.toFixed(2);
-        if ($('badgeSlVal')) $('badgeSlVal').textContent = slFmt;
-        if ($('cardSlDisplay')) $('cardSlDisplay').textContent = sl.toFixed(2);
-        if ($('posSlLabel')) $('posSlLabel').textContent = `Stop Loss (-${slFmt}% SL)`;
-        if ($('posFocusSlLabel')) $('posFocusSlLabel').textContent = `Stop Loss (-${slFmt}% SL)`;
+        if ($('autoSlDisplay')) $('autoSlDisplay').textContent = `${sl.toFixed(2)}% (-${roeLoss}% ROE @ ${lev}x)`;
+        if ($('badgeSlVal')) $('badgeSlVal').textContent = `SL: ${slFmt}% (-${roeLoss}% ROE)`;
+        if ($('cardSlDisplay')) $('cardSlDisplay').textContent = `${sl.toFixed(2)}% (-${roeLoss}% ROE)`;
+        if ($('posSlLabel')) $('posSlLabel').textContent = `Stop Loss (-${slFmt}% SL / -${roeLoss}% ROE)`;
+        if ($('posFocusSlLabel')) $('posFocusSlLabel').textContent = `Stop Loss (-${slFmt}% SL / -${roeLoss}% ROE)`;
         if ($('tableSlHeader')) $('tableSlHeader').textContent = `Stop Loss (-${slFmt}%)`;
         const tpModeInput = $('tpMode');
         if (tpModeInput) tpModeInput.value = 'fixed';
