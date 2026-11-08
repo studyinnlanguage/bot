@@ -317,9 +317,9 @@ class EMAQuadStrategy:
         logger.info("Strategy cross state reset - stale crosses consumed, waiting for a NEW cross")
 
     def reset_for_reversal(self):
-        """Reset for reversal exit (also consumes stale crosses)."""
+        """Reset for reversal exit (allow immediate opposite flip without blocking the new cross)."""
         self._prev_signal = Signal.HOLD
         self._last_trend_side = None
         self._trade_entered_for_signal = False
-        self._block_crosses_before = self._last_closed_candle_ts
-        logger.info("Strategy reset for REVERSAL exit - stale crosses consumed")
+        self._block_crosses_before = None
+        logger.info("Strategy reset for REVERSAL exit - ready for immediate opposite flip")

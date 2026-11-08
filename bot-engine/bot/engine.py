@@ -102,7 +102,7 @@ class SymbolWorker(threading.Thread):
         # top of pumps like $10.88 instead of $10.83) and caused 80%+ of crosses to expire
         # past fresh_window=2 before spread opened!
         # min_ema_spread <= 0 (or absent) = FAST AUTO per-symbol default below.
-        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
+        default_spread = 0.12 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.08
         try:
             cfg_spread = float(self.config.get("min_ema_spread", 0) or 0)
         except (TypeError, ValueError):
@@ -132,7 +132,7 @@ class SymbolWorker(threading.Thread):
     def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
         """Live-update fresh_window (2–8 candles), min_ema_spread, and stop_loss_pct on running worker."""
         self.config = cfg
-        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
+        default_spread = 0.12 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.08
         try:
             cfg_spread = float(cfg.get("min_ema_spread", 0) or 0)
         except (TypeError, ValueError):
@@ -864,9 +864,11 @@ class SymbolWorker(threading.Thread):
         if pos.side != "NONE" and pos.size != 0 and not pending_reversal:
             return
 
+        trade_signal = signal
         if pending_reversal:
             target_side = self.reversal_pending_side
             desired_sig = Signal.BUY if target_side == "LONG" else Signal.SELL
+            trade_signal = desired_sig
             # Expire stale pending reversal (> 60s old) so it can never fire late
             if time.time() - getattr(self, "_reversal_armed_ts", 0.0) > 60.0:
                 self.reversal_pending_side = None
@@ -877,36 +879,24 @@ class SymbolWorker(threading.Thread):
                     "msg": f"[{symbol}] ⏭️ Pending reversal expired (>60s) — consumed stale flip, waiting for a new cross."
                 })
                 return
-            if signal != desired_sig:
-                # Signal drifted (e.g. went to HOLD briefly) before re-entry.
-                # CRITICAL FIX: Clear reversal_pending_side so it doesn't get
-                # stuck forever.
-                self.engine._emit("log", {
-                    "level": "warn",
-                    "msg": (f"[{symbol}] ⚠️ Reversal signal drifted — "
-                            f"expected {desired_sig.value}, got {signal.value}. "
-                            f"Clearing reversal flag, waiting for fresh cross.")
-                })
-                self.reversal_pending_side = None
-                self.waiting_for_new_cross = True
-                self.strategy.reset_cross_state()
-                return
+            # If target position already open on exchange — just clear the pending flag.
             if pos.side != "NONE" and pos.size != 0 and pos.side == target_side:
-                # Target position already open — just clear the pending flag.
                 self.reversal_pending_side = None
                 return
-            # Close any lingering OLD (opposite) position, then enter.
+            # Close any lingering OLD (opposite) position before opening the new side.
             if pos.side != "NONE" and pos.size != 0 and pos.side != target_side:
                 try:
                     self.engine.trader.close_position(symbol)
                 except Exception as e:
                     logger.warning(f"[{symbol}] Reversal cleanup close failed: {e}")
-            # CONCURRENT TRADES + COOLDOWN: NEVER hold/queue a blocked reversal!
-            # If slots are full or cooldown is active, consume & clear immediately
-            # so freeing a slot later (SL/manual close) does NOT fire an old reversal.
+
+            # Reversal flip is a slot swap (replaces its own coin) - pass is_reversal=True so cooldown
+            # and active_positions self-blocking never cancel the intended flip!
             with self.engine._trade_entry_lock:
-                can_open, rv_reason = self.engine.can_open_new_trade(symbol)
+                can_open, rv_reason = self.engine.can_open_new_trade(symbol, is_reversal=True)
                 if not can_open:
+                    if time.time() - getattr(self, "_reversal_armed_ts", 0.0) < 30.0:
+                        return  # Wait for position cleanup to finish on next poll
                     self.reversal_pending_side = None
                     self.waiting_for_new_cross = True
                     self.strategy.consume_current_cross()
@@ -983,14 +973,14 @@ class SymbolWorker(threading.Thread):
                 self.strategy.mark_trade_entered()
 
         # Check mode allows this trade
-        if signal == Signal.BUY and mode not in ("long", "both"):
+        if trade_signal == Signal.BUY and mode not in ("long", "both"):
             self.engine.release_entry_intent(symbol)
             self.engine._emit("log", {
                 "level": "info",
                 "msg": f"[{symbol}] Fresh BUY cross but mode is '{mode}' - skipping LONG entry."
             })
             return
-        if signal == Signal.SELL and mode not in ("short", "both"):
+        if trade_signal == Signal.SELL and mode not in ("short", "both"):
             self.engine.release_entry_intent(symbol)
             self.engine._emit("log", {
                 "level": "info",
@@ -1083,7 +1073,7 @@ class SymbolWorker(threading.Thread):
 
         order_type_cfg = cfg.get("order_type", "market").lower()
 
-        if signal == Signal.BUY:
+        if trade_signal == Signal.BUY:
             # Open LONG
             # Calculate SL price (always sent to exchange — capital protection)
             sl_price_long = mark_price - sl_dist
@@ -1167,7 +1157,7 @@ class SymbolWorker(threading.Thread):
                 except Exception as e:
                     logger.error("Trade open notification failed: %s", e)
 
-        elif signal == Signal.SELL:
+        elif trade_signal == Signal.SELL:
             # Open SHORT
             # For SHORT: SL above entry, TP below entry
             sl_price_short = mark_price + sl_dist
@@ -1361,9 +1351,20 @@ class SymbolWorker(threading.Thread):
             price_pnl_pct = (self.entry_price - mark) / self.entry_price * 100 if self.entry_price > 0 else 0
         cur_roe = price_pnl_pct * lev
 
-        # ---------- 1) EMA-REVERSAL / FLIP CHECK (Always Active) ----------
+        # ---------- 1) STOP-LOSS CHECK (Capital Protection - ALWAYS FIRST) ----------
+        sl_hit = False
+        if side == "LONG" and mark <= self.sl_price:
+            sl_hit = True
+        elif side == "SHORT" and mark >= self.sl_price:
+            sl_hit = True
+
+        if sl_hit:
+            reason = f"⚡ STOP LOSS HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
+            return (True, False, reason)
+
+        # ---------- 2) EMA-REVERSAL / FLIP CHECK (Auto-Reversal Active) ----------
         # If position is open (e.g. LONG) and a confirmed OPPOSITE signal (SELL) occurs:
-        # Immediately exit trade and flip!
+        # Immediately exit trade and flip to the opposite side!
         if not self.ema_reversal_tp_fired and result is not None and self.entry_signal is not None:
             cur_sig = result.signal
             if side == "LONG" and self.entry_signal == Signal.BUY and cur_sig == Signal.SELL:
@@ -1376,17 +1377,6 @@ class SymbolWorker(threading.Thread):
                 self.ema_reversal_tp_fired = True  # one-shot
                 return (False, True,
                         f"⚡ EMA55-REVERSAL (SHORT->EMA55 now BOTTOM, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
-
-        # ---------- 2) STOP-LOSS CHECK ----------
-        sl_hit = False
-        if side == "LONG" and mark <= self.sl_price:
-            sl_hit = True
-        elif side == "SHORT" and mark >= self.sl_price:
-            sl_hit = True
-
-        if sl_hit:
-            reason = f"⚡ STOP LOSS HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
-            return (True, False, reason)
 
         # ---------- 3) TAKE-PROFIT CHECK (+1.0% Target) ----------
         if self.tp_price is not None:
@@ -1842,11 +1832,14 @@ class BotEngine:
         """Release the slot claim (order placed, failed, or skipped)."""
         self._entry_intents.pop(str(symbol).upper(), None)
 
-    def can_open_new_trade(self, symbol: str) -> tuple[bool, str]:
-        """Check if a new trade can be opened for symbol, respecting max_concurrent_trades (1, 2, or 3)."""
+    def can_open_new_trade(self, symbol: str, is_reversal: bool = False) -> tuple[bool, str]:
+        """Check if a new trade can be opened for symbol, respecting max_concurrent_trades (1, 2, or 3).
+        When `is_reversal` is True, this symbol is intentionally replacing its own slot, so it bypasses
+        cooldown and active_symbols self-blocking to guarantee the opposite flip executes.
+        """
         active_symbols = self.get_active_positions()
-        # If this symbol itself already has a position open, do not re-enter
-        if symbol in active_symbols:
+        # If this symbol itself already has a position open, do not re-enter (unless it's a reversal replacing it)
+        if not is_reversal and symbol in active_symbols:
             return False, f"[{symbol}] already has an active position"
 
         now = time.time()
@@ -1854,9 +1847,11 @@ class BotEngine:
         # ===== SAME-COIN RE-ENTRY COOLDOWN =====
         # Every exit (SL/TP/manual/external close) starts a cooldown; no new
         # trade on the same coin until it expires.
-        cd_left = self.reentry_blocked_remaining(symbol)
-        if cd_left > 0:
-            return False, f"[{symbol}] re-entry cooldown active ({int(cd_left)}s left) — no instant re-entry after close"
+        # Reversals intentionally bypass cooldown to execute the opposite trend flip immediately.
+        if not is_reversal:
+            cd_left = self.reentry_blocked_remaining(symbol)
+            if cd_left > 0:
+                return False, f"[{symbol}] re-entry cooldown active ({int(cd_left)}s left) — no instant re-entry after close"
 
         # User configurable max concurrent trades: 1, 2, or 3 (default: 3)
         try:
@@ -1872,9 +1867,11 @@ class BotEngine:
             if now - float(v.get("ts", 0.0)) < 60.0 and s not in active_symbols
         }
 
-        if len(active_symbols) + len(intent_syms) >= max_trades:
+        # For a reversal, this symbol is swapping its own slot, not adding an extra coin
+        effective_active = [s for s in active_symbols if s != symbol] if is_reversal else active_symbols
+        if len(effective_active) + len(intent_syms) >= max_trades:
             return False, (f"limit of {max_trades} simultaneous coin trades reached "
-                           f"({', '.join(sorted(set(active_symbols) | intent_syms))})")
+                           f"({', '.join(sorted(set(effective_active) | intent_syms))})")
         return True, ""
 
     # ---------- Lifecycle ----------
