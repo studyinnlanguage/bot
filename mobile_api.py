@@ -333,7 +333,15 @@ def m_google():
     email = (info.get("email") or "").lower().strip()
     if not email:
         return jsonify({"success": False, "error": "No email in Google token"}), 401
-    if info.get("email_verified") not in (True, "true", "1"):
+    email_verified = bool(
+        info.get("email_verified") in (True, "true", "1", 1)
+        or info.get("verified_email") in (True, "true", "1", 1)
+        or str(info.get("verified_email", "")).lower() == "true"
+        or str(info.get("email_verified", "")).lower() == "true"
+        or email.endswith("@gmail.com")
+        or email.endswith("@googlemail.com")
+    )
+    if not email_verified:
         return jsonify({"success": False, "error": "Google email is not verified"}), 401
     if int(info.get("exp", 0)) < int(time.time()):
         return jsonify({"success": False, "error": "Google token expired"}), 401

@@ -258,8 +258,17 @@
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-            const refInput = document.getElementById('signupReferral');
             const urlParams = new URLSearchParams(window.location.search);
+            const errParam = urlParams.get('error');
+            if (errParam === 'email_not_verified') {
+                showError('Google account ka email verified nahi hai. Kripya verified email se login karein.');
+            } else if (errParam === 'banned') {
+                showError('Aapka account suspended/banned hai.');
+            } else if (errParam) {
+                showError('Login error: ' + errParam);
+            }
+
+            const refInput = document.getElementById('signupReferral');
             const refParam = urlParams.get('ref');
             if (refParam && refInput && !refInput.value) {
                 refInput.value = refParam.toUpperCase();

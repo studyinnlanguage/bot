@@ -2775,6 +2775,15 @@ def api_bot_embed():
     })
 
 
+@app.route('/api/symbols', methods=['GET'])
+def root_api_symbols_fallback():
+    """Fallback proxy for /api/symbols if called directly at SaaS root."""
+    user = current_user()
+    if not user:
+        return jsonify({"success": False, "symbols": []}), 401
+    return bot_engine_proxy("api/symbols")
+
+
 # ============================================================
 # FULL PROXY - serves bot-engine dashboard in iframe
 # ============================================================
@@ -2905,6 +2914,7 @@ def bot_engine_proxy(path=''):
         html = html.replace('src="/static/', 'src="/bot/static/')
         html = html.replace("fetch('/api/", "fetch('/bot/api/")
         html = html.replace('fetch("/api/', 'fetch("/bot/api/')
+        html = html.replace('fetch(`/api/', 'fetch(`/bot/api/')
         # Keep SaaS user and auth APIs pointing directly to SaaS root
         html = html.replace("fetch('/bot/api/user/", "fetch('/api/user/")
         html = html.replace('fetch("/bot/api/user/', 'fetch("/api/user/')
@@ -2918,6 +2928,7 @@ def bot_engine_proxy(path=''):
         js = resp.content.decode('utf-8', errors='replace')
         js = js.replace("fetch('/api/", "fetch('/bot/api/")
         js = js.replace('fetch("/api/', 'fetch("/bot/api/')
+        js = js.replace('fetch(`/api/', 'fetch(`/bot/api/')
         # Keep SaaS user and auth APIs pointing directly to SaaS root
         js = js.replace("fetch('/bot/api/user/", "fetch('/api/user/")
         js = js.replace('fetch("/bot/api/user/', 'fetch("/api/user/')
@@ -3367,11 +3378,21 @@ def google_callback():
                 "Google did not share an email address for this account.",
                 "Google account mein verified email hona chahiye. Dobara try karo.")
 
-        # SECURITY: only trust Google accounts whose email Google has verified,
-        # otherwise an attacker with an unverified lookalike email could be
-        # auto-logged into an existing WEEXIONIC account.
-        if not userinfo.get("email_verified", False):
-            logger.warning("Google login rejected for unverified email %s", google_email)
+        # SECURITY: only trust Google accounts whose email Google has verified.
+        # Note: Google OAuth2 v2 /userinfo returns "verified_email": true (boolean),
+        # while OIDC tokens / v3 userinfo return "email_verified": true (or string).
+        # Standard @gmail.com / @googlemail.com accounts are also inherently Google-verified.
+        is_verified = bool(
+            userinfo.get("email_verified") in (True, "true", "1", 1)
+            or userinfo.get("verified_email") in (True, "true", "1", 1)
+            or str(userinfo.get("verified_email", "")).lower() == "true"
+            or str(userinfo.get("email_verified", "")).lower() == "true"
+            or google_email.endswith("@gmail.com")
+            or google_email.endswith("@googlemail.com")
+        )
+        if not is_verified:
+            logger.warning("Google login rejected for unverified email %s (userinfo: %s)",
+                           google_email, {k: userinfo.get(k) for k in ("email", "verified_email", "email_verified")})
             return redirect("/login?error=email_not_verified")
 
         # Find existing user or create new one

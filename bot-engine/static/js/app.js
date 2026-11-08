@@ -1999,9 +1999,16 @@ function setExchange(exchange) {
 // Fetch fresh coin list from /api/symbols and populate the dropdown (datalist)
 async function refreshCoinDropdown(exchange) {
     try {
-        const r = await fetch('/api/symbols');
+        const basePath = (window.location.pathname && window.location.pathname.startsWith('/bot')) ? '/bot/api/symbols' : '/api/symbols';
+        let r;
+        try {
+            r = await fetch(basePath);
+        } catch (_) {
+            r = await fetch('/api/symbols');
+        }
+        if (!r || !r.ok) return;
         const data = await r.json();
-        if (data.success && data.symbols && data.symbols.length > 0) {
+        if (data && data.success && data.symbols && data.symbols.length > 0) {
             const datalist = $('coinSuggestions');
             if (datalist) {
                 datalist.innerHTML = '';
@@ -2014,7 +2021,7 @@ async function refreshCoinDropdown(exchange) {
             log('success', `Loaded ${data.symbols.length} ${exchange.toUpperCase()} coins into dropdown.`);
         }
     } catch (e) {
-        log('error', `Failed to refresh coin dropdown: ${e}`);
+        console.warn('Failed to refresh coin dropdown:', e);
     }
 }
 

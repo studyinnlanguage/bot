@@ -197,4 +197,65 @@ class TestOAuthAndWalletEnhancements:
         assert loc.startswith("intent://oauth?code=wx_")
         assert "package=com.weexionic.app" in loc
 
+    def test_google_oauth_accepts_verified_email_from_oauth2_v2(self, app_client, monkeypatch):
+        """Web Google OAuth callback must accept Google OAuth2 v2 verified_email key."""
+        client, saas_app = app_client
+        saas_app.GOOGLE_CLIENT_ID = "dummy_cid"
+        saas_app.GOOGLE_CLIENT_SECRET = "dummy_csec"
+
+        class _FakeResp:
+            def __init__(self, payload):
+                self._p = payload
+            def json(self):
+                return self._p
+
+        monkeypatch.setattr(saas_app, "save_db", lambda *a, **k: None)
+        monkeypatch.setattr(saas_app.req_lib, "post", lambda *a, **k: _FakeResp({"access_token": "tok_v2_123"}))
+        # Google OAuth2 v2 /userinfo returns "verified_email": True (not "email_verified")
+        monkeypatch.setattr(saas_app.req_lib, "get", lambda *a, **k: _FakeResp({
+            "email": "trader@gmail.com",
+            "verified_email": True,
+            "name": "Trader Test",
+            "id": "gid_v2_999",
+        }))
+
+        with client.session_transaction() as sess:
+            sess["oauth_state"] = "valid_state_123456"
+
+        res = client.get("/auth/google/callback?code=goog_code_v2&state=valid_state_123456", follow_redirects=False)
+        assert res.status_code == 302
+        assert res.headers.get("Location") in ("/", "http://localhost/")
+        with client.session_transaction() as sess:
+            assert sess.get("user_id") is not None
+
+    def test_google_oauth_rejects_unverified_custom_domain(self, app_client, monkeypatch):
+        """Web Google OAuth callback must reject unverified non-gmail emails."""
+        client, saas_app = app_client
+        saas_app.GOOGLE_CLIENT_ID = "dummy_cid"
+        saas_app.GOOGLE_CLIENT_SECRET = "dummy_csec"
+
+        class _FakeResp:
+            def __init__(self, payload):
+                self._p = payload
+            def json(self):
+                return self._p
+
+        monkeypatch.setattr(saas_app, "save_db", lambda *a, **k: None)
+        monkeypatch.setattr(saas_app.req_lib, "post", lambda *a, **k: _FakeResp({"access_token": "tok_v2_unver"}))
+        monkeypatch.setattr(saas_app.req_lib, "get", lambda *a, **k: _FakeResp({
+            "email": "hacker@evilcorp.com",
+            "verified_email": False,
+            "email_verified": False,
+            "name": "Hacker",
+            "id": "gid_fake",
+        }))
+
+        with client.session_transaction() as sess:
+            sess["oauth_state"] = "valid_state_fake"
+
+        res = client.get("/auth/google/callback?code=goog_code_fake&state=valid_state_fake", follow_redirects=False)
+        assert res.status_code == 302
+        assert res.headers.get("Location") == "/login?error=email_not_verified"
+
+
 
