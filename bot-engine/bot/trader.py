@@ -767,8 +767,18 @@ class BinanceFuturesTrader:
         except Exception as e:
             logger.warning("[%s] cancel_open_orders before close notice: %s", symbol, e)
 
-        close_side = "SELL" if pos.side == "LONG" else "BUY"
-        qty = abs(pos.size) if quantity is None else min(abs(float(quantity)), abs(pos.size))
+        # Brief pause to allow exchange matching engine to free reserved orderbook quantity
+        import time
+        time.sleep(0.1)
+
+        # Re-check position: if an exchange SL/TP filled right before cancel, position is already flat
+        latest_pos = self.get_position(symbol)
+        if latest_pos.side == "NONE" or abs(latest_pos.size) <= 0:
+            logger.info("[%s] Position already flat on exchange", symbol)
+            return {"success": True, "message": "Position is closed"}
+
+        close_side = "SELL" if latest_pos.side == "LONG" else "BUY"
+        qty = abs(latest_pos.size) if quantity is None else min(abs(float(quantity)), abs(latest_pos.size))
 
         # Check if account is in Hedge Mode (Dual-Side Position)
         is_hedge = False
@@ -790,21 +800,22 @@ class BinanceFuturesTrader:
             side=close_side,
             quantity=qty,
             reduce_only=(not is_hedge),
-            position_side=(pos.side if is_hedge else None),
+            position_side=(latest_pos.side if is_hedge else None),
         )
 
         if res.get("success"):
             return res
 
         err_msg = str(res.get("error", ""))
-        logger.warning("[%s] Initial close order failed (%s). Executing aggressive close fallback...", symbol, err_msg)
+        logger.warning("[%s] Initial close order notice (%s). Executing aggressive close fallback...", symbol, err_msg)
 
         # 3. Aggressive Fallback:
-        # If -2022 or reduceOnly error occurred, cancel open orders again
+        # If -2022 or reduceOnly error occurred, cancel open orders again and pause
         try:
             self.cancel_open_orders(symbol)
         except Exception:
             pass
+        time.sleep(0.15)
 
         # Check if position was already closed by an exchange order that filled
         latest_pos = self.get_position(symbol)
@@ -827,7 +838,12 @@ class BinanceFuturesTrader:
             logger.info("[%s] Aggressive fallback close succeeded!", symbol)
             return res_fallback
 
-        return res
+        time.sleep(0.1)
+        final_check = self.get_position(symbol)
+        if final_check.side == "NONE" or abs(final_check.size) <= 0:
+            return {"success": True, "message": "Position verified closed on exchange"}
+
+        return res_fallback if res_fallback.get("error") else res
 
     def open_long(self, symbol: str, quantity: float,
                   sl_price: float = None, tp_price: float = None,

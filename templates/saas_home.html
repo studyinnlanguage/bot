@@ -376,6 +376,54 @@
             margin-bottom: 36px;
         }
 
+        .store-badge-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: #000000;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-radius: 10px;
+            padding: 8px 16px;
+            text-decoration: none !important;
+            transition: all 0.22s ease;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+            min-height: 48px;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+        .store-badge-btn:hover {
+            border-color: #f0b90b;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(240, 185, 11, 0.25);
+            color: #ffffff !important;
+        }
+        .store-badge-icon {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .store-badge-content {
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+            line-height: 1.15;
+        }
+        .store-badge-sub {
+            font-size: 9.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #a0aec0;
+            font-weight: 600;
+        }
+        .store-badge-main {
+            font-size: 15px;
+            font-weight: 800;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
         .hero-trust-row {
             display: flex;
             align-items: center;
@@ -2012,8 +2060,30 @@
                         <a href="#pricing" class="btn-neon">
                             <span>🚀 Choose Your License &amp; Buy Bot</span>
                         </a>
-                        <a href="/download/apk" target="_blank" class="btn-neon" style="background:linear-gradient(135deg, #f0b90b 0%, #d89e00 100%); color:#0b0e11; border:1px solid #f0b90b; box-shadow:0 6px 20px rgba(240,185,11,0.35);">
-                            <span>📱 Download Android APK</span>
+                        <a href="/download/apk" target="_blank" class="store-badge-btn" aria-label="Get it on Google Play">
+                            <span class="store-badge-icon">
+                                <svg width="22" height="22" viewBox="0 0 512 512">
+                                    <path fill="#4285F4" d="M38.8 11.2C28.4 22.3 22 38.6 22 58.7v394.6c0 20.1 6.4 36.4 16.8 47.5l2.6 2.5L263 281.7v-51.4L41.4 8.7l-2.6 2.5z"/>
+                                    <path fill="#34A853" d="M343.3 362l-80.3-80.3v-51.4l80.3-80.3 1.8 1 95.1 54c27.1 15.4 27.1 40.6 0 56l-95.1 54-1.8 1z"/>
+                                    <path fill="#FBBC04" d="M345.1 361l-82.1-82.1-221.6 223.8c8.9 9.5 23.6 10.6 40.1 1.3l263.6-143z"/>
+                                    <path fill="#EA4335" d="M345.1 151L81.5 8.1C65-1.2 50.3-.1 41.4 9.4L263 233.2l82.1-82.2z"/>
+                                </svg>
+                            </span>
+                            <div class="store-badge-content">
+                                <span class="store-badge-sub">GET IT ON</span>
+                                <span class="store-badge-main">Google Play</span>
+                            </div>
+                        </a>
+                        <a href="javascript:void(0)" onclick="openIosInstallModal()" class="store-badge-btn" aria-label="Download on the App Store">
+                            <span class="store-badge-icon">
+                                <svg width="22" height="22" viewBox="0 0 170 170" fill="#ffffff">
+                                    <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.69-7.85-12.01-14.42-6.53-9.89-11.64-21.43-15.34-34.62-3.7-13.19-5.55-25.75-5.55-37.69 0-14.57 3.59-26.65 10.77-36.23 7.18-9.58 16.32-14.43 27.42-14.55 5.76 0 12.06 1.48 18.9 4.45 6.84 2.97 10.87 4.51 12.08 4.62 1.96-.22 6.42-1.96 13.38-5.22 6.96-3.26 13.37-4.67 19.23-4.24 14.57 1.09 26.22 6.42 34.97 16-12.83 7.83-19.13 18.7-18.91 32.61.22 10.87 4.24 20.11 12.07 27.72 7.83 7.61 17.5 11.96 29.02 13.04-2.39 7.17-5.43 14.57-9.13 22.18zM119.22 31.09c0-7.72 2.72-14.89 8.15-21.52 5.43-6.63 12.17-10.87 20.22-12.72.22 1.3.33 2.61.33 3.91 0 7.61-2.93 14.89-8.8 21.85-5.87 6.96-12.72 11.09-20.54 12.39-.43-1.3-.67-2.6-.67-3.91z"/>
+                                </svg>
+                            </span>
+                            <div class="store-badge-content">
+                                <span class="store-badge-sub">Download on the</span>
+                                <span class="store-badge-main">App Store</span>
+                            </div>
                         </a>
                         {% if not user %}
                             <a href="/login" class="btn-ghost">
@@ -2409,24 +2479,46 @@
             <div style="background:linear-gradient(135deg, #12161f 0%, #1a1e29 100%); border:1px solid rgba(240,185,11,0.35); border-radius:var(--radius-lg); padding:38px 32px; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; box-shadow:0 14px 36px rgba(0,0,0,0.45); max-width:1040px; margin:0 auto;">
                 <div style="flex:1 1 360px;">
                     <div style="display:inline-flex; align-items:center; gap:6px; background:rgba(240,185,11,0.12); color:var(--gold); border:1px solid rgba(240,185,11,0.3); font-size:11px; font-weight:800; padding:4px 10px; border-radius:999px; letter-spacing:0.8px; margin-bottom:12px;">
-                        <span>📱 NATIVE ANDROID APP</span>
+                        <span>📱 ANDROID &amp; iOS SUPPORTED</span>
                     </div>
                     <h3 style="font-size:24px; font-weight:800; margin-bottom:8px; color:var(--text-primary);">Trade On The Go With WEEXIONIC Mobile</h3>
                     <p style="font-size:14px; color:var(--text-secondary); line-height:1.6; max-width:540px; margin-bottom:16px;">
-                        Control your bot from your smartphone with native Android execution, live real-time charts, 1-tap Google login, and instant execution notifications.
+                        Control your bot from your smartphone with native Android execution, live real-time charts, 1-tap Google login, and instant execution notifications. Direct APK download for Android, seamless web app for iPhone &amp; iPad.
                     </p>
                     <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:12.5px; color:#cfe3ff;">
                         <span>✓ Instant Google Sign-In</span>
                         <span>✓ Real-Time Candlestick Charts</span>
                         <span>✓ 100% Non-Custodial</span>
+                        <span>✓ 24/7 Background Push Sync</span>
                     </div>
                 </div>
-                <div style="display:flex; flex-direction:column; gap:10px; align-items:stretch;">
-                    <a href="/download/apk" target="_blank" style="display:inline-flex; align-items:center; justify-content:center; gap:10px; background:linear-gradient(135deg, #f0b90b 0%, #d89e00 100%); color:#0b0e11; font-weight:900; font-size:14.5px; padding:15px 26px; border-radius:12px; text-decoration:none; box-shadow:0 8px 24px rgba(240,185,11,0.35); text-align:center;">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-1.0003 0-.5512.4482-.9994.9993-.9994.5516 0 .9997.4482.9997.9994 0 .5517-.4481 1.0003-.9997 1.0003m-11.046 0c-.5511 0-.9993-.4486-.9993-1.0003 0-.5512.4482-.9994.9993-.9994.5516 0 .9997.4482.9997.9994 0 .5517-.4481 1.0003-.9997 1.0003m11.4045-6.02l1.9973-3.4592a.416.416 0 0 0-.1521-.5676.416.416 0 0 0-.5676.1521l-2.0223 3.503C15.5902 8.4116 13.8533 8.125 12 8.125c-1.8533 0-3.5902.2866-5.1368.8247L4.8409 5.4467a.4161.4161 0 0 0-.5677-.1521.4157.4157 0 0 0-.152.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.784h24c-.3432-4.1251-2.6889-7.5973-6.1185-9.4626"/></svg>
-                        <span>Download Android APK</span>
+                <div style="display:flex; flex-direction:column; gap:12px; align-items:stretch; min-width:210px;">
+                    <a href="/download/apk" target="_blank" class="store-badge-btn" aria-label="Get it on Google Play">
+                        <span class="store-badge-icon">
+                            <svg width="24" height="24" viewBox="0 0 512 512">
+                                <path fill="#4285F4" d="M38.8 11.2C28.4 22.3 22 38.6 22 58.7v394.6c0 20.1 6.4 36.4 16.8 47.5l2.6 2.5L263 281.7v-51.4L41.4 8.7l-2.6 2.5z"/>
+                                <path fill="#34A853" d="M343.3 362l-80.3-80.3v-51.4l80.3-80.3 1.8 1 95.1 54c27.1 15.4 27.1 40.6 0 56l-95.1 54-1.8 1z"/>
+                                <path fill="#FBBC04" d="M345.1 361l-82.1-82.1-221.6 223.8c8.9 9.5 23.6 10.6 40.1 1.3l263.6-143z"/>
+                                <path fill="#EA4335" d="M345.1 151L81.5 8.1C65-1.2 50.3-.1 41.4 9.4L263 233.2l82.1-82.2z"/>
+                            </svg>
+                        </span>
+                        <div class="store-badge-content">
+                            <span class="store-badge-sub">GET IT ON</span>
+                            <span class="store-badge-main">Google Play</span>
+                        </div>
                     </a>
-                    <span style="font-size:11.5px; color:var(--text-muted); text-align:center;">Version 2.1.3 • Compatible with Android 8.0+</span>
+                    <a href="javascript:void(0)" onclick="openIosInstallModal()" class="store-badge-btn" aria-label="Download on the App Store">
+                        <span class="store-badge-icon">
+                            <svg width="24" height="24" viewBox="0 0 170 170" fill="#ffffff">
+                                <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.69-7.85-12.01-14.42-6.53-9.89-11.64-21.43-15.34-34.62-3.7-13.19-5.55-25.75-5.55-37.69 0-14.57 3.59-26.65 10.77-36.23 7.18-9.58 16.32-14.43 27.42-14.55 5.76 0 12.06 1.48 18.9 4.45 6.84 2.97 10.87 4.51 12.08 4.62 1.96-.22 6.42-1.96 13.38-5.22 6.96-3.26 13.37-4.67 19.23-4.24 14.57 1.09 26.22 6.42 34.97 16-12.83 7.83-19.13 18.7-18.91 32.61.22 10.87 4.24 20.11 12.07 27.72 7.83 7.61 17.5 11.96 29.02 13.04-2.39 7.17-5.43 14.57-9.13 22.18zM119.22 31.09c0-7.72 2.72-14.89 8.15-21.52 5.43-6.63 12.17-10.87 20.22-12.72.22 1.3.33 2.61.33 3.91 0 7.61-2.93 14.89-8.8 21.85-5.87 6.96-12.72 11.09-20.54 12.39-.43-1.3-.67-2.6-.67-3.91z"/>
+                            </svg>
+                        </span>
+                        <div class="store-badge-content">
+                            <span class="store-badge-sub">Download on the</span>
+                            <span class="store-badge-main">App Store</span>
+                        </div>
+                    </a>
+                    <span style="font-size:11.5px; color:var(--text-muted); text-align:center;">Version 2.1.3 • Android &amp; iOS PWA</span>
                 </div>
             </div>
         </div>
@@ -2689,6 +2781,53 @@
                 btnText.textContent = originalText;
             }
         }
+
+        function openIosInstallModal() {
+            const modal = document.getElementById('iosInstallModal');
+            if (modal) modal.style.display = 'flex';
+        }
+        function closeIosInstallModal() {
+            const modal = document.getElementById('iosInstallModal');
+            if (modal) modal.style.display = 'none';
+        }
     </script>
+
+    <!-- iOS Installation Guide Modal -->
+    <div id="iosInstallModal" class="modal-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:99999; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;" onclick="if(event.target===this) closeIosInstallModal()">
+        <div class="modal-card" style="background:#12161f; border:1px solid rgba(240,185,11,0.35); border-radius:18px; padding:28px; max-width:480px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.7); text-align:left;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <svg width="26" height="26" viewBox="0 0 170 170" fill="#f0b90b">
+                        <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.69-7.85-12.01-14.42-6.53-9.89-11.64-21.43-15.34-34.62-3.7-13.19-5.55-25.75-5.55-37.69 0-14.57 3.59-26.65 10.77-36.23 7.18-9.58 16.32-14.43 27.42-14.55 5.76 0 12.06 1.48 18.9 4.45 6.84 2.97 10.87 4.51 12.08 4.62 1.96-.22 6.42-1.96 13.38-5.22 6.96-3.26 13.37-4.67 19.23-4.24 14.57 1.09 26.22 6.42 34.97 16-12.83 7.83-19.13 18.7-18.91 32.61.22 10.87 4.24 20.11 12.07 27.72 7.83 7.61 17.5 11.96 29.02 13.04-2.39 7.17-5.43 14.57-9.13 22.18zM119.22 31.09c0-7.72 2.72-14.89 8.15-21.52 5.43-6.63 12.17-10.87 20.22-12.72.22 1.3.33 2.61.33 3.91 0 7.61-2.93 14.89-8.8 21.85-5.87 6.96-12.72 11.09-20.54 12.39-.43-1.3-.67-2.6-.67-3.91z"/>
+                    </svg>
+                    <h3 style="margin:0; font-size:18px; font-weight:800; color:#fff;">Install On iOS (iPhone / iPad)</h3>
+                </div>
+                <button type="button" onclick="closeIosInstallModal()" style="background:none; border:none; color:#a0aec0; font-size:22px; cursor:pointer; padding:4px;">✕</button>
+            </div>
+            <p style="font-size:13.5px; color:#a0aec0; line-height:1.55; margin-bottom:18px;">
+                Apple does not permit sideloaded APK installations. You can add <strong>WEEXIONIC</strong> to your iOS Home Screen as a native full-screen app in 3 quick steps:
+            </p>
+            <div style="background:#0b0e11; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:16px; margin-bottom:20px; font-size:13px; line-height:1.6; color:#e2e8f0;">
+                <div style="margin-bottom:12px; display:flex; gap:10px;">
+                    <span style="background:rgba(240,185,11,0.2); color:#f0b90b; font-weight:800; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:11px;">1</span>
+                    <span>Open <strong>Safari</strong> on your iPhone and visit <strong>weexionic.duckdns.org</strong></span>
+                </div>
+                <div style="margin-bottom:12px; display:flex; gap:10px;">
+                    <span style="background:rgba(240,185,11,0.2); color:#f0b90b; font-weight:800; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:11px;">2</span>
+                    <span>Tap the <strong>Share</strong> icon (box with upward arrow) at the bottom toolbar.</span>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <span style="background:rgba(240,185,11,0.2); color:#f0b90b; font-weight:800; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:11px;">3</span>
+                    <span>Select <strong>"Add to Home Screen"</strong>, then tap <strong>"Add"</strong>.</span>
+                </div>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <a href="/login" class="btn-neon" style="flex:1; text-align:center; padding:12px; font-size:13.5px;">
+                    <span>🚀 Launch Web App Now</span>
+                </a>
+                <button type="button" onclick="closeIosInstallModal()" class="btn-ghost" style="padding:12px 18px; font-size:13.5px; cursor:pointer;">Close</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

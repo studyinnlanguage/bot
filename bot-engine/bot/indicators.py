@@ -18,9 +18,10 @@ def calculate_ema(series: pd.Series, period: int) -> pd.Series:
     Returns:
         Pandas Series containing EMA values.
     """
-    if len(series) < period:
-        return pd.Series([np.nan] * len(series), index=series.index)
-    return series.ewm(span=period, adjust=False, min_periods=period).mean()
+    if len(series) == 0:
+        return series
+    # Using min_periods=1 so EMA lines span across all candles on the chart without NaN gaps
+    return series.ewm(span=period, adjust=False, min_periods=1).mean()
 
 
 class IndicatorSet:

@@ -1047,14 +1047,31 @@ def test_chart():
         except Exception as e:
             return jsonify({"success": False, "error": f"Trader unavailable: {e}"})
     try:
-        df = trader.get_klines(symbol, interval=CONFIG.get("timeframe", "5m"), limit=30)
+        df = trader.get_klines(symbol, interval=CONFIG.get("timeframe", "5m"), limit=200)
         if df is None or len(df) == 0:
             return jsonify({"success": False, "error": "No klines data", "rows": 0})
         candles = []
         for ts, row in df.iterrows():
             candles.append({"time": int(ts.timestamp()), "open": float(row["open"]),
                 "high": float(row["high"]), "low": float(row["low"]), "close": float(row["close"])})
-        return jsonify({"success": True, "symbol": symbol, "rows": len(df), "candles": candles})
+
+        emas = {}
+        try:
+            from bot.strategy import EMACrossoverStrategy
+            strat = EMACrossoverStrategy(ema_fast=8, ema_mid1=13, ema_mid2=21, ema_long=55)
+            enriched = strat.indicators.compute(df)
+            tail = enriched.tail(200)
+            for col, key in [("ema_8", "ema8"), ("ema_13", "ema13"),
+                             ("ema_21", "ema21"), ("ema_55", "ema55")]:
+                emas[key] = [
+                    {"time": int(ts.timestamp()), "value": float(v)}
+                    for ts, v in zip(tail.index, tail[col])
+                    if not (v != v)
+                ]
+        except Exception as ema_err:
+            logger.warning(f"Failed to compute EMAs for test_chart: {ema_err}")
+
+        return jsonify({"success": True, "symbol": symbol, "rows": len(df), "candles": candles, "emas": emas})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 

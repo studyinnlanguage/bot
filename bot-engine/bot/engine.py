@@ -482,8 +482,7 @@ class SymbolWorker(threading.Thread):
                 close_side_label = pos.side
                 # Close position
                 close = self.engine.trader.close_position(symbol)
-                self._log_order(close, f"[{symbol}] {reason}")
-                # Verify if position is already flat on exchange if initial close response was unsuccessful
+                # Verify if position is already flat on exchange before emitting log
                 if not close.get("success"):
                     try:
                         latest_p = self.engine.trader.get_position(symbol)
@@ -491,6 +490,7 @@ class SymbolWorker(threading.Thread):
                             close = {"success": True, "message": "Position verified closed on exchange"}
                     except Exception:
                         pass
+                self._log_order(close, f"[{symbol}] {reason}")
 
                 if close.get("success"):
                     self._last_close_timestamp = time.time()
@@ -1475,6 +1475,19 @@ class SymbolWorker(threading.Thread):
             ]
         return out
 
+    @staticmethod
+    def _clean_err_msg(err):
+        if not err:
+            return "Unknown error"
+        err_str = str(err)
+        import re
+        m = re.search(r"(-?\d+),\s*['\"]([^'\"]+)['\"]", err_str)
+        if m:
+            return f"Binance {m.group(1)}: {m.group(2)}"
+        if "CloudFront" in err_str or "x-mbx-" in err_str or "{'Content-Type'" in err_str:
+            err_str = err_str.split("{'Content-Type'")[0].strip().rstrip(",").strip("()")
+        return err_str[:120]
+
     def _log_order(self, result, label):
         if result.get("success"):
             order = result.get("order", {})
@@ -1484,9 +1497,10 @@ class SymbolWorker(threading.Thread):
                 "msg": f"{label} OK | orderId={oid}"
             })
         else:
+            clean_err = self._clean_err_msg(result.get("error"))
             self.engine._emit("log", {
                 "level": "error",
-                "msg": f"{label} FAILED | {result.get('error')}"
+                "msg": f"{label} FAILED | {clean_err}"
             })
 
 

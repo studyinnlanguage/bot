@@ -191,7 +191,7 @@ async function fetchChartData(symbol) {
         const r = await fetch(`/api/test_chart?symbol=${symbol}`);
         const data = await r.json();
         if (data.success && data.candles && data.candles.length > 0) {
-            chartDataBySymbol[symbol] = { symbol, candles: data.candles, emas: {} };
+            chartDataBySymbol[symbol] = { symbol, candles: data.candles, emas: data.emas || {} };
             if (symbol === activeSymbol) {
                 renderChartForSymbol(symbol);
             }
@@ -818,11 +818,15 @@ function renderChartForSymbol(symbol) {
         if (candles.length > 0) {
             // Full re-render on symbol switch or data reset (e.g. timeframe change).
             // Live same-symbol ticks use update() so user pan/zoom isn't reset.
-            if (needsFullReload) {
+            if (isSwitch || needsFullReload) {
                 candleSeries.setData(candles);
-                chart.timeScale().fitContent();
+                if (isSwitch) chart.timeScale().fitContent();
             } else {
-                candleSeries.update(candles[candles.length - 1]);
+                try {
+                    candleSeries.update(candles[candles.length - 1]);
+                } catch (_) {
+                    candleSeries.setData(candles);
+                }
             }
         }
         if (data.emas) {
@@ -836,10 +840,11 @@ function renderChartForSymbol(symbol) {
                 if (!arr || !arr.length || !series) return;
                 const pts = uniq(arr);
                 if (!pts.length) return;
-                if (needsFullReload) {
+                try {
+                    // Always set full EMA points array so lines span across all candles
                     series.setData(pts);
-                } else {
-                    series.update(pts[pts.length - 1]);
+                } catch (err) {
+                    try { series.update(pts[pts.length - 1]); } catch (_) {}
                 }
             });
         }
