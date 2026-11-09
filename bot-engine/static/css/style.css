@@ -1036,36 +1036,97 @@ footer a:hover { color: var(--gold-mid) !important; }
   .config-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
-  .workspace-nav { display: none; }
-  .mobile-bottom-nav { display: flex; }
-  .mobile-quick-strip { display: flex; }
-  body { padding-bottom: calc(96px + var(--safe-b)); }
-  .app-container { padding: 14px 12px 30px; }
-  .topbar { padding: 10px 14px; }
-  .brand-text h1 { font-size: 16px; }
-  .btn-account span:last-child { display: none; }
-  .live-clock { display: none; }
+  .workspace-nav { display: none !important; }
+  .mobile-bottom-nav { display: flex !important; }
+  .mobile-quick-strip { display: flex !important; }
+  body { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important; }
+  .app-container { padding: 10px 10px 24px !important; }
+  .topbar { padding: 8px 12px; gap: 8px; }
+  .topbar-actions { gap: 6px; }
+  .brand-text h1 { font-size: 15px; }
+  .btn-account span:last-child,
+  .btn-account .btn-account-label { display: none !important; }
+  .btn-account { padding: 6px 10px; font-size: 12px; }
+  .live-clock { display: none !important; }
+
+  /* Reorder Cockpit on mobile: Chart & Coins on top, Controls & Stats below */
+  .terminal-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+  .terminal-workspace {
+    order: 1 !important;
+  }
+  .terminal-cockpit {
+    order: 2 !important;
+  }
+
+  .coin-tabs {
+    display: flex !important;
+    gap: 6px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding: 8px 10px !important;
+    white-space: nowrap !important;
+  }
+  .coin-tabs::-webkit-scrollbar { display: none; }
+  .coin-tab { flex-shrink: 0 !important; }
+
+  .chart-tools-strip {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding: 6px 8px !important;
+    gap: 8px !important;
+  }
+  .chart-tools-strip::-webkit-scrollbar { display: none; }
+  .draw-tools-group { flex-shrink: 0 !important; }
+  .draw-actions-group { flex-shrink: 0 !important; }
+
+  .controls-card .btn-group {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
 }
+
 @media (max-width: 620px) {
-  .form-row { grid-template-columns: 1fr; }
-  .stats-grid { grid-template-columns: 1fr 1fr; }
-  .env-badge { font-size: 10px; padding: 6px 9px; }
-  .status-pill { padding: 6px 10px; font-size: 10px; }
-  .brand-text small { display: none; }
-  .card-body { padding: 14px; }
-  .card-header { padding: 12px 14px 10px; }
-  .chart-body-box, .chart-canvas-container, #chart { min-height: 300px; }
-  .chart-card { min-height: 380px; }
-  .pos-metric-value { font-size: 18px; }
-  .h-stat-val { font-size: 19px; }
-  .exchange-toggle { grid-template-columns: 1fr; }
-  .mob-quick-btn-group .btn-ref-mob { display: none; }
+  .topbar { padding: 6px 10px !important; }
+  .form-row { grid-template-columns: 1fr !important; }
+  .stats-grid { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  .env-badge { font-size: 9.5px !important; padding: 5px 8px !important; }
+  .status-pill { padding: 5px 8px !important; font-size: 9.5px !important; }
+  .brand-text small { display: none !important; }
+  .card-body { padding: 12px !important; }
+  .card-header { padding: 10px 12px !important; }
+  .chart-header-row { flex-direction: column !important; align-items: flex-start !important; gap: 6px !important; }
+  .legend { display: flex !important; gap: 8px !important; flex-wrap: wrap !important; font-size: 10px !important; }
+  .chart-body-box, .chart-canvas-container, #chart { min-height: 280px !important; }
+  .chart-card { min-height: 350px !important; }
+  .pos-metric-value { font-size: 16px !important; }
+  .h-stat-val { font-size: 18px !important; }
+  .config-view-header { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
+  .config-actions { width: 100% !important; display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  .config-actions .btn { width: 100% !important; text-align: center !important; justify-content: center !important; font-size: 12px !important; padding: 9px 6px !important; }
+  .exchange-toggle { grid-template-columns: 1fr !important; }
+  .mob-quick-btn-group .btn-ref-mob { display: none !important; }
 }
+
 @media (max-width: 430px) {
-  .brand { gap: 8px; }
-  .logo-wrapper { width: 36px; height: 36px; flex-basis: 36px; border-radius: 11px; }
-  .brand-text h1 { font-size: 13px; letter-spacing: 0.09em; }
-  .topbar { gap: 8px; }
+  .brand { gap: 6px !important; }
+  .logo-wrapper { width: 32px !important; height: 32px !important; flex-basis: 32px !important; border-radius: 9px !important; }
+  .brand-text h1 { font-size: 12.5px !important; letter-spacing: 0.06em !important; }
+  .topbar { gap: 6px !important; }
+  .env-badge span:nth-child(2),
+  .env-badge #modeBadge { display: none !important; }
+  .btn-account { padding: 5px 8px !important; }
+  .status-pill { padding: 4px 7px !important; font-size: 9px !important; }
+  .mobile-bottom-nav { left: 6px !important; right: 6px !important; padding: 4px 2px !important; }
+  .mob-nav-text { font-size: 8.5px !important; }
 }
 @media (max-width: 380px) {
   .brand-text h1 { font-size: 12px; letter-spacing: 0.05em; }

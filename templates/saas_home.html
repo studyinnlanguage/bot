@@ -368,27 +368,73 @@
             max-width: 580px;
         }
 
-        .hero-cta-group {
+        .hero-cta-block {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 34px;
+        }
+
+        .hero-primary-btns {
             display: flex;
             align-items: center;
             gap: 14px;
             flex-wrap: wrap;
-            margin-bottom: 36px;
+        }
+
+        .hero-primary-btns .btn-neon,
+        .hero-primary-btns .btn-ghost {
+            height: 48px;
+            padding: 0 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            font-size: 14.5px;
+            font-weight: 800;
+            white-space: nowrap;
+            text-decoration: none;
+            box-sizing: border-box;
+        }
+
+        .hero-stores-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            padding-top: 4px;
+        }
+
+        .hero-stores-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .hero-stores-badges {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
         .store-badge-btn {
             display: inline-flex;
             align-items: center;
             gap: 10px;
-            background: #000000;
+            background: #090c10;
             color: #ffffff !important;
-            border: 1px solid rgba(255, 255, 255, 0.22);
-            border-radius: 10px;
-            padding: 8px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 11px;
+            padding: 7px 16px;
             text-decoration: none !important;
             transition: all 0.22s ease;
             box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-            min-height: 48px;
+            height: 46px;
+            min-width: 160px;
             box-sizing: border-box;
             cursor: pointer;
         }
@@ -396,6 +442,7 @@
             border-color: #f0b90b;
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(240, 185, 11, 0.25);
+            background: #12161f;
             color: #ffffff !important;
         }
         .store-badge-icon {
@@ -411,14 +458,14 @@
             line-height: 1.15;
         }
         .store-badge-sub {
-            font-size: 9.5px;
+            font-size: 9px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             color: #a0aec0;
             font-weight: 600;
         }
         .store-badge-main {
-            font-size: 15px;
+            font-size: 14.5px;
             font-weight: 800;
             color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -1584,15 +1631,18 @@
                 max-width: 100% !important;
                 overflow-wrap: break-word !important;
             }
-            .hero-cta-group {
-                flex-direction: column;
-                gap: 10px;
+            .hero-cta-block {
                 width: 100%;
-                max-width: 100%;
-                margin-bottom: 22px;
+                margin-bottom: 24px;
+                gap: 14px;
             }
-            .hero-cta-group .btn-neon,
-            .hero-cta-group .btn-ghost {
+            .hero-primary-btns {
+                flex-direction: column;
+                width: 100%;
+                gap: 10px;
+            }
+            .hero-primary-btns .btn-neon,
+            .hero-primary-btns .btn-ghost {
                 width: 100% !important;
                 max-width: 100% !important;
                 box-sizing: border-box !important;
@@ -1604,6 +1654,31 @@
                 text-align: center !important;
                 line-height: 1.3 !important;
                 border-radius: 12px !important;
+                height: 48px !important;
+            }
+            .hero-stores-row {
+                flex-direction: column;
+                align-items: flex-start;
+                width: 100%;
+                gap: 8px;
+            }
+            .hero-stores-badges {
+                display: flex;
+                width: 100%;
+                gap: 10px;
+            }
+            .hero-stores-badges .store-badge-btn {
+                flex: 1 1 0;
+                min-width: 0;
+                justify-content: center;
+                padding: 7px 8px;
+                height: 46px;
+            }
+            .hero-stores-badges .store-badge-main {
+                font-size: 13px;
+            }
+            .hero-stores-badges .store-badge-sub {
+                font-size: 8.5px;
             }
             .hero-trust-row {
                 flex-direction: column;
@@ -2056,44 +2131,52 @@
                         Deploy Weexionic's institutional algorithmic bot across <strong>Binance Futures</strong>, <strong>WEEX</strong>, and <strong>PrimeXBT</strong>. Run 1 to 3 concurrent active coin trades with strict 1:1 risk-reward, automated stop-loss, and 24/7 cloud execution.
                     </p>
 
-                    <div class="hero-cta-group">
-                        <a href="#pricing" class="btn-neon">
-                            <span>🚀 Choose Your License &amp; Buy Bot</span>
-                        </a>
-                        <a href="/download/apk" target="_blank" class="store-badge-btn" aria-label="Get it on Google Play">
-                            <span class="store-badge-icon">
-                                <svg width="22" height="22" viewBox="0 0 512 512">
-                                    <path fill="#4285F4" d="M38.8 11.2C28.4 22.3 22 38.6 22 58.7v394.6c0 20.1 6.4 36.4 16.8 47.5l2.6 2.5L263 281.7v-51.4L41.4 8.7l-2.6 2.5z"/>
-                                    <path fill="#34A853" d="M343.3 362l-80.3-80.3v-51.4l80.3-80.3 1.8 1 95.1 54c27.1 15.4 27.1 40.6 0 56l-95.1 54-1.8 1z"/>
-                                    <path fill="#FBBC04" d="M345.1 361l-82.1-82.1-221.6 223.8c8.9 9.5 23.6 10.6 40.1 1.3l263.6-143z"/>
-                                    <path fill="#EA4335" d="M345.1 151L81.5 8.1C65-1.2 50.3-.1 41.4 9.4L263 233.2l82.1-82.2z"/>
-                                </svg>
-                            </span>
-                            <div class="store-badge-content">
-                                <span class="store-badge-sub">GET IT ON</span>
-                                <span class="store-badge-main">Google Play</span>
-                            </div>
-                        </a>
-                        <a href="javascript:void(0)" onclick="openIosInstallModal()" class="store-badge-btn" aria-label="Download on the App Store">
-                            <span class="store-badge-icon">
-                                <svg width="22" height="22" viewBox="0 0 170 170" fill="#ffffff">
-                                    <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.69-7.85-12.01-14.42-6.53-9.89-11.64-21.43-15.34-34.62-3.7-13.19-5.55-25.75-5.55-37.69 0-14.57 3.59-26.65 10.77-36.23 7.18-9.58 16.32-14.43 27.42-14.55 5.76 0 12.06 1.48 18.9 4.45 6.84 2.97 10.87 4.51 12.08 4.62 1.96-.22 6.42-1.96 13.38-5.22 6.96-3.26 13.37-4.67 19.23-4.24 14.57 1.09 26.22 6.42 34.97 16-12.83 7.83-19.13 18.7-18.91 32.61.22 10.87 4.24 20.11 12.07 27.72 7.83 7.61 17.5 11.96 29.02 13.04-2.39 7.17-5.43 14.57-9.13 22.18zM119.22 31.09c0-7.72 2.72-14.89 8.15-21.52 5.43-6.63 12.17-10.87 20.22-12.72.22 1.3.33 2.61.33 3.91 0 7.61-2.93 14.89-8.8 21.85-5.87 6.96-12.72 11.09-20.54 12.39-.43-1.3-.67-2.6-.67-3.91z"/>
-                                </svg>
-                            </span>
-                            <div class="store-badge-content">
-                                <span class="store-badge-sub">Download on the</span>
-                                <span class="store-badge-main">App Store</span>
-                            </div>
-                        </a>
-                        {% if not user %}
-                            <a href="/login" class="btn-ghost">
-                                <span>Existing User? Login →</span>
+                    <div class="hero-cta-block">
+                        <div class="hero-primary-btns">
+                            <a href="#pricing" class="btn-neon">
+                                <span>🚀 Choose Your License &amp; Buy Bot</span>
                             </a>
-                        {% else %}
-                            <a href="/bot/" class="btn-ghost">
-                                <span>Go to Bot Dashboard →</span>
-                            </a>
-                        {% endif %}
+                            {% if not user %}
+                                <a href="/login" class="btn-ghost">
+                                    <span>Existing User? Login →</span>
+                                </a>
+                            {% else %}
+                                <a href="/bot/" class="btn-ghost">
+                                    <span>Go to Bot Dashboard →</span>
+                                </a>
+                            {% endif %}
+                        </div>
+
+                        <div class="hero-stores-row">
+                            <span class="hero-stores-label">Also on mobile:</span>
+                            <div class="hero-stores-badges">
+                                <a href="/download/apk" target="_blank" class="store-badge-btn" aria-label="Get it on Google Play">
+                                    <span class="store-badge-icon">
+                                        <svg width="22" height="22" viewBox="0 0 512 512">
+                                            <path fill="#4285F4" d="M38.8 11.2C28.4 22.3 22 38.6 22 58.7v394.6c0 20.1 6.4 36.4 16.8 47.5l2.6 2.5L263 281.7v-51.4L41.4 8.7l-2.6 2.5z"/>
+                                            <path fill="#34A853" d="M343.3 362l-80.3-80.3v-51.4l80.3-80.3 1.8 1 95.1 54c27.1 15.4 27.1 40.6 0 56l-95.1 54-1.8 1z"/>
+                                            <path fill="#FBBC04" d="M345.1 361l-82.1-82.1-221.6 223.8c8.9 9.5 23.6 10.6 40.1 1.3l263.6-143z"/>
+                                            <path fill="#EA4335" d="M345.1 151L81.5 8.1C65-1.2 50.3-.1 41.4 9.4L263 233.2l82.1-82.2z"/>
+                                        </svg>
+                                    </span>
+                                    <div class="store-badge-content">
+                                        <span class="store-badge-sub">GET IT ON</span>
+                                        <span class="store-badge-main">Google Play</span>
+                                    </div>
+                                </a>
+                                <a href="javascript:void(0)" onclick="openIosInstallModal()" class="store-badge-btn" aria-label="Download on the App Store">
+                                    <span class="store-badge-icon">
+                                        <svg width="22" height="22" viewBox="0 0 170 170" fill="#ffffff">
+                                            <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.69-7.85-12.01-14.42-6.53-9.89-11.64-21.43-15.34-34.62-3.7-13.19-5.55-25.75-5.55-37.69 0-14.57 3.59-26.65 10.77-36.23 7.18-9.58 16.32-14.43 27.42-14.55 5.76 0 12.06 1.48 18.9 4.45 6.84 2.97 10.87 4.51 12.08 4.62 1.96-.22 6.42-1.96 13.38-5.22 6.96-3.26 13.37-4.67 19.23-4.24 14.57 1.09 26.22 6.42 34.97 16-12.83 7.83-19.13 18.7-18.91 32.61.22 10.87 4.24 20.11 12.07 27.72 7.83 7.61 17.5 11.96 29.02 13.04-2.39 7.17-5.43 14.57-9.13 22.18zM119.22 31.09c0-7.72 2.72-14.89 8.15-21.52 5.43-6.63 12.17-10.87 20.22-12.72.22 1.3.33 2.61.33 3.91 0 7.61-2.93 14.89-8.8 21.85-5.87 6.96-12.72 11.09-20.54 12.39-.43-1.3-.67-2.6-.67-3.91z"/>
+                                        </svg>
+                                    </span>
+                                    <div class="store-badge-content">
+                                        <span class="store-badge-sub">Download on the</span>
+                                        <span class="store-badge-main">App Store</span>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="hero-trust-row">

@@ -11,7 +11,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/weexionic-logo.png') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <title>WEEXIONIC TRADING BOT - Pro Futures Terminal</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='yellowb3') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='mobi4') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -48,7 +48,7 @@
             </button>
             <a href="/legal" target="_blank" class="btn-account" style="text-decoration:none; color:var(--text-secondary); background:rgba(255,255,255,0.04); border:1px solid var(--border-subtle);" title="Legal, Risk Disclaimer & Policies">
                 <span>🛡️</span>
-                <span>Legal &amp; Risk</span>
+                <span class="btn-account-label">Legal &amp; Risk</span>
             </a>
             <a href="/?logout=1" class="btn-logout" title="Logout from bot" aria-label="Logout from bot" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>window.location.href='/?logout=1');return false;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></a>
         </div>

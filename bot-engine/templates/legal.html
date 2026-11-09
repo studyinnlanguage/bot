@@ -239,9 +239,88 @@
             box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
         }
         @media (max-width: 768px) {
-            .content-card { padding: 24px 18px; }
-            .hero-title { font-size: 24px; }
-            .tab-btn { min-width: 140px; font-size: 12px; padding: 10px 12px; }
+            header.legal-nav {
+                padding: 10px 14px;
+                gap: 10px;
+            }
+            .nav-badge { display: none; }
+            .nav-title { font-size: 14px; }
+            .nav-actions { gap: 8px; }
+            .nav-btn {
+                padding: 6px 10px;
+                font-size: 11.5px;
+            }
+            .container {
+                padding: 18px 12px;
+            }
+            .hero-banner {
+                padding: 22px 14px;
+                margin-bottom: 22px;
+            }
+            .hero-title {
+                font-size: 22px !important;
+                line-height: 1.25;
+            }
+            .hero-subtitle {
+                font-size: 12.5px;
+            }
+            .tab-bar {
+                display: grid !important;
+                grid-template-columns: 1fr 1fr !important;
+                gap: 8px;
+                padding: 6px;
+                border-radius: 12px;
+                margin-bottom: 20px;
+                overflow-x: visible;
+            }
+            .tab-btn {
+                min-width: 0 !important;
+                width: 100% !important;
+                font-size: 11.5px !important;
+                padding: 10px 6px !important;
+                text-align: center;
+                justify-content: center;
+                white-space: normal;
+                line-height: 1.25;
+            }
+            .content-card {
+                padding: 20px 14px !important;
+                border-radius: 14px;
+            }
+            .doc-title {
+                font-size: 19px !important;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            h2.section-heading {
+                font-size: 15.5px !important;
+                margin: 24px 0 10px;
+                padding-left: 10px;
+            }
+            h3.sub-heading {
+                font-size: 13.5px !important;
+            }
+            p.text-body, .legal-list li {
+                font-size: 13px !important;
+                line-height: 1.65;
+            }
+            .summary-grid {
+                grid-template-columns: 1fr !important;
+                gap: 10px;
+            }
+            .summary-card {
+                padding: 14px;
+            }
+            .alert-box {
+                padding: 14px 12px !important;
+                font-size: 12.5px !important;
+            }
+        }
+        @media (max-width: 420px) {
+            .nav-title { font-size: 12px; }
+            .nav-logo { width: 32px; height: 32px; }
+            .nav-btn span:last-child { font-size: 10.5px; }
+            .tab-btn { font-size: 10.5px !important; padding: 8px 4px !important; }
         }
 
         .doc-header {
