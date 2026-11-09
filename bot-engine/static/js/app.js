@@ -811,20 +811,19 @@ function renderChartForSymbol(symbol) {
             return out;
         };
         const isSwitch = symbol !== _lastChartSymbol;
+        const candles = (data.candles && data.candles.length > 0) ? uniq(data.candles) : [];
+        const lastT = candles.length ? candles[candles.length - 1].time : 0;
+        const needsFullReload = isSwitch || (lastT < _lastChartTime);
 
-        if (data.candles && data.candles.length > 0) {
-            const candles = uniq(data.candles);
-            const lastT = candles.length ? candles[candles.length - 1].time : 0;
-            // Full re-render only on symbol switch or data reset (e.g. timeframe
-            // change). Same-symbol live ticks use update() so the user's
-            // pan/zoom position is NOT destroyed on every socket update.
-            if (isSwitch || lastT < _lastChartTime) {
+        if (candles.length > 0) {
+            // Full re-render on symbol switch or data reset (e.g. timeframe change).
+            // Live same-symbol ticks use update() so user pan/zoom isn't reset.
+            if (needsFullReload) {
                 candleSeries.setData(candles);
                 chart.timeScale().fitContent();
-            } else if (candles.length) {
+            } else {
                 candleSeries.update(candles[candles.length - 1]);
             }
-            _lastChartTime = lastT;
         }
         if (data.emas) {
             const emaPairs = [
@@ -837,13 +836,14 @@ function renderChartForSymbol(symbol) {
                 if (!arr || !arr.length || !series) return;
                 const pts = uniq(arr);
                 if (!pts.length) return;
-                if (isSwitch || (pts[pts.length - 1].time < _lastChartTime)) {
+                if (needsFullReload) {
                     series.setData(pts);
                 } else {
                     series.update(pts[pts.length - 1]);
                 }
             });
         }
+        _lastChartTime = lastT;
         _lastChartSymbol = symbol;
         requestAnimationFrame(redrawCanvas);
     } catch (e) {

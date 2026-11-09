@@ -70,20 +70,20 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.1.2-apk
+          name: WEEXIONIC-v2.1.3-apk
           path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
 
       - name: Upload AAB artifact (Play Store)
         uses: actions/upload-artifact@v4
         with:
-          name: WEEXIONIC-v2.1.2-aab
+          name: WEEXIONIC-v2.1.3-aab
           path: mobile-app/android/app/build/outputs/bundle/release/app-release.aab
 
       - name: Rename release binaries with version tag
         run: |
           TAG_NAME="${GITHUB_REF_NAME}"
           if [ "$TAG_NAME" = "main" ] || [ -z "$TAG_NAME" ]; then
-            TAG_NAME="v2.1.2"
+            TAG_NAME="v2.1.3"
           fi
           echo "RELEASE_TAG=${TAG_NAME}" >> "$GITHUB_ENV"
           cp mobile-app/android/app/build/outputs/apk/release/app-release.apk "WEEXIONIC-${TAG_NAME}.apk"

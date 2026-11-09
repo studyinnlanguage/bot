@@ -3547,6 +3547,13 @@ def assetlinks():
     ])
 
 
+@app.route("/download/apk")
+def download_apk():
+    """Direct APK download route for WEEXIONIC Android application."""
+    apk_url = os.environ.get("APK_DOWNLOAD_URL", "https://github.com/studyinnlanguage/bot/releases/download/v2.1.3/WEEXIONIC-v2.1.3.apk")
+    return redirect(apk_url)
+
+
 @app.route("/app/oauth")
 def app_oauth_handoff():
     """Verified App Link endpoint for mobile authentication handoff."""

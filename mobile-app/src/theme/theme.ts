@@ -1,27 +1,26 @@
-// WEEXIONIC MIDNIGHT Design System v4 (shared with web terminal).
-// Deep navy × electric blue — green = profit/BUY, red = loss/SELL/danger only.
+// WEEXIONIC Black & Yellow Design System (matching web terminal & dashboard).
+// Deep Obsidian Black × Binance Gold/Yellow — green = profit/BUY, red = loss/SELL/danger.
 export const C = {
-  bg: '#05070d',
-  bg2: '#0d1220',
-  bg3: '#111a2c',
-  card: '#111a2c',
-  cardBorder: 'rgba(61, 139, 255, 0.22)',
-  neon: '#3d8bff',
-  neon2: '#6ba6ff',
-  neonGlow: 'rgba(61, 139, 255, 0.30)',
+  bg: '#0b0e11',
+  bg2: '#12161f',
+  bg3: '#181a20',
+  card: '#12161f',
+  cardBorder: 'rgba(240, 185, 11, 0.22)',
+  neon: '#f0b90b',         // Brand Yellow / Gold
+  neon2: '#fcd535',        // Bright Gold / Highlight
+  neonGlow: 'rgba(240, 185, 11, 0.35)',
   cyan: '#37c6ff',
-  // Backwards-compatible aliases mapped to MIDNIGHT (no gold/yellow, red = danger only):
-  gold: '#3d8bff',
-  goldB: '#6ba6ff',
-  goldD: '#1a4fa8',
-  txt: '#f2f5fa',
-  dim: '#9aa7bd',
-  dim2: '#5d6b82',
+  gold: '#f0b90b',
+  goldB: '#fcd535',
+  goldD: '#b38600',
+  txt: '#eaecef',
+  dim: '#848e9c',
+  dim2: '#5e6673',
   profit: '#2ecf8a',
   loss: '#f6465d',
   blue: '#5B8DEF',
   orange: '#ffb020',   // EMA13 amber
-  warn: '#ffb020',
+  warn: '#f0b90b',
   purple: '#A06BF0',
 };
 
@@ -42,7 +41,7 @@ export const S = {
   h2: { fontSize: 16, fontWeight: '700' as const, color: C.txt },
   num: { fontSize: 20, fontWeight: '800' as const, color: C.txt } as const,
   goldText: { color: C.neon2, fontWeight: '800' as const },
-  sep: { height: 1, backgroundColor: 'rgba(61, 139, 255, 0.14)', marginVertical: 10 } as const,
+  sep: { height: 1, backgroundColor: 'rgba(240, 185, 11, 0.16)', marginVertical: 10 } as const,
 };
 
 export const money = (v: number | null | undefined, sign = false) => {

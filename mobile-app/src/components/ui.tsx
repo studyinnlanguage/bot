@@ -39,13 +39,13 @@ export function NeonButton({
       disabled={disabled || loading}
       style={[
         {
-          backgroundColor: disabled || loading ? '#1a4fa8' : C.neon,
+          backgroundColor: disabled || loading ? '#3a3215' : C.neon,
           borderRadius: 14,
           paddingVertical: 14,
           alignItems: 'center',
           justifyContent: 'center',
           shadowColor: C.neon,
-          shadowOpacity: disabled || loading ? 0 : 0.28,
+          shadowOpacity: disabled || loading ? 0 : 0.35,
           shadowRadius: 10,
           elevation: disabled || loading ? 0 : 4,
         },
@@ -54,7 +54,7 @@ export function NeonButton({
       {loading ? (
         <ActivityIndicator color={C.bg} />
       ) : (
-        <Text style={{ color: '#05070d', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
+        <Text style={{ color: '#0b0e11', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
           {title}
         </Text>
       )}
@@ -86,8 +86,8 @@ export function GlassButton({
           paddingVertical: 13,
           alignItems: 'center',
           borderWidth: 1,
-          borderColor: danger ? 'rgba(246, 70, 93,0.45)' : 'rgba(61, 139, 255,0.35)',
-          backgroundColor: danger ? 'rgba(246, 70, 93,0.08)' : 'rgba(61, 139, 255,0.06)',
+          borderColor: danger ? 'rgba(246, 70, 93,0.45)' : 'rgba(240, 185, 11,0.35)',
+          backgroundColor: danger ? 'rgba(246, 70, 93,0.08)' : 'rgba(240, 185, 11,0.08)',
         },
         style,
       ]}>
@@ -134,7 +134,7 @@ export function Field({
         autoCorrect={false}
         style={{
           backgroundColor: 'rgba(0,0,0,0.45)',
-          borderColor: 'rgba(61, 139, 255,0.22)',
+          borderColor: 'rgba(240, 185, 11,0.22)',
           borderWidth: 1,
           borderRadius: 12,
           color: C.txt,
@@ -160,7 +160,7 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
           flexDirection: 'row',
           alignItems: 'center',
           gap: 6,
-          borderColor: 'rgba(61, 139, 255,0.25)',
+          borderColor: 'rgba(240, 185, 11,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
@@ -172,7 +172,7 @@ export function StatusPill({ running, testnet, exchange }: { running: boolean; t
       </View>
       <View
         style={{
-          borderColor: 'rgba(61, 139, 255,0.25)',
+          borderColor: 'rgba(240, 185, 11,0.25)',
           borderWidth: 1,
           borderRadius: 999,
           paddingHorizontal: 10,
@@ -207,8 +207,8 @@ export function Chip({
         paddingVertical: small ? 6 : 8,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: active ? C.neon2 : 'rgba(61, 139, 255,0.20)',
-        backgroundColor: active ? 'rgba(61, 139, 255,0.15)' : 'rgba(0,0,0,0.3)',
+        borderColor: active ? C.neon2 : 'rgba(240, 185, 11,0.20)',
+        backgroundColor: active ? 'rgba(240, 185, 11,0.18)' : 'rgba(0,0,0,0.3)',
         marginRight: 8,
         marginBottom: 8,
       } as any}>
@@ -264,16 +264,16 @@ export function Empty({ text }: { text: string }) {
 }
 
 export function Logo({ size = 46 }: { size?: number }) {
-  // "Ascend W" monogram drawn natively with neon glow
+  // "Ascend W" monogram drawn natively with gold glow
   return (
     <View
       style={{
         width: size,
         height: size,
         borderRadius: size * 0.28,
-        backgroundColor: '#0d1220',
+        backgroundColor: C.bg2,
         borderWidth: 1.2,
-        borderColor: 'rgba(61, 139, 255,0.55)',
+        borderColor: 'rgba(240, 185, 11,0.55)',
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: C.neon,

@@ -665,6 +665,15 @@ def get_positions():
             tp_stage = worker.tp_stage if (worker and pos.side != "NONE") else 0
             tp_price = worker.tp_price if (worker and pos.side != "NONE" and worker.tp_price) else 0.0
             sl_price = worker.sl_price if (worker and pos.side != "NONE" and worker.sl_price) else 0.0
+            # Fallback calculation if position is open but software TP/SL was not yet cached
+            if pos.side != "NONE" and pos.entry_price and float(pos.entry_price) > 0:
+                ep = float(pos.entry_price)
+                if not tp_price:
+                    tp_pct = float(CONFIG.get("take_profit_pct", 1.0) or 1.0)
+                    tp_price = round(ep * (1.0 + tp_pct / 100.0) if pos.side == "LONG" else ep * (1.0 - tp_pct / 100.0), 6)
+                if not sl_price:
+                    sl_pct = float(CONFIG.get("stop_loss_pct", 0.2) or 0.2)
+                    sl_price = round(ep * (1.0 - sl_pct / 100.0) if pos.side == "LONG" else ep * (1.0 + sl_pct / 100.0), 6)
             tp_mode = worker.tp_mode if worker else (CONFIG.get("tp_mode") or "trailing")
             target_roe = getattr(worker, "target_roe_pct", 80.0) if worker else float(CONFIG.get("trailing_roe_pct", 80.0))
             positions.append({

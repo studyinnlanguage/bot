@@ -86,8 +86,8 @@ android {
         applicationId "com.weexionic.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "2.1.2"
+        versionCode 6
+        versionName "2.1.3"
     }
     signingConfigs {
         debug {
