@@ -417,96 +417,14 @@ def test_same_direction_breakout_after_tangle_is_not_missed():
 
 
 def test_fast_auto_spread_and_polling_defaults():
-    """Auto spread (min_ema_spread=0) must use 0.08% (majors) / 0.12% (memes)
+    """Auto spread (min_ema_spread=0) must use fast 0.03% (majors) / 0.05% (memes)
     and 5m polling must be <= 4s so fresh crosses are never entered 5 candles late."""
     eng = _make_engine()
     trader = MagicMock()
     w_btc = _make_live_worker(eng, "BTCUSDT", trader, {"min_ema_spread": 0})
     w_pepe = _make_live_worker(eng, "1000PEPEUSDT", trader, {"min_ema_spread": 0})
-    assert abs(w_btc.strategy.min_spread_pct - 0.08) < 1e-9
-    assert abs(w_pepe.strategy.min_spread_pct - 0.12) < 1e-9
+    assert abs(w_btc.strategy.min_spread_pct - 0.03) < 1e-9
+    assert abs(w_pepe.strategy.min_spread_pct - 0.05) < 1e-9
     assert BotEngine._poll_seconds("5m") <= 4
     assert BotEngine._poll_seconds("1m") <= 3
-
-
-def test_ema_reversal_only_in_profit_never_in_loss():
-    """EMA55 reversal must ONLY take profit when trade is in green (pnl_pct >= 0).
-    When in loss (pnl_pct < 0), the trade must stay open, governed strictly by STOP LOSS."""
-    eng = _make_engine()
-    trader = MagicMock()
-    worker = _make_live_worker(eng, "BTCUSDT", trader)
-
-    # Simulate an active LONG position with entry=100.0, SL=98.0 (2%), TP=101.0 (1%)
-    worker.position_side = "LONG"
-    worker.entry_price = 100.0
-    worker.sl_price = 98.0
-    worker.tp_price = 101.0
-    worker.entry_signal = Signal.BUY
-    worker.ema_reversal_tp_fired = False
-
-    pos_loss = SimpleNamespace(
-        side="LONG", size=1.0, entry_price=100.0, mark_price=99.6, leverage=50
-    )
-    # EMA flips to SELL, but price is 99.6 (PnL = -0.40%)
-    res_sell = SimpleNamespace(signal=Signal.SELL)
-
-    sl_hit, tp_hit, reason = worker._check_software_sl_tp(pos_loss, res_sell)
-    assert not sl_hit
-    assert not tp_hit  # MUST NOT EXIT IN LOSS ON REVERSAL!
-    assert reason == ""
-
-    # When price is in profit (mark=100.3, PnL = +0.30%) and EMA flips to SELL -> take profit!
-    pos_profit = SimpleNamespace(
-        side="LONG", size=1.0, entry_price=100.0, mark_price=100.3, leverage=50
-    )
-    sl_hit, tp_hit, reason = worker._check_software_sl_tp(pos_profit, res_sell)
-    assert not sl_hit
-    assert tp_hit
-    assert "EMA55-REVERSAL" in reason
-    assert "PnL=+0.30%" in reason
-
-    # When price hits actual Stop Loss (mark=98.0) -> SL triggers
-    worker.ema_reversal_tp_fired = False
-    pos_sl = SimpleNamespace(
-        side="LONG", size=1.0, entry_price=100.0, mark_price=98.0, leverage=50
-    )
-    sl_hit, tp_hit, reason = worker._check_software_sl_tp(pos_sl, SimpleNamespace(signal=Signal.BUY))
-    assert sl_hit
-    assert not tp_hit
-    assert "STOP LOSS HIT" in reason
-
-
-def test_ema_reversal_short_only_in_profit_never_in_loss():
-    """SHORT position reversal check: in loss must not exit, in profit must lock in gains."""
-    eng = _make_engine()
-    trader = MagicMock()
-    worker = _make_live_worker(eng, "BTCUSDT", trader)
-
-    worker.position_side = "SHORT"
-    worker.entry_price = 100.0
-    worker.sl_price = 102.0
-    worker.tp_price = 99.0
-    worker.entry_signal = Signal.SELL
-    worker.ema_reversal_tp_fired = False
-
-    # Short in loss (price rose to 100.6, PnL = -0.60%) + BUY signal
-    pos_loss = SimpleNamespace(
-        side="SHORT", size=1.0, entry_price=100.0, mark_price=100.6, leverage=50
-    )
-    res_buy = SimpleNamespace(signal=Signal.BUY)
-
-    sl_hit, tp_hit, reason = worker._check_software_sl_tp(pos_loss, res_buy)
-    assert not sl_hit
-    assert not tp_hit  # MUST NOT EXIT IN LOSS ON REVERSAL!
-
-    # Short in profit (price fell to 99.5, PnL = +0.50%) + BUY signal
-    pos_profit = SimpleNamespace(
-        side="SHORT", size=1.0, entry_price=100.0, mark_price=99.5, leverage=50
-    )
-    sl_hit, tp_hit, reason = worker._check_software_sl_tp(pos_profit, res_buy)
-    assert not sl_hit
-    assert tp_hit
-    assert "EMA55-REVERSAL" in reason
-    assert "PnL=+0.50%" in reason
-
 

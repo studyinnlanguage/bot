@@ -543,19 +543,32 @@ class SymbolWorker(threading.Thread):
                     self.r_distance = 0.0
                     self.initial_sl_price = None
                     # ===== REVERSAL / EXIT LOGIC =====
-                    # Position exit complete. Always require a confirmed
+                    # Position exit complete. For NORMAL exits always require a confirmed
                     # fresh crossover before the next entry (anti-whipsaw protection).
                     self.waiting_for_new_cross = True
                     self.reversal_pending_side = None
-                    # ===== SAME-COIN RE-ENTRY COOLDOWN =====
-                    # Block an instant re-open of this coin after any exit (SL/TP/reversal).
-                    # A subsequent entry requires cooldown expiration, spread >= min_spread,
-                    # and a genuine fresh crossover (fresh_window).
-                    try:
-                        self.engine.set_reentry_cooldown(symbol, reason=f"exit: {reason}")
-                    except Exception as ce:
-                        logger.warning("Re-entry cooldown set failed: %s", ce)
-                    self.strategy.reset_cross_state()
+                    if is_ema_reversal_tp:
+                        self.strategy.reset_for_reversal()
+                        # Immediate opposite-side flip ONLY if slot is available on next tick
+                        # (expires within 60s; never sits queued waiting for other coins).
+                        self.reversal_pending_side = "SHORT" if close_side_label == "LONG" else "LONG"
+                        self._reversal_armed_ts = time.time()
+                        self.waiting_for_new_cross = False
+                        self.engine._emit("log", {
+                            "level": "info",
+                            "msg": (f"[{symbol}] 🔄 EMA55 REVERSAL exit processed. "
+                                    f"Position closed @ {pos.mark_price:.4f}. "
+                                    f"Re-entering {self.reversal_pending_side} on next tick if the "
+                                    f"opposite signal is still active.")
+                        })
+                    else:
+                        # ===== SAME-COIN RE-ENTRY COOLDOWN =====
+                        # Block an instant re-open of this coin after normal SL/TP exit.
+                        try:
+                            self.engine.set_reentry_cooldown(symbol, reason=f"exit: {reason}")
+                        except Exception as ce:
+                            logger.warning("Re-entry cooldown set failed: %s", ce)
+                        self.strategy.reset_cross_state()
                     # Notification
                     try:
                         if sl_hit:
@@ -882,6 +895,8 @@ class SymbolWorker(threading.Thread):
             with self.engine._trade_entry_lock:
                 can_open, rv_reason = self.engine.can_open_new_trade(symbol, is_reversal=True)
                 if not can_open:
+                    if time.time() - getattr(self, "_reversal_armed_ts", 0.0) < 30.0:
+                        return  # Wait for position cleanup to finish on next poll
                     self.reversal_pending_side = None
                     self.waiting_for_new_cross = True
                     self.strategy.consume_current_cross()
@@ -1347,25 +1362,21 @@ class SymbolWorker(threading.Thread):
             reason = f"⚡ STOP LOSS HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
             return (True, False, reason)
 
-        # ---------- 2) EMA-REVERSAL / FLIP CHECK (Take-Profit Only When in Green) ----------
+        # ---------- 2) EMA-REVERSAL / FLIP CHECK (Auto-Reversal Active) ----------
         # If position is open (e.g. LONG) and a confirmed OPPOSITE signal (SELL) occurs:
-        # CRITICAL FIX: Reversal exit should ONLY trigger if the trade is in PROFIT (pnl_pct >= 0.0)!
-        # If in loss, capital is strictly governed by the user's configured STOP LOSS (sl_price).
-        # We must NEVER prematurely cut a trade in negative PnL (-0.3%, -0.6%, etc.) on EMA noise/whipsaw!
+        # Immediately exit trade and flip to the opposite side!
         if not self.ema_reversal_tp_fired and result is not None and self.entry_signal is not None:
             cur_sig = result.signal
             if side == "LONG" and self.entry_signal == Signal.BUY and cur_sig == Signal.SELL:
                 pnl_pct = (mark - self.entry_price) / self.entry_price * 100 if self.entry_price > 0 else 0
-                if pnl_pct >= 0.0:
-                    self.ema_reversal_tp_fired = True  # one-shot
-                    return (False, True,
-                            f"⚡ EMA55-REVERSAL (LONG->EMA55 now TOP, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+                self.ema_reversal_tp_fired = True  # one-shot
+                return (False, True,
+                        f"⚡ EMA55-REVERSAL (LONG->EMA55 now TOP, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
             if side == "SHORT" and self.entry_signal == Signal.SELL and cur_sig == Signal.BUY:
                 pnl_pct = (self.entry_price - mark) / self.entry_price * 100 if self.entry_price > 0 else 0
-                if pnl_pct >= 0.0:
-                    self.ema_reversal_tp_fired = True  # one-shot
-                    return (False, True,
-                            f"⚡ EMA55-REVERSAL (SHORT->EMA55 now BOTTOM, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+                self.ema_reversal_tp_fired = True  # one-shot
+                return (False, True,
+                        f"⚡ EMA55-REVERSAL (SHORT->EMA55 now BOTTOM, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
 
         # ---------- 3) TAKE-PROFIT CHECK (+1.0% Target) ----------
         if self.tp_price is not None:
