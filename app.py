@@ -340,8 +340,9 @@ SAAS_SMTP_PASS = os.environ.get("SAAS_SMTP_PASS", "")
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Package definitions (Monthly removed; 1-Year = $79 [$10 ref bonus]; Lifetime = $500 [$50 ref bonus])
+# Package definitions (Monthly = $19 [$2 ref bonus]; 1-Year = $79 [$10 ref bonus]; Lifetime = $500 [$50 ref bonus])
 PACKAGES = {
+    "monthly": {"name": "Monthly", "price": 19, "days": 30, "currency": "USDT", "popular": False, "referral_bonus": 2},
     "yearly": {"name": "1-Year", "price": 79, "days": 365, "currency": "USDT", "popular": True, "referral_bonus": 10},
     "lifetime": {"name": "Lifetime", "price": 500, "days": 9999, "currency": "USDT", "popular": False, "referral_bonus": 50},
 }
@@ -2405,6 +2406,7 @@ def api_user_referral():
         "referral_history": referral_history,
         "referred_users": referred_users,
         "bonus_rates": {
+            "monthly": PACKAGES.get("monthly", {}).get("referral_bonus", 2),
             "yearly": PACKAGES.get("yearly", {}).get("referral_bonus", 10),
             "lifetime": PACKAGES.get("lifetime", {}).get("referral_bonus", 50),
         },

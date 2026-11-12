@@ -38,8 +38,11 @@
 
         /* Pricing Cards Grid */
         .pricing-grid {
-            display: grid; grid-template-columns: repeat(2, 1fr);
-            gap: 24px; margin-bottom: 40px; max-width: 760px; margin-left: auto; margin-right: auto;
+            display: grid; grid-template-columns: repeat(3, 1fr);
+            gap: 24px; margin-bottom: 40px; max-width: 1080px; margin-left: auto; margin-right: auto;
+        }
+        @media (max-width: 900px) {
+            .pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
         }
         .pricing-card {
             background: #121212; border: 1px solid #1c1c1c; border-radius: 16px;
@@ -227,6 +230,25 @@
 
         <!-- Pricing Cards -->
         <div class="pricing-grid">
+            <!-- Monthly ($19 Starter) -->
+            <div class="pricing-card">
+                <div class="badge" style="background: rgba(240,185,11,0.15); color: #f0b90b; border: 1px solid rgba(240,185,11,0.3);">Starter</div>
+                <div class="plan-name" style="color: #eaecef;">Monthly License</div>
+                <div class="plan-price"><span class="currency">$</span>19</div>
+                <div class="plan-period">30 days full cloud access</div>
+                <ul class="plan-features">
+                    <li><span class="check">&#10003;</span> Full EMA 8, 13, 21, 55 strategy</li>
+                    <li><span class="check">&#10003;</span> 24/7 cloud auto-trading</li>
+                    <li><span class="check">&#10003;</span> Multi-coin scanning &amp; execution</li>
+                    <li><span class="check">&#10003;</span> 1, 2, or 3 concurrent active coins</li>
+                    <li><span class="check">&#10003;</span> Automated SL &amp; TP Target Locking</li>
+                    <li><span class="check">&#10003;</span> Real-time P&amp;L dashboard</li>
+                    <li><span class="check">&#10003;</span> <strong>$2 USDT</strong> referral bonus per invite</li>
+                    <li><span class="check">&#10003;</span> Standard email &amp; trade support</li>
+                </ul>
+                <button class="btn-select btn-outline" style="border-color:#f0b90b; color:#f0b90b;" onclick="selectPlan('monthly', this)">Select Monthly Plan</button>
+            </div>
+
             <!-- 1-Year (Popular) -->
             <div class="pricing-card popular">
                 <div class="badge">Most Popular</div>
@@ -376,7 +398,7 @@
                     const statusClass = 'status-' + (o.status || 'submitted');
                     const statusLabel = (o.status || 'submitted').charAt(0).toUpperCase() + (o.status || 'submitted').slice(1);
                     const dateStr = o.created_at ? new Date(o.created_at).toLocaleString() : 'N/A';
-                    const amountStr = o.amount !== undefined ? '$' + o.amount : (o.package === 'yearly' ? '$79' : '$500');
+                    const amountStr = o.amount !== undefined ? '$' + o.amount : (o.package === 'yearly' ? '$79' : (o.package === 'monthly' ? '$19' : '$500'));
 
                     html += '<div class="order-card">';
                     html += '  <div class="order-header">';
@@ -478,7 +500,7 @@
                 html += '  </div>';
                 html += '  <div style="background:#0a0a0a; padding:16px; border-radius:10px; border:1px solid #1c1c1c;">';
                 html += '    <div style="font-size:11px; color:#848e9c; text-transform:uppercase; font-weight:600;">Commission Rules</div>';
-                html += '    <div style="font-size:12px; color:#eaecef; margin-top:6px; line-height:1.5;">1-Year ($79): <strong style="color:#f0b90b;">$10 USDT</strong><br>Lifetime ($500): <strong style="color:#f0b90b;">$50 USDT</strong></div>';
+                html += '    <div style="font-size:12px; color:#eaecef; margin-top:6px; line-height:1.5;">Monthly ($19): <strong style="color:#f0b90b;">$2 USDT</strong><br>1-Year ($79): <strong style="color:#f0b90b;">$10 USDT</strong><br>Lifetime ($500): <strong style="color:#f0b90b;">$50 USDT</strong></div>';
                 html += '  </div>';
                 html += '</div>';
 

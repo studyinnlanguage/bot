@@ -715,16 +715,28 @@
         /* Products & Pricing Section */
         .pricing-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 28px;
-            max-width: 920px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            max-width: 1180px;
             margin: 0 auto;
+        }
+        @media (max-width: 1024px) {
+            .pricing-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                max-width: 760px;
+            }
+        }
+        @media (max-width: 768px) {
+            .pricing-grid {
+                grid-template-columns: minmax(0, 1fr);
+                max-width: 420px;
+            }
         }
         .pricing-card {
             background: var(--bg-card);
             border: 1.5px solid var(--border-subtle);
             border-radius: var(--radius-lg);
-            padding: 38px 30px;
+            padding: 38px 26px;
             display: flex;
             flex-direction: column;
             position: relative;
@@ -734,6 +746,11 @@
             transform: translateY(-6px);
             border-color: rgba(255, 255, 255, 0.18);
         }
+        .pricing-card.monthly {
+            border-color: rgba(255, 255, 255, 0.12);
+            background: linear-gradient(180deg, #151515 0%, #111111 100%);
+        }
+        .pricing-card.monthly .plan-name { color: #eaecef; }
         .pricing-card.popular {
             border-color: var(--gold);
             background: linear-gradient(180deg, #161616 0%, #121212 100%);
@@ -756,6 +773,11 @@
             text-transform: uppercase;
             letter-spacing: 1px;
             white-space: nowrap;
+        }
+        .badge-monthly {
+            background: rgba(240,185,11, 0.15);
+            color: var(--gold);
+            border: 1px solid rgba(240,185,11, 0.35);
         }
         .badge-popular {
             background: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
@@ -857,6 +879,18 @@
             justify-content: center;
             gap: 8px;
             text-decoration: none;
+        }
+        .btn-buy-monthly {
+            background: rgba(240,185,11, 0.12);
+            color: var(--gold);
+            border: 1.5px solid var(--gold);
+            box-shadow: 0 4px 14px rgba(240,185,11, 0.15);
+        }
+        .btn-buy-monthly:hover {
+            background: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
+            color: #000000;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 26px rgba(240,185,11, 0.4);
         }
         .btn-buy-yearly {
             background: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
@@ -2289,6 +2323,38 @@
 
             <div class="pricing-grid">
                 
+                <!-- Monthly License ($19 Starter) -->
+                <div class="pricing-card monthly">
+                    <div class="plan-badge badge-monthly">⚡ Starter</div>
+                    <div class="plan-header">
+                        <div class="plan-name">Monthly License</div>
+                        <div class="plan-price-wrap">
+                            <span class="plan-curr">$</span>
+                            <span class="plan-amount">19</span>
+                        </div>
+                        <div class="plan-period">30 Days 24/7 Cloud Automated Execution</div>
+                    </div>
+
+                    <div class="plan-bonus-callout">
+                        🎁 <strong>$2 USDT</strong> Referral Bonus per invite
+                    </div>
+
+                    <ul class="plan-features-list">
+                        <li><span class="feature-check">&#10003;</span> Full EMA 8, 13, 21, 55 Quad-Trend Algorithm</li>
+                        <li><span class="feature-check">&#10003;</span> <strong>1, 2, or 3 Concurrent Active Coins</strong> (Your Choice)</li>
+                        <li><span class="feature-check">&#10003;</span> Automated 1:1 Risk-Reward (SL &amp; TP Target Locking)</li>
+                        <li><span class="feature-check">&#10003;</span> 24/7 Cloud Server Runtime (No PC needed)</li>
+                        <li><span class="feature-check">&#10003;</span> Binance Futures, WEEX &amp; PrimeXBT Support</li>
+                        <li><span class="feature-check">&#10003;</span> Real-Time P&amp;L Terminal &amp; Interactive Charts</li>
+                        <li><span class="feature-check">&#10003;</span> Telegram, Email &amp; WhatsApp Trade Alerts</li>
+                        <li><span class="feature-check">&#10003;</span> Standard Email &amp; Community Support</li>
+                    </ul>
+
+                    <button class="btn-buy-plan btn-buy-monthly" onclick="openCheckoutModal('monthly', 'Monthly License', 19)">
+                        <span>⚡ Buy Monthly License ($19 USDT)</span>
+                    </button>
+                </div>
+
                 <!-- 1-Year License (Popular) -->
                 <div class="pricing-card popular">
                     <div class="plan-badge badge-popular">🔥 Most Popular</div>
@@ -2478,7 +2544,7 @@
                 <div class="step-card">
                     <div class="step-num">01</div>
                     <h4>Choose Your Plan</h4>
-                    <p>Select either the 1-Year License ($79) or Lifetime License ($500). Transfer USDT via TRC20 or BEP20 for instant order generation.</p>
+                    <p>Select either the Monthly License ($19), 1-Year License ($79), or Lifetime License ($500). Transfer USDT via TRC20 or BEP20 for instant order generation.</p>
                 </div>
                 <div class="step-card">
                     <div class="step-num">02</div>
@@ -2791,6 +2857,8 @@
             const btn = document.getElementById('modalSubmitBtn');
             if (pkgId === 'lifetime') {
                 btn.className = 'btn-buy-plan btn-buy-lifetime';
+            } else if (pkgId === 'monthly') {
+                btn.className = 'btn-buy-plan btn-buy-monthly';
             } else {
                 btn.className = 'btn-buy-plan btn-buy-yearly';
             }
