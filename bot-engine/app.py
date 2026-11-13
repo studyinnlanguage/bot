@@ -376,6 +376,8 @@ def update_config():
               "min_ema_spread", "fresh_window", "live_confirmed"]:
         if k in data:
             CONFIG[k] = data[k]
+    if data.get("testnet") is False and "live_confirmed" not in data:
+        CONFIG["live_confirmed"] = True
 
     # ---- PER-EXCHANGE CREDENTIAL MEMORY -------------------------------------
     # Credentials are remembered PER EXCHANGE (api_keys slots). The flat

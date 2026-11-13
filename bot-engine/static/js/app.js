@@ -1770,7 +1770,12 @@ async function loadSettings() {
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
         if ($('reentryCooldownSec')) $('reentryCooldownSec').value = String(cfg.reentry_cooldown_sec ?? 180);
         if ($('mode')) $('mode').value = cfg.mode || 'both';
-        if ($('testnet')) $('testnet').value = String(cfg.testnet ?? true);
+        if ($('testnet')) {
+            $('testnet').value = String(cfg.testnet ?? true);
+            const isLive = String(cfg.testnet) === 'false';
+            if ($('liveConfirmGroup')) $('liveConfirmGroup').style.display = isLive ? 'block' : 'none';
+            if ($('liveConfirmed')) $('liveConfirmed').checked = isLive ? (cfg.live_confirmed !== false) : false;
+        }
         // Saved-credential placeholders for the ACTIVE exchange (masked key
         // when available) + ✓ markers on every saved exchange button.
         updateSavedCredsUI(exchange, window._savedExchanges, cfg);
@@ -2060,6 +2065,7 @@ async function saveSettings() {
         reentry_cooldown_sec: parseInt($('reentryCooldownSec')?.value || 180),
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
+        live_confirmed: $('testnet').value === 'false' ? ($('liveConfirmed') ? $('liveConfirmed').checked : true) : false,
         // Advanced engine tuning (live-synced to active workers)
         min_ema_spread: (!isNaN(spreadParsed) && spreadParsed >= 0) ? spreadParsed : 0,
         fresh_window: Math.min(8, Math.max(2, (!isNaN(fwParsed) ? fwParsed : 2))),
@@ -2726,7 +2732,10 @@ function attachListeners() {
     const tn = $('testnet');
     if (tn) tn.addEventListener('change', () => {
         const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
+        const isLive = tn.value === 'false';
         updateEnvBadge(tn.value === 'true', exchange);
+        if ($('liveConfirmGroup')) $('liveConfirmGroup').style.display = isLive ? 'block' : 'none';
+        if ($('liveConfirmed') && isLive) $('liveConfirmed').checked = true;
     });
 }
 
