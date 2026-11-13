@@ -50,6 +50,34 @@ function esc(s) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// Safely parse /api/* JSON responses so HTML redirects, 401/502 pages, or
+// non-JSON errors never crash callers with "Unexpected token '<'".
+async function parseApiJson(r, fallbackLabel = 'Request') {
+    const text = await r.text();
+    const trimmed = (text || '').trim();
+    if (trimmed && !trimmed.startsWith('<')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && parsed.auth_expired) {
+                window._lastAuthExpiredAt = Date.now();
+            }
+            return parsed;
+        } catch (_) {
+            // Fall through to descriptive error below
+        }
+    }
+    const contentType = (r.headers.get('content-type') || '').toLowerCase();
+    const isHtml = trimmed.startsWith('<') || contentType.includes('text/html');
+    if (r.status === 502 || r.status === 503 || r.status === 504) {
+        throw new Error(`${fallbackLabel}: Server restart/busy ho raha hai (HTTP ${r.status}) — 5 sec baad refresh karke retry karein.`);
+    }
+    if (r.status === 401 || r.redirected || isHtml) {
+        window._lastAuthExpiredAt = Date.now();
+        throw new Error(`${fallbackLabel}: Session expire ho gayi hai ya server restart hua (HTTP ${r.status}) — page refresh (Ctrl+Shift+R) karke dobara login karein.`);
+    }
+    throw new Error(`${fallbackLabel}: Invalid server response (HTTP ${r.status})`);
+}
+
 function log(level, msg) {
     const logs = $('logs');
     if (!logs) return;
@@ -189,7 +217,7 @@ async function fetchChartData(symbol) {
     if (!symbol || !isRunning) return;
     try {
         const r = await fetch(`/api/test_chart?symbol=${symbol}`);
-        const data = await r.json();
+        const data = await parseApiJson(r, 'Chart');
         if (data.success && data.candles && data.candles.length > 0) {
             chartDataBySymbol[symbol] = { symbol, candles: data.candles, emas: data.emas || {} };
             if (symbol === activeSymbol) {
@@ -1265,7 +1293,7 @@ function updatePositionUI(data) {
 window.fetchPositions = async function() {
     try {
         const r = await fetch('/api/positions' + (activeSymbol ? `?symbol=${activeSymbol}` : ''));
-        const d = await r.json();
+        const d = await parseApiJson(r, 'Positions');
         if (d.success && d.positions) {
             d.positions.forEach(p => {
                 if (p.symbol) positionsBySymbol[p.symbol] = p;
@@ -1333,12 +1361,7 @@ window.closePositionForSymbol = async function(symbol) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbol: symbol })
         });
-        const contentType = r.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-            log('error', `[${symbol}] Close request returned HTTP ${r.status}`);
-            return;
-        }
-        const d = await r.json();
+        const d = await parseApiJson(r, `[${symbol}] Close`);
         if (d.success) {
             log('success', `[${symbol}] Position closed successfully!`);
             if (positionsBySymbol[symbol]) {
@@ -1364,7 +1387,7 @@ window.tradeHistoryStats = {};
 window.fetchTradeHistory = async function(force = false) {
     try {
         const r = await fetch('/api/trades?limit=100');
-        const d = await r.json();
+        const d = await parseApiJson(r, 'Trades');
         if (d.success) {
             window.tradeHistoryData = d.trades || [];
             window.tradeHistoryStats = d.stats || {};
@@ -1548,7 +1571,7 @@ window.clearTradeHistory = async function() {
     if (!confirm('Are you sure you want to clear all closed trade history records? Active open positions will not be affected.')) return;
     try {
         const r = await fetch('/api/trades/clear', { method: 'POST' });
-        const d = await r.json();
+        const d = await parseApiJson(r, 'Clear history');
         if (d.success) {
             log('info', '🧹 Trade history cleared successfully.');
             window.tradeHistoryData = (window.tradeHistoryData || []).filter(t => t.status === 'OPEN');
@@ -1746,7 +1769,7 @@ async function loadSettings() {
     isRestoringSettings = true;   // never treat settings restore as exchange switch
     try {
         const r = await fetch('/api/config');
-        const cfg = await r.json();
+        const cfg = await parseApiJson(r, 'Config');
         // Per-exchange saved-credential map (presence flags only, no secrets)
         window._savedExchanges = cfg.saved_exchanges || null;
         // Exchange
@@ -2017,7 +2040,7 @@ async function refreshCoinDropdown(exchange) {
             r = await fetch('/api/symbols');
         }
         if (!r || !r.ok) return;
-        const data = await r.json();
+        const data = await parseApiJson(r, 'Symbols');
         if (data && data.success && data.symbols && data.symbols.length > 0) {
             const datalist = $('coinSuggestions');
             if (datalist) {
@@ -2099,7 +2122,7 @@ async function saveSettings() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(cfg),
         });
-        const data = await r.json();
+        const data = await parseApiJson(r, 'Save');
         if (data.success) {
             log('success', `Settings saved! Exchange: ${exchange.toUpperCase()}`);
             // Track the real saved-keys state from the authoritative response
@@ -2190,8 +2213,13 @@ async function startBot() {
         return;
     }
     // Persist whatever the user just typed so START always runs on the
-    // latest settings (atomic backend write; failure never blocks start).
+    // latest settings (atomic backend write; failure never blocks start
+    // unless the session itself expired and redirected/401'd).
+    window._lastAuthExpiredAt = 0;
     try { await saveSettings(); } catch (e) { /* non-blocking */ }
+    if (window._lastAuthExpiredAt) {
+        return;
+    }
     log('info', 'Start request bhej rahe hain...');
     // Add 30s timeout
     const controller = new AbortController();
@@ -2199,7 +2227,7 @@ async function startBot() {
     try {
         const r = await fetch('/api/start', { method: 'POST', signal: controller.signal });
         clearTimeout(timeoutId);
-        const data = await r.json();
+        const data = await parseApiJson(r, 'Start');
         if (data.success) {
             log('success', 'Bot started!');
             setBotRunning(true);
@@ -2220,7 +2248,7 @@ async function stopBot() {
     log('info', 'Stop request bhej rahe hain...');
     try {
         const r = await fetch('/api/stop', { method: 'POST' });
-        const data = await r.json();
+        const data = await parseApiJson(r, 'Stop');
         if (data.success) {
             log('success', 'Bot stopped');
             setBotRunning(false);
@@ -2245,12 +2273,7 @@ async function closePosition() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbol: activeSymbol }),
         });
-        const contentType = r.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-            log('error', `[${activeSymbol}] Close request returned HTTP ${r.status}`);
-            return;
-        }
-        const data = await r.json();
+        const data = await parseApiJson(r, `[${activeSymbol}] Close`);
         if (data.success) {
             log('success', `[${activeSymbol}] Position close request accepted`);
             if (positionsBySymbol[activeSymbol]) {
@@ -2279,12 +2302,7 @@ window.closeAllPositions = async function() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({})
         });
-        const contentType = r.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-            log('error', `Close all request returned HTTP ${r.status}`);
-            return;
-        }
-        const data = await r.json();
+        const data = await parseApiJson(r, 'Close all');
         if (data.success) {
             log('success', '✅ Saari active positions close request successfully process ho gayi!');
             for (const sym in positionsBySymbol) {
@@ -2306,7 +2324,7 @@ window.closeAllPositions = async function() {
 async function refreshStatus() {
     try {
         const r = await fetch('/api/status');
-        const s = await r.json();
+        const s = await parseApiJson(r, 'Status');
         setBotRunning(!!s.running);
         updateWorkersUI(s);
         let totalTrades = s.trades_today != null ? s.trades_today : null;
@@ -2337,7 +2355,7 @@ async function refreshBalance() {
     // (started after Save) handles this. Backend returns error if no trader.
     try {
         const r = await fetch('/api/balance');
-        const d = await r.json();
+        const d = await parseApiJson(r, 'Balance');
         if (d.success && $('statBalance')) {
             $('statBalance').textContent = `$${Number(d.balance).toFixed(2)}`;
             const exchange = (d.exchange || 'binance').toUpperCase();
@@ -2379,7 +2397,7 @@ function attachListeners() {
             testConnBtn.textContent = 'Testing...';
             try {
                 const r = await fetch('/api/test_connection', { method: 'POST' });
-                const data = await r.json();
+                const data = await parseApiJson(r, 'Test connection');
                 if (data.success) {
                     log('success', `✅ ${data.message}`);
                     if (data.balance !== undefined) {
@@ -2409,7 +2427,7 @@ function attachListeners() {
             log('warn', 'Force reset request bhej rahe hain...');
             try {
                 const r = await fetch('/api/force_stop', { method: 'POST' });
-                const data = await r.json();
+                const data = await parseApiJson(r, 'Force reset');
                 if (data.success) {
                     log('success', '✅ Force reset done! Ab START fresh kar sakte ho.');
                     setBotRunning(false);
@@ -2463,7 +2481,7 @@ function attachListeners() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(testData),
                 });
-                const data = await r.json();
+                const data = await parseApiJson(r, 'Notification');
                 if (data.success) {
                     log('success', `✅ Notification sent! ${data.message || ''}`);
                 } else if (data.results) {
@@ -2548,7 +2566,7 @@ function attachListeners() {
             loadAllBtn.textContent = 'Loading...';
             try {
                 const r = await fetch('/api/symbols');
-                const data = await r.json();
+                const data = await parseApiJson(r, 'Load coins');
                 if (data.success && data.symbols && data.symbols.length > 0) {
                     // Populate datalist (autocomplete dropdown)
                     const datalist = $('coinSuggestions');
@@ -2590,7 +2608,7 @@ function attachListeners() {
     async function autoLoadCoins() {
         try {
             const r = await fetch('/api/symbols');
-            const data = await r.json();
+            const data = await parseApiJson(r, 'Symbols');
             if (data.success && data.symbols && data.symbols.length > 0) {
                 const datalist = $('coinSuggestions');
                 if (datalist) {
@@ -2666,7 +2684,7 @@ function attachListeners() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ leverage: lev, symbol: activeSymbol })
             });
-            const data = await res.json();
+            const data = await parseApiJson(res, 'Leverage');
             if (data.success) {
                 const finalLev = data.leverage || lev;
                 if (levInput) levInput.value = finalLev;
@@ -2823,7 +2841,7 @@ window.applyQuickPosLeverage = async function() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ leverage: lev, symbol: sym })
         });
-        const res = await r.json();
+        const res = await parseApiJson(r, 'Leverage');
         if (res.success) {
             if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
             if ($('leverage')) $('leverage').value = lev;

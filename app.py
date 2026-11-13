@@ -171,6 +171,29 @@ def apply_security_headers(response):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
 
+
+from werkzeug.exceptions import HTTPException as _HTTPException
+
+
+def _is_json_api_path(path: str) -> bool:
+    return path.startswith(("/api/", "/bot/api/", "/bot/socket.io"))
+
+
+@app.errorhandler(_HTTPException)
+def handle_http_exception(err):
+    """Return JSON instead of Flask HTML error pages for /api/* and /bot/api/* routes."""
+    if _is_json_api_path(request.path):
+        return jsonify({"success": False, "error": f"HTTP {err.code}: {err.name}"}), (err.code or 500)
+    return err
+
+
+@app.errorhandler(500)
+def handle_internal_server_error(err):
+    """Return JSON on unhandled 500 errors for /api/* and /bot/api/* routes."""
+    if _is_json_api_path(request.path):
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+    return err
+
 # ============================================================
 # Configuration
 # ============================================================
@@ -226,7 +249,18 @@ _ENCRYPTION_KEY_BYTES = hashlib.sha256(_ENCRYPTION_RAW.encode("utf-8")).digest()
 
 # Fix 12: Shared secret token for SaaS ↔ Bot-Engine communication
 # Bot engine instances will only accept requests bearing this token.
-BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", secrets.token_hex(32))
+# Persist to .bot_engine_token if unset so restarts / workers stay in sync.
+BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", "").strip()
+if not BOT_ENGINE_TOKEN:
+    _bot_token_file = BASE_DIR / ".bot_engine_token"
+    try:
+        if _bot_token_file.exists():
+            BOT_ENGINE_TOKEN = _bot_token_file.read_text(encoding="utf-8").strip()
+        if not BOT_ENGINE_TOKEN:
+            BOT_ENGINE_TOKEN = secrets.token_hex(32)
+            _bot_token_file.write_text(BOT_ENGINE_TOKEN, encoding="utf-8")
+    except Exception:
+        BOT_ENGINE_TOKEN = secrets.token_hex(32)
 
 # Serialization guards: payment activation + referral payouts must be atomic
 # (prevents double licenses / double withdrawals under concurrent requests)
@@ -1707,12 +1741,16 @@ def ensure_bot_engine_running(user_id: str) -> dict:
 
             proc = subprocess.Popen([sys.executable, "app.py"], **popen_kwargs)
 
-            DB.setdefault("bot_processes", {})[user_id] = {
+            proc_data = {
                 "pid": proc.pid,
                 "port": port,
                 "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "should_run": True,
             }
+            DB.setdefault("bot_processes", {})[user_id] = proc_data
+            shared = _load_bot_processes()
+            shared[user_id] = proc_data
+            _save_bot_processes(shared)
             save_db(DB)
 
             logger.info("Started bot-engine (detached) for user %s: PID=%s, port=%s", user_id, proc.pid, port)
@@ -1727,6 +1765,10 @@ def ensure_bot_engine_running(user_id: str) -> dict:
                     pass
                 logger.error("Bot-engine crashed immediately for %s. Log: %s", user_id, error_detail)
                 DB.get("bot_processes", {}).pop(user_id, None)
+                shared = _load_bot_processes()
+                if user_id in shared:
+                    shared.pop(user_id, None)
+                    _save_bot_processes(shared)
                 save_db(DB)
                 return {"success": False, "error": f"Bot-engine crashed on startup. Log: {error_detail[:200]}"}
 
@@ -2790,6 +2832,15 @@ def root_api_symbols_fallback():
 # FULL PROXY - serves bot-engine dashboard in iframe
 # ============================================================
 
+def _is_proxy_api_request(path: str) -> bool:
+    """Return True when the proxied path expects JSON/Socket.IO rather than an HTML redirect."""
+    return (
+        path.startswith('socket.io')
+        or path.startswith('api/')
+        or request.headers.get("Authorization", "").startswith("Bearer")
+    )
+
+
 @app.route('/bot/', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
 @app.route('/bot/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
 def bot_engine_proxy(path=''):
@@ -2804,12 +2855,18 @@ def bot_engine_proxy(path=''):
                 if user and user.get("banned"):
                     user = None
     if not user:
+        if _is_proxy_api_request(path):
+            return jsonify({
+                "success": False,
+                "auth_expired": True,
+                "error": "Session expired or logged out. Please refresh the page and log in again.",
+            }), 401
         return redirect("/")
 
     sub = check_subscription(user)
     if not sub["active"]:
         # Browser clients go to the packages page; API/socket clients get a JSON 403
-        if path.startswith('socket.io') or path.startswith('api/') or request.headers.get("Authorization", "").startswith("Bearer"):
+        if _is_proxy_api_request(path):
             return jsonify({"success": False, "error": "Subscription inactive", "subscription": sub}), 403
         return redirect("/")
 
@@ -2820,8 +2877,8 @@ def bot_engine_proxy(path=''):
         if result.get("success") and result.get("port"):
             status = {"running": True, "port": result["port"]}
         else:
-            if path.startswith('socket.io') or path.startswith('api/'):
-                return jsonify({"status": "starting", "error": "Bot engine starting... Please refresh the page (F5)."}), 503
+            if _is_proxy_api_request(path):
+                return jsonify({"success": False, "status": "starting", "error": "Bot engine starting... Please refresh the page (F5)."}), 503
 
             return '''<html><head><meta http-equiv="refresh" content="2"></head>
             <body style="background:#0b0e11;color:#eaecef;font-family:sans-serif;text-align:center;padding:120px 20px;">
@@ -2896,6 +2953,8 @@ def bot_engine_proxy(path=''):
         <style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>
         </body></html>''', 200
     except Exception as e:
+        if _is_proxy_api_request(path):
+            return jsonify({"success": False, "error": f"Proxy error: {str(e)}"}), 502
         return f"Proxy error: {str(e)}", 500
 
     excluded = {'content-encoding', 'transfer-encoding', 'connection', 'content-length', 'keep-alive'}

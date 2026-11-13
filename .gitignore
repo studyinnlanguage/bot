@@ -9,6 +9,7 @@ user_configs/
 logs/
 uploads/
 .flask_secret
+.bot_engine_token
 
 # Bot engine per-user copies
 bot-engine/logs/
@@ -61,6 +62,7 @@ Thumbs.db
 .watchdog.lock
 .encryption_key
 .flask_secret
+.bot_engine_token
 logs/
 user_instances/
 uploads/

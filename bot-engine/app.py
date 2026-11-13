@@ -69,6 +69,9 @@ try:
 except Exception:
     pass
 
+from werkzeug.exceptions import HTTPException
+
+
 @app.after_request
 def apply_security_headers(response):
     response.headers["Server"] = "Web-Server"
@@ -76,6 +79,22 @@ def apply_security_headers(response):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
+
+
+@app.errorhandler(HTTPException)
+def handle_bot_http_exception(err):
+    """Never serve Flask HTML error pages on /api/* routes."""
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": f"HTTP {err.code}: {err.name}"}), (err.code or 500)
+    return err
+
+
+@app.errorhandler(500)
+def handle_bot_internal_error(err):
+    """Return JSON on unhandled 500 errors for /api/* routes."""
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": "Internal bot-engine error"}), 500
+    return err
 
 # Fix 12: Shared secret token — set by parent SaaS when spawning this process.
 # Requests without the correct X-Bot-Token header are rejected.

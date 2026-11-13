@@ -228,4 +228,12 @@ class TestEngineApi:
         assert abs(reloaded["sp"] - 0.08) < 1e-9
         assert reloaded["fw"] == 5
 
+    def test_unknown_api_route_returns_json_not_html(self, engine):
+        """Unknown /api/* paths must return JSON 404, never Flask <!doctype html>."""
+        base, hdr = engine
+        code, body = _get(base, "/api/does_not_exist_xyz", hdr)
+        assert code == 404
+        assert body["success"] is False
+        assert "404" in body["error"]
+
 
