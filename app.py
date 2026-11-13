@@ -794,10 +794,13 @@ def save_db(db: dict):
                 conn = _pg_connect()
                 try:
                     with conn.cursor() as cur:
-                        # 1. Sync Users
-                        user_ids = []
+                        # 1. Sync Users (delete removed/merged IDs first so UNIQUE(email) never collides)
+                        user_ids = list((db.get("users") or {}).keys())
+                        if user_ids:
+                            cur.execute("DELETE FROM users WHERE id NOT IN %s", (tuple(user_ids),))
+                        else:
+                            cur.execute("DELETE FROM users")
                         for uid, u in (db.get("users") or {}).items():
-                            user_ids.append(uid)
                             cur.execute("""
                                 INSERT INTO users (id, email, name, password_hash, role, banned, created_at, google_id, google_picture, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -839,10 +842,6 @@ def save_db(db: dict):
                                 u.get("payout_wallet", "") or "",
                                 _Json(u.get("payout_requests", []))
                             ))
-                        if user_ids:
-                            cur.execute("DELETE FROM users WHERE id NOT IN %s", (tuple(user_ids),))
-                        else:
-                            cur.execute("DELETE FROM users")
 
                         # 2. Sync Licenses
                         lic_keys = []
@@ -967,6 +966,33 @@ def _find_users_by_email(email: str, db: Optional[dict] = None) -> list:
     return [
         u for u in (store.get("users") or {}).values()
         if _norm_email(u.get("email")) == norm
+    ]
+
+
+def _gmail_canonical_email(email: str) -> str:
+    """Return dot-insensitive canonical Gmail address, or normalized email otherwise."""
+    norm = _norm_email(email)
+    if "@" not in norm:
+        return norm
+    local, domain = norm.rsplit("@", 1)
+    if domain in ("gmail.com", "googlemail.com"):
+        return f"{local.replace('.', '')}@gmail.com"
+    return norm
+
+
+def _find_users_by_email_tolerant(email: str, db: Optional[dict] = None) -> list:
+    """Match exact email first, falling back to dot-insensitive Gmail match."""
+    exact = _find_users_by_email(email, db=db)
+    if exact:
+        return exact
+    norm = _norm_email(email)
+    if not norm or not norm.endswith(("@gmail.com", "@googlemail.com")):
+        return []
+    canon = _gmail_canonical_email(norm)
+    store = db if db is not None else DB
+    return [
+        u for u in (store.get("users") or {}).values()
+        if isinstance(u, dict) and _gmail_canonical_email(u.get("email") or "") == canon
     ]
 
 
@@ -3671,49 +3697,96 @@ def _public_base_url() -> str:
         return "https://weexionic.duckdns.org"
 
 
-def _send_email_smtp(to_email: str, subject: str, plain_body: str, html_body: Optional[str] = None) -> dict:
+def _send_email_smtp(
+    to_email: str,
+    subject: str,
+    plain_body: str,
+    html_body: Optional[str] = None,
+    smtp_override: Optional[dict] = None,
+) -> dict:
     """Send transactional email via configured SaaS SMTP settings."""
-    smtp_cfg = _get_smtp_config()
-    smtp_user = smtp_cfg["user"]
-    smtp_pass = smtp_cfg["pass"]
-    smtp_server = smtp_cfg["server"]
-    smtp_port = int(smtp_cfg["port"] or 587)
+    smtp_cfg = dict(_get_smtp_config())
+    if isinstance(smtp_override, dict):
+        for k, v in smtp_override.items():
+            if v not in (None, ""):
+                smtp_cfg[k] = v
+
+    smtp_user = str(smtp_cfg.get("user") or "").strip()
+    smtp_pass = str(smtp_cfg.get("pass") or "").strip()
+    smtp_server = str(smtp_cfg.get("server") or smtp_cfg.get("host") or "smtp.gmail.com").strip()
+    try:
+        smtp_port = int(smtp_cfg.get("port") or 587)
+    except (ValueError, TypeError):
+        smtp_port = 587
 
     if not smtp_user or not smtp_pass:
         logger.warning("SaaS SMTP not configured. Email (%s) not sent to %s", subject, to_email)
         return {"success": False, "error": "SMTP credentials not configured (check .env or Admin Panel)"}
 
+    is_gmail_relay = (
+        "gmail" in smtp_server.lower()
+        or smtp_user.lower().endswith(("@gmail.com", "@googlemail.com"))
+    )
+    # Google displays 16-char App Passwords in 4-char space-separated groups
+    if is_gmail_relay and " " in smtp_pass:
+        compact = smtp_pass.replace(" ", "")
+        if len(compact) == 16 and compact.isalnum():
+            smtp_pass = compact
+
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
+    from email.utils import formataddr, formatdate, make_msgid
 
     try:
-        sender_label = smtp_cfg.get("sender_name") or "Weexionic Trading Bot"
-        from_header = smtp_cfg.get("from_email") or smtp_user
+        sender_label = str(smtp_cfg.get("sender_name") or "Weexionic Trading Bot").strip()
+        raw_from = str(smtp_cfg.get("from_email") or smtp_user).strip()
+        if is_gmail_relay and raw_from.lower() != smtp_user.lower():
+            envelope_from = smtp_user
+            header_from = smtp_user
+            reply_to = raw_from
+        else:
+            envelope_from = raw_from
+            header_from = raw_from
+            reply_to = ""
+
+        domain = envelope_from.split("@", 1)[1] if "@" in envelope_from else None
         msg = MIMEMultipart("alternative")
-        msg["From"] = f"{sender_label} <{from_header}>"
+        msg["From"] = formataddr((sender_label, header_from))
         msg["To"] = to_email
         msg["Subject"] = subject
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain=domain)
+        if reply_to:
+            msg["Reply-To"] = reply_to
         msg.attach(MIMEText(plain_body, "plain", "utf-8"))
         if html_body:
             msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         if smtp_port == 465:
             with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
+                server.ehlo()
                 server.login(smtp_user, smtp_pass)
-                server.sendmail(from_header, to_email, msg.as_string())
+                refused = server.sendmail(envelope_from, [to_email], msg.as_string())
         else:
             with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
                 server.login(smtp_user, smtp_pass)
-                server.sendmail(from_header, to_email, msg.as_string())
+                refused = server.sendmail(envelope_from, [to_email], msg.as_string())
 
-        logger.info("Transactional email sent (%s) to %s", subject, to_email)
+        if refused:
+            logger.error("SMTP refused recipient for (%s) to %s: %s", subject, to_email, refused)
+            return {"success": False, "error": f"SMTP refused recipient: {refused}"}
+
+        logger.info(
+            "Transactional email sent (%s) to %s via %s:%s (from=%s)",
+            subject, to_email, smtp_server, smtp_port, envelope_from,
+        )
         return {"success": True}
     except Exception as e:
-        logger.error("Failed to send email (%s) to %s: %s", subject, to_email, e)
+        logger.error("Failed to send email (%s) to %s via %s:%s: %s", subject, to_email, smtp_server, smtp_port, e)
         return {"success": False, "error": str(e)}
 
 
@@ -3803,6 +3876,37 @@ def _get_valid_reset_record(raw_token: str):
     return t_hash, rec
 
 
+def _issue_password_reset_token(user: dict) -> tuple:
+    """Create and persist a 30-minute single-use password reset link for `user`."""
+    canonical_id = _dedupe_users_by_email(user["id"], save=False)
+    user = DB["users"].get(canonical_id, user)
+    target_email = _norm_email(user.get("email"))
+
+    resets = _prune_expired_reset_tokens(DB)
+    # Keep at most 2 previous valid tokens for this user in case of rapid double-clicks
+    user_tokens = [
+        (k, float(v.get("created_at", 0) or 0))
+        for k, v in resets.items()
+        if isinstance(v, dict) and (v.get("user_id") == user["id"] or _norm_email(v.get("email")) == target_email)
+    ]
+    user_tokens.sort(key=lambda item: item[1])
+    for old_k, _ in user_tokens[:-2]:
+        resets.pop(old_k, None)
+
+    raw_token = secrets.token_urlsafe(32)
+    t_hash = _reset_token_hash(raw_token)
+    now_ts = time.time()
+    resets[t_hash] = {
+        "user_id": user["id"],
+        "email": target_email,
+        "created_at": now_ts,
+        "expires_at": now_ts + 1800,
+    }
+    save_db(DB)
+    reset_url = f"{_public_base_url()}/reset-password?token={raw_token}"
+    return user, target_email, t_hash, reset_url
+
+
 def _create_and_send_password_reset(email_raw: str) -> tuple:
     """Create a 30-minute single-use password reset link and email it to `email_raw`."""
     email = _norm_email(email_raw)
@@ -3823,44 +3927,22 @@ def _create_and_send_password_reset(email_raw: str) -> tuple:
             "error": "Password reset email service is not configured yet. Please configure SMTP in Admin Panel or .env.",
         }, 503
 
-    matches = _find_users_by_email(email)
+    matches = _find_users_by_email_tolerant(email)
     if not matches:
+        logger.warning("Password reset requested for unregistered email: %s", email)
         return {
-            "success": True,
-            "message": "If an account exists for that email, a password reset link has been sent. Please check Inbox & Spam.",
-        }, 200
+            "success": False,
+            "error": f"No account found for '{email}'. Kripya wohi exact email enter karein jis se account banaya tha.",
+        }, 404
 
     user = max(matches, key=lambda item: _user_richness_score(item))
-    canonical_id = _dedupe_users_by_email(user["id"])
-    user = DB["users"].get(canonical_id, user)
     if user.get("banned"):
         return {"success": False, "error": "Account suspended. Please contact admin."}, 403
 
-    resets = _prune_expired_reset_tokens(DB)
-    # Keep at most 2 previous valid tokens for this user in case of rapid double-clicks
-    user_tokens = [
-        (k, float(v.get("created_at", 0) or 0))
-        for k, v in resets.items()
-        if isinstance(v, dict) and (v.get("user_id") == user["id"] or _norm_email(v.get("email")) == email)
-    ]
-    user_tokens.sort(key=lambda item: item[1])
-    for old_k, _ in user_tokens[:-2]:
-        resets.pop(old_k, None)
-
-    raw_token = secrets.token_urlsafe(32)
-    t_hash = _reset_token_hash(raw_token)
-    now_ts = time.time()
-    resets[t_hash] = {
-        "user_id": user["id"],
-        "email": email,
-        "created_at": now_ts,
-        "expires_at": now_ts + 1800,
-    }
-    save_db(DB)
-
-    reset_url = f"{_public_base_url()}/reset-password?token={raw_token}"
-    send_res = _send_password_reset_email(email, reset_url, user.get("name", ""))
+    user, target_email, t_hash, reset_url = _issue_password_reset_token(user)
+    send_res = _send_password_reset_email(target_email, reset_url, user.get("name", ""))
     if not send_res.get("success"):
+        resets = _prune_expired_reset_tokens(DB)
         resets.pop(t_hash, None)
         save_db(DB)
         return {
@@ -3868,10 +3950,11 @@ def _create_and_send_password_reset(email_raw: str) -> tuple:
             "error": f"Failed to send reset email: {send_res.get('error', 'SMTP error')}",
         }, 502
 
-    logger.info("Password reset email sent to %s (user_id=%s)", email, user["id"])
+    logger.info("Password reset email sent to %s (user_id=%s)", target_email, user["id"])
     return {
         "success": True,
-        "message": "If an account exists for that email, a password reset link has been sent. Please check Inbox & Spam.",
+        "email": target_email,
+        "message": f"Password reset link {target_email} par bhej diya gaya hai! Kripya Inbox aur Spam folder check karein.",
     }, 200
 
 # ============================================================
@@ -4861,6 +4944,47 @@ def api_admin_smtp():
     })
 
 
+@app.route("/api/admin/users/reset-link", methods=["POST"])
+def api_admin_user_reset_link():
+    """Admin: generate a single-use password reset link for a user (and email if SMTP configured)."""
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = str(data.get("user_id") or "").strip()
+    email_arg = _norm_email(data.get("email"))
+    user = DB.get("users", {}).get(user_id) if user_id else None
+    if not user and email_arg:
+        matches = _find_users_by_email_tolerant(email_arg)
+        if matches:
+            user = max(matches, key=lambda item: _user_richness_score(item))
+    if not user:
+        return jsonify({"success": False, "error": "User not found"}), 404
+
+    target_email = _norm_email(user.get("email"))
+    if not target_email:
+        return jsonify({"success": False, "error": "User does not have an email address"}), 400
+
+    user, target_email, _, reset_url = _issue_password_reset_token(user)
+
+    smtp_cfg = _get_smtp_config()
+    email_sent = False
+    email_error = "SMTP not configured"
+    if smtp_cfg.get("user") and smtp_cfg.get("pass"):
+        res = _send_password_reset_email(target_email, reset_url, user.get("name", ""))
+        email_sent = bool(res.get("success"))
+        email_error = "" if email_sent else str(res.get("error") or "SMTP send failed")
+
+    logger.info("Admin issued reset link for %s (email_sent=%s)", target_email, email_sent)
+    return jsonify({
+        "success": True,
+        "email": target_email,
+        "reset_url": reset_url,
+        "email_sent": email_sent,
+        "email_error": email_error,
+    })
+
+
 @app.route("/api/admin/smtp/test", methods=["POST"])
 def api_admin_test_smtp():
     """Admin: send a test email to verify SMTP configuration."""
@@ -4878,47 +5002,30 @@ def api_admin_test_smtp():
     custom_port = data.get("port")
 
     smtp_cfg = _get_smtp_config()
-    smtp_user = custom_user or smtp_cfg["user"]
-    smtp_pass = custom_pass or smtp_cfg["pass"]
-    smtp_server = custom_server or smtp_cfg["server"]
-    try:
-        smtp_port = int(custom_port) if custom_port else smtp_cfg["port"]
-    except (ValueError, TypeError):
-        smtp_port = 587
-
-    if not smtp_user or not smtp_pass:
+    override = {
+        "user": custom_user or smtp_cfg["user"],
+        "pass": custom_pass or smtp_cfg["pass"],
+        "server": custom_server or smtp_cfg["server"],
+        "host": custom_server or smtp_cfg["server"],
+        "port": custom_port or smtp_cfg["port"],
+    }
+    if not override["user"] or not override["pass"]:
         return jsonify({"success": False, "error": "SMTP User and App Password are missing. Configure them first."})
 
-    import smtplib
-    from email.mime.text import MIMEText
-
-    try:
-        sender_label = smtp_cfg.get("sender_name") or "Weexionic Trading Bot"
-        from_header = smtp_cfg.get("from_email") or smtp_user
-        msg = MIMEText(
-            f"Hello,\n\n"
-            f"This is a live test email from Weexionic Trading Bot.\n"
-            f"Your SMTP settings are working perfectly!\n\n"
-            f"Connected Server: {smtp_server}:{smtp_port}\n"
-            f"Sender Email: {smtp_user}\n"
-            f"Configuration Source: {smtp_cfg.get('source', 'configured')}\n"
-            f"Timestamp (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
-            f"Weexionic Trading System is ready to dispatch license keys automatically.",
-            "plain"
-        )
-        msg["From"] = f"{sender_label} <{from_header}>"
-        msg["To"] = test_to
-        msg["Subject"] = "[Weexionic] SMTP Test Email Successful ✅"
-
-        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(from_header, test_to, msg.as_string())
-
+    plain_body = (
+        f"Hello,\n\n"
+        f"This is a live test email from Weexionic Trading Bot.\n"
+        f"Your SMTP settings are working perfectly!\n\n"
+        f"Connected Server: {override['server']}:{override['port']}\n"
+        f"Sender Email: {override['user']}\n"
+        f"Configuration Source: {smtp_cfg.get('source', 'configured')}\n"
+        f"Timestamp (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+        f"Weexionic Trading System is ready to dispatch license keys and password reset links automatically."
+    )
+    res = _send_email_smtp(test_to, "[Weexionic] SMTP Test Email Successful", plain_body, smtp_override=override)
+    if res.get("success"):
         return jsonify({"success": True, "message": f"Test email sent successfully to {test_to}!"})
-    except Exception as e:
-        logger.error("Admin SMTP test failed to %s: %s", test_to, e)
-        return jsonify({"success": False, "error": f"SMTP Error: {str(e)}"})
+    return jsonify({"success": False, "error": f"SMTP Error: {res.get('error', 'Unknown SMTP error')}"})
 
 
 @app.route("/api/admin/orders/reject", methods=["POST"])

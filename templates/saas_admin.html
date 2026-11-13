@@ -566,7 +566,8 @@
                         '<span class="badge badge-running">running</span>' :
                         '<span class="badge" style="background:rgba(94,102,115,0.15);color:#848e9c;">stopped</span>';
                     const banBadge = u.banned ? '<span class="badge badge-banned">banned</span>' : '';
-                    const actions = '<button class="btn-sm ' + (u.banned ? 'btn-unban' : 'btn-ban') + '" onclick="banUser(\'' + u.id + '\', ' + !u.banned + ')">' + (u.banned ? 'Unban' : 'Ban') + '</button>'
+                    const actions = '<button class="btn-sm btn-verify" onclick="issueUserResetLink(\'' + u.id + '\')">Reset Link</button>'
+                        + '<button class="btn-sm ' + (u.banned ? 'btn-unban' : 'btn-ban') + '" onclick="banUser(\'' + u.id + '\', ' + !u.banned + ')">' + (u.banned ? 'Unban' : 'Ban') + '</button>'
                         + '<button class="btn-sm btn-delete" onclick="deleteUser(\'' + u.id + '\')">Delete</button>';
                     const refInfo = 'Ref: ' + (u.referral_code || '-') + ' (' + (u.referral_count || 0) + ' users, $' + (u.referral_earnings || 0) + ')' + (u.referred_by_name ? ' | Invited by: ' + esc(u.referred_by_name) : '');
                     return '<div class="user-row">'
@@ -577,6 +578,25 @@
                         + '<div>' + actions + '</div>'
                         + '</div>';
                 }).join('');
+            }
+
+            async function issueUserResetLink(userId) {
+                try {
+                    const r = await fetch('/api/admin/users/reset-link', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({user_id: userId})
+                    });
+                    const data = await r.json();
+                    if (!data.success) {
+                        alert('Failed: ' + (data.error || 'Unknown error'));
+                        return;
+                    }
+                    try { await navigator.clipboard.writeText(data.reset_url); } catch(e) {}
+                    const mailStatus = data.email_sent
+                        ? ('Email SENT to ' + data.email)
+                        : ('Email NOT sent (' + (data.email_error || 'SMTP error') + ')');
+                    window.prompt('Reset Link (30 min, single-use) — ' + mailStatus + ':\nCopy & share if needed:', data.reset_url);
+                } catch(e) { alert('Network error'); }
             }
 
             async function banUser(userId, banned) {

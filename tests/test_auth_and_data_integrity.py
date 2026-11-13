@@ -633,4 +633,131 @@ class TestPasswordResetAndLiveConfig:
         assert saas.DB["users"][uid]["bot_config"]["testnet"] is False
         assert saas.DB["users"][uid]["bot_config"]["live_confirmed"] is True
 
+    def test_unknown_email_returns_404_instead_of_fake_success(self, saas_env, monkeypatch):
+        c, saas, _, _ = saas_env
+        for var in ("SAAS_SMTP_USER", "SAAS_SMTP_PASS", "SMTP_USER", "SMTP_PASS"):
+            monkeypatch.delenv(var, raising=False)
+        saas.DB["settings"]["smtp"] = {
+            "host": "smtp.gmail.com",
+            "port": 587,
+            "user": "bot@weexionic.test",
+            "pass": "app-secret-pw",
+        }
+        res = c.post("/api/auth/forgot-password", json={"email": "missing_user@gmail.com"})
+        assert res.status_code == 404
+        body = res.get_json()
+        assert body["success"] is False
+        assert "no account found" in body["error"].lower()
+
+    def test_gmail_dot_alias_matches_account_for_password_reset(self, saas_env, monkeypatch):
+        import re
+        c, saas, _, created_uids = saas_env
+        r = c.post("/api/auth/signup", json={
+            "email": "muhammad.ahmer0002@gmail.com",
+            "password": "OldPassword1!",
+            "name": "Ahmer",
+        })
+        assert r.status_code == 200
+        created_uids.append(r.get_json()["user"]["id"])
+        saas.DB["settings"]["smtp"] = {
+            "host": "smtp.gmail.com",
+            "port": 587,
+            "user": "bot@weexionic.test",
+            "pass": "app-secret-pw",
+        }
+        sent = []
+        monkeypatch.setattr(saas, "_send_email_smtp", lambda to, subj, plain, html=None: (sent.append((to, plain)) or {"success": True}))
+        c.post("/api/auth/logout")
+
+        fp = c.post("/api/auth/forgot-password", json={"email": "muhammadahmer0002@gmail.com"})
+        assert fp.status_code == 200
+        assert fp.get_json()["email"] == "muhammad.ahmer0002@gmail.com"
+        assert len(sent) == 1
+        assert sent[0][0] == "muhammad.ahmer0002@gmail.com"
+        m = re.search(r"(/reset-password\?token=([A-Za-z0-9_\-]+))", sent[0][1])
+        assert m
+        rp = c.post("/api/auth/reset-password", json={"token": m.group(2), "password": "NewPassword9!"})
+        assert rp.status_code == 200
+
+    def test_smtp_sets_date_msgid_and_gmail_app_password_and_from_envelope(self, saas_env, monkeypatch):
+        import smtplib
+        _, saas, _, _ = saas_env
+        saas.DB["settings"]["smtp"] = {
+            "host": "smtp.gmail.com",
+            "port": 587,
+            "user": "relay@gmail.com",
+            "pass": "abcd efgh ijkl mnop",
+            "from_email": "support@weexionic.com",
+            "sender_name": "Weexionic Bot",
+        }
+        captured = {}
+
+        class FakeSMTP:
+            def __init__(self, host, port, timeout=15):
+                captured["host"] = host
+                captured["port"] = port
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def ehlo(self):
+                captured["ehlo"] = True
+            def starttls(self):
+                captured["starttls"] = True
+            def login(self, user, pw):
+                captured["login_user"] = user
+                captured["login_pw"] = pw
+            def sendmail(self, envelope_from, rcpts, raw_msg):
+                captured["envelope_from"] = envelope_from
+                captured["rcpts"] = rcpts
+                captured["raw_msg"] = raw_msg
+                return {}
+
+        monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+        res = saas._send_email_smtp("dest@gmail.com", "Test Subject", "Hello plain")
+        assert res["success"] is True
+        assert captured["login_pw"] == "abcdefghijklmnop"
+        assert captured["envelope_from"] == "relay@gmail.com"
+        assert captured["rcpts"] == ["dest@gmail.com"]
+        assert "Date:" in captured["raw_msg"]
+        assert "Message-ID:" in captured["raw_msg"]
+        assert "Reply-To: support@weexionic.com" in captured["raw_msg"]
+
+    def test_admin_issue_reset_link_works_with_or_without_smtp(self, saas_env, monkeypatch):
+        c, saas, _, created_uids = saas_env
+        for var in ("SAAS_SMTP_USER", "SAAS_SMTP_PASS", "SMTP_USER", "SMTP_PASS"):
+            monkeypatch.delenv(var, raising=False)
+        r = c.post("/api/auth/signup", json={
+            "email": "AdminReset@Example.com",
+            "password": "StartPassword1!",
+            "name": "Target",
+        })
+        assert r.status_code == 200
+        uid = r.get_json()["user"]["id"]
+        created_uids.append(uid)
+
+        # Non-admin must be forbidden
+        unauth = c.post("/api/admin/users/reset-link", json={"user_id": uid})
+        assert unauth.status_code == 403
+
+        # Admin issues reset link even without SMTP configured
+        c.post("/api/admin/login", json={"password": saas.ADMIN_SECRET})
+        res = c.post("/api/admin/users/reset-link", json={"user_id": uid})
+        assert res.status_code == 200
+        body = res.get_json()
+        assert body["success"] is True
+        assert body["email"] == "adminreset@example.com"
+        assert body["email_sent"] is False
+        assert "/reset-password?token=" in body["reset_url"]
+
+        token = body["reset_url"].split("token=")[-1]
+        c.post("/api/auth/logout")
+        rp = c.post("/api/auth/reset-password", json={"token": token, "password": "AdminResetPass9!"})
+        assert rp.status_code == 200
+        assert c.post("/api/auth/login", json={
+            "email": "adminreset@example.com",
+            "password": "AdminResetPass9!",
+        }).get_json()["success"] is True
+
+
 
