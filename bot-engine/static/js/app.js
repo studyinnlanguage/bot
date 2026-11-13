@@ -2212,6 +2212,15 @@ async function startBot() {
         log('warn', 'Pehle coins add karein ya "Load All Coins" dabao.');
         return;
     }
+    const activeEx = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
+    if (activeEx !== 'primexbt' && $('testnet')?.value === 'false' && $('liveConfirmed') && !$('liveConfirmed').checked) {
+        if ($('liveConfirmGroup')) {
+            $('liveConfirmGroup').style.display = 'block';
+            $('liveConfirmGroup').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        log('warn', '⚠️ Live trading start karne ke liye Engine settings mein "I understand this will trade REAL funds" checkbox tick karke Start karein.');
+        return;
+    }
     // Persist whatever the user just typed so START always runs on the
     // latest settings (atomic backend write; failure never blocks start
     // unless the session itself expired and redirected/401'd).

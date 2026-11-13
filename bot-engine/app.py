@@ -207,6 +207,12 @@ def load_config() -> dict:
                 merged["fresh_window"] = max(2, min(8, int(merged.get("fresh_window", 2) or 2)))
             except (ValueError, TypeError):
                 merged["fresh_window"] = 2
+            if bool(merged.get("testnet", True)):
+                merged["live_confirmed"] = False
+            elif "live_confirmed" not in cfg:
+                merged["live_confirmed"] = True
+            else:
+                merged["live_confirmed"] = bool(cfg.get("live_confirmed"))
             # Per-exchange credential memory: if a slot map exists, the flat
             # fields MUST mirror the ACTIVE exchange's own saved credentials.
             # (A legacy file without slots keeps its flat credentials as-is;
@@ -395,7 +401,9 @@ def update_config():
               "min_ema_spread", "fresh_window", "live_confirmed"]:
         if k in data:
             CONFIG[k] = data[k]
-    if data.get("testnet") is False and "live_confirmed" not in data:
+    if bool(CONFIG.get("testnet", True)):
+        CONFIG["live_confirmed"] = False
+    elif data.get("testnet") is False and data.get("live_confirmed") is not False:
         CONFIG["live_confirmed"] = True
 
     # ---- PER-EXCHANGE CREDENTIAL MEMORY -------------------------------------

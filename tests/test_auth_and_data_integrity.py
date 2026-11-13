@@ -381,3 +381,256 @@ class TestDatabaseIntegrity:
         loaded = saas._load_json_db()
         assert loaded["users"]["u1"]["email"] == "saved@example.com"
 
+
+class TestPasswordResetAndLiveConfig:
+    def test_forgot_password_requires_smtp_and_never_leaks_token(self, saas_env, monkeypatch):
+        c, saas, _, created_uids = saas_env
+        for var in (
+            "SAAS_SMTP_USER", "SAAS_SMTP_PASS",
+            "SMTP_USER", "SMTP_PASS", "SMTP_PASSWORD",
+            "EMAIL_USER", "EMAIL_PASSWORD",
+            "MAIL_USERNAME", "MAIL_PASSWORD",
+            "GMAIL_USER", "GMAIL_APP_PASS",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+        r = c.post("/api/auth/signup", json={
+            "email": "ResetUser@Example.COM",
+            "password": "OldPassword1!",
+            "name": "Reset User",
+        })
+        assert r.status_code == 200
+        created_uids.append(r.get_json()["user"]["id"])
+        c.post("/api/auth/logout")
+
+        resp = c.post("/api/auth/forgot-password", json={"email": "resetuser@example.com"})
+        assert resp.status_code == 503
+        body = resp.get_json()
+        assert body["success"] is False
+        assert "smtp" in body["error"].lower()
+        assert not saas.DB.get("settings", {}).get("password_resets")
+
+    def test_forgot_and_reset_password_preserves_api_keys_subscription_and_trade_history(self, saas_env, monkeypatch):
+        import re
+        c, saas, _, created_uids = saas_env
+
+        # 1. User creates email + password account
+        r = c.post("/api/auth/signup", json={
+            "email": "TraderReset@Example.COM",
+            "password": "InitialPass123!",
+            "name": "Mudassar",
+        })
+        assert r.status_code == 200
+        uid = r.get_json()["user"]["id"]
+        created_uids.append(uid)
+
+        # 2. Seed saved subscription, license, order, encrypted API keys, config.json & trade_history.json
+        user = saas.DB["users"][uid]
+        user["subscription"] = {
+            "active": True,
+            "plan": "monthly",
+            "status": "active",
+            "expires_at": "2027-01-01T00:00:00Z",
+        }
+        user["license_key"] = "WX-RESET-9999"
+        user["bot_config"] = {
+            "exchange": "binance",
+            "testnet": False,
+            "live_confirmed": True,
+            "leverage": 50,
+            "stop_loss_pct": 0.4,
+            "api_key_enc": saas.encrypt("REAL_BINANCE_KEY_XYZ"),
+            "api_secret_enc": saas.encrypt("REAL_BINANCE_SECRET_XYZ"),
+            "api_keys_enc": {
+                "binance": {
+                    "api_key": saas.encrypt("REAL_BINANCE_KEY_XYZ"),
+                    "api_secret": saas.encrypt("REAL_BINANCE_SECRET_XYZ"),
+                }
+            },
+        }
+        saas.DB["orders"]["ord_reset_1"] = {
+            "id": "ord_reset_1",
+            "user_id": uid,
+            "plan": "monthly",
+            "amount": 19,
+            "status": "approved",
+        }
+        saas.DB["settings"]["smtp"] = {
+            "host": "smtp.gmail.com",
+            "port": 587,
+            "user": "bot@weexionic.test",
+            "pass": "app-secret-pw",
+        }
+        saas.save_db(saas.DB)
+        cfg_path = saas.write_user_bot_config(uid)
+
+        hist_dir = saas.USER_INSTANCES_DIR / uid / "data"
+        hist_dir.mkdir(parents=True, exist_ok=True)
+        hist_file = hist_dir / "trade_history.json"
+        sample_trades = [
+            {"id": "t1", "symbol": "BTCUSDT", "side": "LONG", "pnl_usdt": 14.5, "exit_reason": "TAKE PROFIT HIT"}
+        ]
+        hist_file.write_text(json.dumps(sample_trades), encoding="utf-8")
+
+        c.post("/api/auth/logout")
+
+        # 3. Capture outgoing SMTP email from both web & mobile forgot-password endpoints
+        sent_emails = []
+
+        def fake_send_email_smtp(to_email, subject, plain_body, html_body=None):
+            sent_emails.append({
+                "to": to_email,
+                "subject": subject,
+                "plain": plain_body,
+                "html": html_body or "",
+            })
+            return {"success": True, "message": "Email sent"}
+
+        monkeypatch.setattr(saas, "_send_email_smtp", fake_send_email_smtp)
+
+        fp = c.post(
+            "/api/auth/forgot-password",
+            json={"email": "  traderreset@example.com  "},
+            headers={"Host": "weexionic.example.com", "X-Forwarded-For": "203.0.113.10"},
+        )
+        assert fp.status_code == 200
+        assert fp.get_json()["success"] is True
+        assert len(sent_emails) == 1
+        assert sent_emails[0]["to"] == "traderreset@example.com"
+        assert "Mudassar" in sent_emails[0]["html"]
+
+        match = re.search(r"https?://[^/\s]+(/reset-password\?token=([A-Za-z0-9_\-]+))", sent_emails[0]["plain"])
+        assert match, f"Expected reset link in email body, got: {sent_emails[0]['plain']}"
+        reset_path, raw_token = match.group(1), match.group(2)
+
+        # Mobile endpoint also dispatches reset email cleanly
+        fp_mobile = c.post(
+            "/api/mobile/auth/forgot-password",
+            json={"email": "TraderReset@example.com"},
+            headers={"X-Forwarded-For": "203.0.113.11"},
+        )
+        assert fp_mobile.status_code == 200
+        assert len(sent_emails) == 2
+
+        # Raw token must NEVER be stored unhashed in DB["settings"]["password_resets"]
+        stored_resets = saas.DB["settings"]["password_resets"]
+        assert raw_token not in json.dumps(stored_resets)
+        assert saas._reset_token_hash(raw_token) in stored_resets
+
+        # 4. Reset page renders email context cleanly
+        page = c.get(reset_path)
+        assert page.status_code == 200
+        html_text = page.get_data(as_text=True)
+        assert "traderreset@example.com" in html_text
+        assert 'id="resetForm"' in html_text
+
+        # Too-short password rejected
+        bad_len = c.post("/api/auth/reset-password", json={"token": raw_token, "password": "short"})
+        assert bad_len.status_code == 400
+
+        # 5. Save new password -> succeeds, persists DB, invalidates tokens, keeps user assets
+        rp = c.post("/api/auth/reset-password", json={
+            "token": raw_token,
+            "password": "BrandNewPassword9!",
+        })
+        assert rp.status_code == 200
+        rp_body = rp.get_json()
+        assert rp_body["success"] is True
+        assert rp_body["email"] == "traderreset@example.com"
+        assert saas.DB["settings"]["password_resets"] == {}
+
+        # Token is single-use: second submit and GET must reject
+        reuse = c.post("/api/auth/reset-password", json={
+            "token": raw_token,
+            "password": "AnotherPassword9!",
+        })
+        assert reuse.status_code == 400
+        expired_page = c.get(reset_path)
+        assert expired_page.status_code == 200
+        expired_html = expired_page.get_data(as_text=True)
+        assert 'id="resetForm"' not in expired_html
+        assert "invalid ya expire" in expired_html.lower()
+
+        # 6. Old password no longer works; new password logs in on BOTH web and mobile
+        c.post("/api/auth/logout")
+        old_login = c.post("/api/auth/login", json={
+            "email": "traderreset@example.com",
+            "password": "InitialPass123!",
+        })
+        assert old_login.get_json()["success"] is False
+
+        mob_old = c.post("/api/mobile/auth/login", json={
+            "email": "traderreset@example.com",
+            "password": "InitialPass123!",
+        })
+        assert mob_old.status_code == 401
+        assert mob_old.get_json()["success"] is False
+
+        new_login = c.post("/api/auth/login", json={
+            "email": "  TraderReset@Example.COM ",
+            "password": "BrandNewPassword9!",
+        })
+        assert new_login.status_code == 200
+        assert new_login.get_json()["success"] is True
+
+        mob_login = c.post("/api/mobile/auth/login", json={
+            "email": "traderreset@example.com",
+            "password": "BrandNewPassword9!",
+        })
+        assert mob_login.status_code == 200
+        assert mob_login.get_json()["success"] is True
+
+        # 7. Reload DB from disk to verify everything persisted (email, API keys, subscription, orders, trades)
+        persisted_db = saas._load_json_db()
+        saved_user = persisted_db["users"][uid]
+        assert saved_user["email"] == "traderreset@example.com"
+        assert saved_user["license_key"] == "WX-RESET-9999"
+        assert saved_user["subscription"]["plan"] == "monthly"
+        assert saas.decrypt(saved_user["bot_config"]["api_key_enc"]) == "REAL_BINANCE_KEY_XYZ"
+        assert saas.decrypt(saved_user["bot_config"]["api_keys_enc"]["binance"]["api_secret"]) == "REAL_BINANCE_SECRET_XYZ"
+        assert persisted_db["orders"]["ord_reset_1"]["user_id"] == uid
+        assert json.loads(hist_file.read_text(encoding="utf-8")) == sample_trades
+        assert json.loads(Path(cfg_path).read_text(encoding="utf-8"))["live_confirmed"] is True
+
+    def test_live_confirmed_persists_when_switching_between_demo_and_live(self, saas_env):
+        c, saas, _, created_uids = saas_env
+        r = c.post("/api/auth/signup", json={
+            "email": "LiveConf@Example.COM",
+            "password": "LiveConfPass1!",
+            "name": "Live User",
+        })
+        assert r.status_code == 200
+        uid = r.get_json()["user"]["id"]
+        created_uids.append(uid)
+
+        # Save live config via SaaS /api/bot/config
+        res_live = c.post("/api/bot/config", json={
+            "exchange": "weex",
+            "testnet": False,
+        })
+        assert res_live.status_code == 200
+        assert saas.DB["users"][uid]["bot_config"]["testnet"] is False
+        assert saas.DB["users"][uid]["bot_config"]["live_confirmed"] is True
+
+        cfg_path = saas.write_user_bot_config(uid)
+        cfg_data = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+        assert cfg_data["testnet"] is False
+        assert cfg_data["live_confirmed"] is True
+
+        # Switch back to Demo -> live_confirmed clears to False automatically
+        res_demo = c.post("/api/bot/config", json={"testnet": True})
+        assert res_demo.status_code == 200
+        assert saas.DB["users"][uid]["bot_config"]["testnet"] is True
+        assert saas.DB["users"][uid]["bot_config"]["live_confirmed"] is False
+
+        # Sync engine payload with testnet=False & explicit live_confirmed=True -> persists to DB
+        saas._sync_engine_config_to_db(saas.DB["users"][uid], {
+            "exchange": "binance",
+            "testnet": False,
+            "live_confirmed": True,
+        })
+        assert saas.DB["users"][uid]["bot_config"]["exchange"] == "binance"
+        assert saas.DB["users"][uid]["bot_config"]["testnet"] is False
+        assert saas.DB["users"][uid]["bot_config"]["live_confirmed"] is True
+
+

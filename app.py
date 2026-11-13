@@ -1556,6 +1556,15 @@ def find_free_port() -> int:
             continue
     raise RuntimeError("No free ports available")
 
+def _resolve_live_confirmed(target_testnet: bool, src: dict) -> bool:
+    """Resolve live-trading confirmation flag consistently with testnet toggle."""
+    if bool(target_testnet):
+        return False
+    if isinstance(src, dict) and "live_confirmed" in src and src["live_confirmed"] is not None:
+        return bool(src["live_confirmed"])
+    return True
+
+
 def write_user_bot_config(user_id: str) -> str:
     """Write user's bot config to their own bot-engine config.json.
 
@@ -1599,6 +1608,7 @@ def write_user_bot_config(user_id: str) -> str:
             bot_config["exchange"] = _db_exchange
         if "testnet" in config:
             bot_config["testnet"] = bool(config["testnet"])
+        bot_config["live_confirmed"] = _resolve_live_confirmed(bool(bot_config.get("testnet", True)), config)
         if "fresh_window" in config and config["fresh_window"] is not None:
             bot_config["fresh_window"] = max(2, min(8, int(config["fresh_window"]) or 2))
         if "min_ema_spread" in config and config["min_ema_spread"] is not None:
@@ -1732,6 +1742,7 @@ def write_user_bot_config(user_id: str) -> str:
         bot_config.update({
             "exchange": config.get("exchange", "binance"),
             "testnet": config.get("testnet", True),
+            "live_confirmed": _resolve_live_confirmed(bool(config.get("testnet", True)), config),
             "symbol": (config.get("symbols_list") or ["BTCUSDT"])[0],
             "symbols_list": (config.get("symbols_list") or ["BTCUSDT"]),
             "timeframe": config.get("timeframe", "5m"),
@@ -1849,6 +1860,8 @@ def _sync_engine_config_to_db(user: dict, data: dict):
         config["exchange"] = ex if ex in ("binance", "weex", "primexbt") else "binance"
     if "testnet" in data:
         config["testnet"] = bool(data["testnet"])
+    if "testnet" in data or "live_confirmed" in data:
+        config["live_confirmed"] = _resolve_live_confirmed(bool(config.get("testnet", True)), data)
     new_db_exchange = str(config.get("exchange") or "binance").lower()
 
     # ---- PER-EXCHANGE CREDENTIAL SLOTS (encrypted at rest) -------------------
@@ -2601,6 +2614,101 @@ def api_logout():
     session.pop("admin_authenticated", None)
     return jsonify({"success": True})
 
+
+@app.route("/reset-password", methods=["GET"])
+def reset_password_page():
+    raw_token = (request.args.get("token") or "").strip()
+    found = _get_valid_reset_record(raw_token)
+    if found:
+        _, rec = found
+        return render_template(
+            "saas_login.html",
+            reset_token=raw_token,
+            reset_valid=True,
+            reset_email=rec.get("email", ""),
+            reset_error="",
+        )
+    return render_template(
+        "saas_login.html",
+        reset_token=raw_token or "invalid",
+        reset_valid=False,
+        reset_email="",
+        reset_error="Password reset link invalid ya expire ho chuka hai. Naya link request karein.",
+    )
+
+
+@app.route("/api/auth/forgot-password", methods=["POST"])
+def api_forgot_password():
+    data = request.get_json(force=True, silent=True) or {}
+    payload, code = _create_and_send_password_reset(data.get("email") or "")
+    return jsonify(payload), code
+
+
+@app.route("/api/auth/reset-password", methods=["POST"])
+def api_reset_password():
+    client_ip = _client_ip()
+    if not _check_rate_limit(f"reset_pw:{client_ip}", max_requests=10, window_seconds=300):
+        return jsonify({"success": False, "error": "Too many password reset attempts. Please wait 5 minutes."}), 429
+
+    data = request.get_json(force=True, silent=True) or {}
+    raw_token = (data.get("token") or "").strip()
+    password = data.get("password") or ""
+
+    if len(password) < 8:
+        return jsonify({"success": False, "error": "Password must be at least 8 characters"}), 400
+
+    found = _get_valid_reset_record(raw_token)
+    if not found:
+        return jsonify({
+            "success": False,
+            "error": "Password reset link invalid ya expire ho chuka hai. Naya link request karein.",
+        }), 400
+
+    t_hash, rec = found
+    uid = rec.get("user_id")
+    email = _norm_email(rec.get("email"))
+    user = DB.get("users", {}).get(uid)
+    if not user and email:
+        matches = _find_users_by_email(email)
+        if matches:
+            user = max(matches, key=lambda item: _user_richness_score(item))
+
+    if not user:
+        resets = _prune_expired_reset_tokens(DB)
+        resets.pop(t_hash, None)
+        save_db(DB)
+        return jsonify({"success": False, "error": "User account not found"}), 404
+
+    if user.get("banned"):
+        return jsonify({"success": False, "error": "Account suspended. Please contact admin."}), 403
+
+    canonical_id = _dedupe_users_by_email(user["id"], save=False)
+    user = DB["users"].get(canonical_id, user)
+    user["password_hash"] = hash_password(password)
+    user["password_updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    resets = _prune_expired_reset_tokens(DB)
+    user_email_norm = _norm_email(user.get("email"))
+    for k, v in list(resets.items()):
+        if k == t_hash or (
+            isinstance(v, dict)
+            and (v.get("user_id") == user["id"] or _norm_email(v.get("email")) == user_email_norm)
+        ):
+            resets.pop(k, None)
+
+    save_db(DB)
+
+    session.pop("admin_authenticated", None)
+    session["user_id"] = user["id"]
+    session.permanent = True
+
+    logger.info("Password reset completed and saved for %s (id=%s)", user.get("email"), user["id"])
+    return jsonify({
+        "success": True,
+        "email": user.get("email"),
+        "message": "New password save ho gaya hai! Ab aap is password se login kar sakte hain.",
+    })
+
 @app.route("/api/auth/me", methods=["GET"])
 def api_me():
     if not is_logged_in():
@@ -2933,6 +3041,8 @@ def api_bot_config():
         config["exchange"] = ex if ex in ("binance", "weex", "primexbt") else "binance"
     if "testnet" in data:
         config["testnet"] = bool(data["testnet"])
+    if "testnet" in data or "live_confirmed" in data:
+        config["live_confirmed"] = _resolve_live_confirmed(bool(config.get("testnet", True)), data)
     if data.get("api_key") and str(data["api_key"]).strip():
         config["api_key_enc"] = encrypt(str(data["api_key"]).strip())
     if data.get("api_secret") and str(data["api_secret"]).strip():
@@ -3535,19 +3645,42 @@ def api_admin_delete():
     return jsonify({"success": True, "message": "User deleted"})
 
 # ============================================================
-# SaaS Email Helper
+# SaaS Email & Password Reset Helpers
 # ============================================================
 
-def _send_license_email(to_email: str, license_key: str, package_name: str, days: int):
-    """Send license key to user via email after admin verifies payment."""
+def _public_base_url() -> str:
+    """Resolve external origin URL for links sent in emails (proxy-safe)."""
+    explicit = (os.environ.get("PUBLIC_BASE_URL") or os.environ.get("APP_PUBLIC_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    try:
+        fwd_host = (request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
+        host = fwd_host or (request.headers.get("Host") or request.host or "").strip()
+        fwd_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+        hostname = host.split(":")[0].lower()
+        if fwd_proto in ("http", "https"):
+            scheme = fwd_proto
+        elif hostname and hostname not in ("localhost", "127.0.0.1", "::1"):
+            scheme = "https"
+        else:
+            scheme = (request.scheme or "http").lower()
+        if host:
+            return f"{scheme}://{host}"
+        return request.url_root.rstrip("/")
+    except Exception:
+        return "https://weexionic.duckdns.org"
+
+
+def _send_email_smtp(to_email: str, subject: str, plain_body: str, html_body: Optional[str] = None) -> dict:
+    """Send transactional email via configured SaaS SMTP settings."""
     smtp_cfg = _get_smtp_config()
     smtp_user = smtp_cfg["user"]
     smtp_pass = smtp_cfg["pass"]
     smtp_server = smtp_cfg["server"]
-    smtp_port = smtp_cfg["port"]
+    smtp_port = int(smtp_cfg["port"] or 587)
 
     if not smtp_user or not smtp_pass:
-        logger.warning("SaaS SMTP not configured. License email not sent to %s", to_email)
+        logger.warning("SaaS SMTP not configured. Email (%s) not sent to %s", subject, to_email)
         return {"success": False, "error": "SMTP credentials not configured (check .env or Admin Panel)"}
 
     import smtplib
@@ -3560,35 +3693,186 @@ def _send_license_email(to_email: str, license_key: str, package_name: str, days
         msg = MIMEMultipart("alternative")
         msg["From"] = f"{sender_label} <{from_header}>"
         msg["To"] = to_email
-        msg["Subject"] = f"[Weexionic] Your License Key - {package_name}"
+        msg["Subject"] = subject
+        msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+        if html_body:
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-        days_text = "Lifetime" if days >= 9999 else f"{days} days"
-        body = (
-            f"Hello,\n\n"
-            f"Your payment has been verified and your license key is ready!\n\n"
-            f"Platform: Weexionic Automated Futures Trading Bot\n"
-            f"Package: {package_name}\n"
-            f"Duration: {days_text}\n"
-            f"License Key: {license_key}\n\n"
-            f"To activate:\n"
-            f"1. Login to your account\n"
-            f"2. Go to License Activation page\n"
-            f"3. Paste the license key above: {license_key}\n"
-            f"4. Click Activate\n\n"
-            f"Thank you for choosing Weexionic Trading Bot!\n"
-        )
-        msg.attach(MIMEText(body, "plain"))
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15) as server:
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_header, to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_header, to_email, msg.as_string())
 
-        with smtplib.SMTP(smtp_server, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(from_header, to_email, msg.as_string())
-
-        logger.info("License email sent successfully to %s", to_email)
+        logger.info("Transactional email sent (%s) to %s", subject, to_email)
         return {"success": True}
     except Exception as e:
-        logger.error("Failed to send license email to %s: %s", to_email, e)
+        logger.error("Failed to send email (%s) to %s: %s", subject, to_email, e)
         return {"success": False, "error": str(e)}
+
+
+def _send_license_email(to_email: str, license_key: str, package_name: str, days: int):
+    """Send license key to user via email after admin verifies payment."""
+    days_text = "Lifetime" if days >= 9999 else f"{days} days"
+    body = (
+        f"Hello,\n\n"
+        f"Your payment has been verified and your license key is ready!\n\n"
+        f"Platform: Weexionic Automated Futures Trading Bot\n"
+        f"Package: {package_name}\n"
+        f"Duration: {days_text}\n"
+        f"License Key: {license_key}\n\n"
+        f"To activate:\n"
+        f"1. Login to your account\n"
+        f"2. Go to License Activation page\n"
+        f"3. Paste the license key above: {license_key}\n"
+        f"4. Click Activate\n\n"
+        f"Thank you for choosing Weexionic Trading Bot!\n"
+    )
+    return _send_email_smtp(to_email, f"[Weexionic] Your License Key - {package_name}", body)
+
+
+def _send_password_reset_email(to_email: str, reset_url: str, user_name: str = "") -> dict:
+    """Send password reset link email for account recovery."""
+    from html import escape as _html_escape
+    greeting = f"Hello {user_name}," if user_name else "Hello,"
+    plain_body = (
+        f"{greeting}\n\n"
+        f"We received a request to reset the password for your Weexionic account ({to_email}).\n\n"
+        f"Click the link below to set a new password (valid for 30 minutes, single use):\n"
+        f"{reset_url}\n\n"
+        f"Your saved exchange API keys, license/subscription, and trade history remain safely linked to your email.\n\n"
+        f"If you did not request this password reset, you can safely ignore this email.\n"
+    )
+    safe_greet = _html_escape(greeting)
+    safe_email = _html_escape(to_email)
+    safe_url = _html_escape(reset_url, quote=True)
+    html_body = (
+        f"<div style='font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;"
+        f"background:#111714;color:#f3f1ea;border-radius:12px;border:1px solid #3c3215;'>"
+        f"<h2 style='color:#f0b90b;margin-top:0;'>WEEXIONIC Password Reset</h2>"
+        f"<p>{safe_greet}</p>"
+        f"<p>Click the button below to reset the password for <strong>{safe_email}</strong>:</p>"
+        f"<p style='margin:24px 0;'>"
+        f"<a href='{safe_url}' style='background:#f0b90b;color:#111;font-weight:bold;"
+        f"padding:12px 22px;border-radius:8px;text-decoration:none;display:inline-block;'>"
+        f"Reset My Password</a></p>"
+        f"<p style='font-size:12px;color:#b8b09c;'>Or copy this link:<br>{safe_url}</p>"
+        f"<p style='font-size:12px;color:#b8b09c;'>Valid for 30 minutes (single use). "
+        f"Your API keys, license, and trade history remain preserved on your account.</p>"
+        f"</div>"
+    )
+    return _send_email_smtp(to_email, "[Weexionic] Reset Your Password", plain_body, html_body)
+
+
+def _reset_token_hash(raw_token: str) -> str:
+    return hashlib.sha256((raw_token or "").strip().encode("utf-8")).hexdigest()
+
+
+def _prune_expired_reset_tokens(db: Optional[dict] = None) -> dict:
+    store = db if db is not None else DB
+    settings = store.setdefault("settings", {})
+    if not isinstance(settings, dict):
+        settings = {}
+        store["settings"] = settings
+    resets = settings.setdefault("password_resets", {})
+    if not isinstance(resets, dict):
+        resets = {}
+        settings["password_resets"] = resets
+    now_ts = time.time()
+    for tok_hash, rec in list(resets.items()):
+        if not isinstance(rec, dict) or now_ts > float(rec.get("expires_at", 0) or 0):
+            resets.pop(tok_hash, None)
+    return resets
+
+
+def _get_valid_reset_record(raw_token: str):
+    clean = (raw_token or "").strip()
+    if not clean:
+        return None
+    t_hash = _reset_token_hash(clean)
+    resets = _prune_expired_reset_tokens(DB)
+    rec = resets.get(t_hash)
+    if not rec:
+        return None
+    return t_hash, rec
+
+
+def _create_and_send_password_reset(email_raw: str) -> tuple:
+    """Create a 30-minute single-use password reset link and email it to `email_raw`."""
+    email = _norm_email(email_raw)
+    client_ip = _client_ip()
+    if (
+        not _check_rate_limit(f"forgot:{client_ip}:{email or '_'}", max_requests=5, window_seconds=900)
+        or not _check_rate_limit(f"forgot_ip:{client_ip}", max_requests=15, window_seconds=900)
+    ):
+        return {"success": False, "error": "Too many password reset requests. Please wait 15 minutes."}, 429
+
+    if not email or "@" not in email or "." not in email:
+        return {"success": False, "error": "Please enter a valid email address"}, 400
+
+    smtp_cfg = _get_smtp_config()
+    if not smtp_cfg.get("user") or not smtp_cfg.get("pass"):
+        return {
+            "success": False,
+            "error": "Password reset email service is not configured yet. Please configure SMTP in Admin Panel or .env.",
+        }, 503
+
+    matches = _find_users_by_email(email)
+    if not matches:
+        return {
+            "success": True,
+            "message": "If an account exists for that email, a password reset link has been sent. Please check Inbox & Spam.",
+        }, 200
+
+    user = max(matches, key=lambda item: _user_richness_score(item))
+    canonical_id = _dedupe_users_by_email(user["id"])
+    user = DB["users"].get(canonical_id, user)
+    if user.get("banned"):
+        return {"success": False, "error": "Account suspended. Please contact admin."}, 403
+
+    resets = _prune_expired_reset_tokens(DB)
+    # Keep at most 2 previous valid tokens for this user in case of rapid double-clicks
+    user_tokens = [
+        (k, float(v.get("created_at", 0) or 0))
+        for k, v in resets.items()
+        if isinstance(v, dict) and (v.get("user_id") == user["id"] or _norm_email(v.get("email")) == email)
+    ]
+    user_tokens.sort(key=lambda item: item[1])
+    for old_k, _ in user_tokens[:-2]:
+        resets.pop(old_k, None)
+
+    raw_token = secrets.token_urlsafe(32)
+    t_hash = _reset_token_hash(raw_token)
+    now_ts = time.time()
+    resets[t_hash] = {
+        "user_id": user["id"],
+        "email": email,
+        "created_at": now_ts,
+        "expires_at": now_ts + 1800,
+    }
+    save_db(DB)
+
+    reset_url = f"{_public_base_url()}/reset-password?token={raw_token}"
+    send_res = _send_password_reset_email(email, reset_url, user.get("name", ""))
+    if not send_res.get("success"):
+        resets.pop(t_hash, None)
+        save_db(DB)
+        return {
+            "success": False,
+            "error": f"Failed to send reset email: {send_res.get('error', 'SMTP error')}",
+        }, 502
+
+    logger.info("Password reset email sent to %s (user_id=%s)", email, user["id"])
+    return {
+        "success": True,
+        "message": "If an account exists for that email, a password reset link has been sent. Please check Inbox & Spam.",
+    }, 200
 
 # ============================================================
 # Google OAuth Routes
@@ -4885,6 +5169,7 @@ mobile_init(
     rate_limit=_check_rate_limit,
     client_ip=_client_ip,
     dedupe_user=_dedupe_users_by_email,
+    forgot_password=_create_and_send_password_reset,
     encrypt=encrypt,
     decrypt=decrypt,
     decrypt_checked=decrypt_checked,

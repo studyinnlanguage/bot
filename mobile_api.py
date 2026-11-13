@@ -485,6 +485,17 @@ def m_exchange_code():
     return jsonify({"success": True, "user": _user_snapshot(user), **_issue_tokens(user)})
 
 
+@mobile_bp.post("/auth/forgot-password")
+def m_forgot_password():
+    """Send password reset link email to an existing user email."""
+    fn = _cfg.get("forgot_password")
+    if not callable(fn):
+        return jsonify({"success": False, "error": "Password reset unavailable"}), 503
+    data = request.get_json(force=True, silent=True) or {}
+    payload, code = fn(data.get("email") or "")
+    return jsonify(payload), code
+
+
 @mobile_bp.post("/auth/poll-oauth")
 def m_poll_oauth():
     """Poll completion of a browser-initiated mobile Google OAuth flow by msid.
@@ -703,6 +714,11 @@ def _build_engine_config_payload(user: dict) -> dict:
     payload["api_keys"] = api_keys_plain
     payload["take_profit_pct"] = 1.0
     payload["tp_mode"] = "fixed"
+    payload["live_confirmed"] = (
+        False
+        if bool(payload.get("testnet", True))
+        else bool(payload.get("live_confirmed", True))
+    )
     return payload
 
 
@@ -845,6 +861,12 @@ def m_bot_config():
         config["api_passphrase_enc"] = act.get("api_passphrase_enc") or ""
     if "testnet" in data:
         config["testnet"] = bool(data["testnet"])
+    if "testnet" in data or "live_confirmed" in data:
+        config["live_confirmed"] = (
+            False
+            if bool(config.get("testnet", True))
+            else bool(data.get("live_confirmed", True))
+        )
     if "symbols_list" in data:
         symbols = data["symbols_list"]
         if isinstance(symbols, str):

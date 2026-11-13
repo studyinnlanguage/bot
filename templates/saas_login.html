@@ -129,6 +129,23 @@
             margin-bottom: 16px; display: none;
         }
         .error.show { display: block; }
+        .success-msg {
+            background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.45);
+            color: #6EE7B7; padding: 12px 14px; border-radius: 10px; font-size: 13px;
+            margin-bottom: 16px; display: none; line-height: 1.5;
+        }
+        .success-msg.show { display: block; }
+        .forgot-row { display: flex; justify-content: flex-end; margin: -6px 0 14px; }
+        .text-link {
+            background: none; border: none; padding: 0; color: #F59E0B;
+            font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit;
+        }
+        .text-link:hover { text-decoration: underline; }
+        .reset-banner {
+            background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.28);
+            color: #FDE68A; padding: 11px 14px; border-radius: 10px; font-size: 12.5px;
+            margin-bottom: 16px; line-height: 1.5;
+        }
         .info {
             background: var(--glass); border: 1px dashed rgba(240,185,11,.35);
             color: var(--txt-2); padding: 14px; border-radius: 12px; font-size: 12px; line-height: 1.7; margin-top: 20px;
@@ -176,12 +193,40 @@
         <h1 class="title">WEEXIONIC</h1>
         <p class="subtitle">Quad-Trend Quantitative Strategy<br>24/7 Cloud Automated Execution</p>
 
-        <div class="tabs">
+        {% if reset_token %}
+        <div id="resetSection">
+            <h2 style="font-size:17px;font-weight:700;margin-bottom:12px;color:#F8FAFC;">Reset Password</h2>
+            <div id="errorMsg" class="error{% if reset_error %} show{% endif %}">{{ reset_error or '' }}</div>
+            <div id="successMsg" class="success-msg"></div>
+            {% if reset_valid %}
+            <div class="reset-banner">
+                Resetting password for <strong>{{ reset_email }}</strong>. Your saved API keys, subscription &amp; trade history will stay intact.
+            </div>
+            <form id="resetForm" onsubmit="return handleResetPassword(event)">
+                <input type="hidden" id="resetToken" value="{{ reset_token }}">
+                <div class="form-group">
+                    <label class="label">New Password (min 8 chars)</label>
+                    <input type="password" id="resetPassword" class="input" placeholder="••••••••" required minlength="8">
+                </div>
+                <div class="form-group">
+                    <label class="label">Confirm New Password</label>
+                    <input type="password" id="resetPasswordConfirm" class="input" placeholder="••••••••" required minlength="8">
+                </div>
+                <button type="submit" id="resetBtn" class="btn">SAVE NEW PASSWORD</button>
+            </form>
+            {% endif %}
+            <div style="text-align:center;margin-top:16px;">
+                <a href="/login" class="text-link" style="text-decoration:none;">&larr; Back to Sign In</a>
+            </div>
+        </div>
+        {% else %}
+        <div class="tabs" id="authTabs">
             <button class="tab active" onclick="switchTab('login', event)">Sign In</button>
             <button class="tab" onclick="switchTab('signup', event)">Create Account</button>
         </div>
 
         <div id="errorMsg" class="error"></div>
+        <div id="successMsg" class="success-msg"></div>
 
         <form id="loginForm" onsubmit="return handleLogin(event)">
             <div class="form-group">
@@ -192,7 +237,24 @@
                 <label class="label">Password</label>
                 <input type="password" id="loginPassword" class="input" placeholder="••••••••" required>
             </div>
+            <div class="forgot-row">
+                <button type="button" class="text-link" onclick="showForgotForm()">Forgot password?</button>
+            </div>
             <button type="submit" id="loginBtn" class="btn">SIGN IN</button>
+        </form>
+
+        <form id="forgotForm" style="display:none;" onsubmit="return handleForgotPassword(event)">
+            <div class="reset-banner">
+                Apna registered email enter karein. Hum aapko password reset link bhejenge (30 min valid).
+            </div>
+            <div class="form-group">
+                <label class="label">Account Email</label>
+                <input type="email" id="forgotEmail" class="input" placeholder="you@example.com" required>
+            </div>
+            <button type="submit" id="forgotBtn" class="btn">SEND RESET LINK</button>
+            <div style="text-align:center;margin-top:14px;">
+                <button type="button" class="text-link" onclick="switchTab('login')">&larr; Back to Sign In</button>
+            </div>
         </form>
 
         <form id="signupForm" onsubmit="return handleSignup(event)" style="display:none;">
@@ -221,12 +283,15 @@
             <button type="submit" id="signupBtn" class="btn">CREATE ACCOUNT</button>
         </form>
 
-        <div class="divider"><span>OR</span></div>
+        <div id="oauthSection">
+            <div class="divider"><span>OR</span></div>
 
-        <a href="/auth/google" class="google-btn">
-            <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 4.09 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-            Continue with Google
-        </a>
+            <a href="/auth/google" class="google-btn">
+                <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 4.09 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Continue with Google
+            </a>
+        </div>
+        {% endif %}
 
         <div class="info">
             <strong>Get started:</strong> Create an account, select a package, connect your exchange API,
@@ -243,7 +308,16 @@
     </div>
 
     <script>
+        function clearMessages() {
+            const errEl = document.getElementById('errorMsg');
+            const okEl = document.getElementById('successMsg');
+            if (errEl) errEl.classList.remove('show');
+            if (okEl) okEl.classList.remove('show');
+        }
+
         function switchTab(tab, event) {
+            const loginForm = document.getElementById('loginForm');
+            if (!loginForm) return;
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             if (event && event.target) {
                 event.target.classList.add('active');
@@ -252,12 +326,39 @@
                 const tabs = document.querySelectorAll('.tab');
                 if (tabs[idx]) tabs[idx].classList.add('active');
             }
-            document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
+            const authTabs = document.getElementById('authTabs');
+            const oauthSec = document.getElementById('oauthSection');
+            const forgotForm = document.getElementById('forgotForm');
+            if (authTabs) authTabs.style.display = 'flex';
+            if (oauthSec) oauthSec.style.display = 'block';
+            if (forgotForm) forgotForm.style.display = 'none';
+            loginForm.style.display = tab === 'login' ? 'block' : 'none';
             document.getElementById('signupForm').style.display = tab === 'signup' ? 'block' : 'none';
-            document.getElementById('errorMsg').classList.remove('show');
+            clearMessages();
+        }
+
+        function showForgotForm() {
+            const loginForm = document.getElementById('loginForm');
+            const forgotForm = document.getElementById('forgotForm');
+            if (!loginForm || !forgotForm) return;
+            const authTabs = document.getElementById('authTabs');
+            const oauthSec = document.getElementById('oauthSection');
+            if (authTabs) authTabs.style.display = 'none';
+            if (oauthSec) oauthSec.style.display = 'none';
+            loginForm.style.display = 'none';
+            document.getElementById('signupForm').style.display = 'none';
+            forgotForm.style.display = 'block';
+            clearMessages();
+            const loginEmail = (document.getElementById('loginEmail')?.value || '').trim();
+            const forgotInput = document.getElementById('forgotEmail');
+            if (forgotInput && loginEmail && !forgotInput.value.trim()) {
+                forgotInput.value = loginEmail;
+            }
+            if (forgotInput) forgotInput.focus();
         }
 
         window.addEventListener('DOMContentLoaded', () => {
+            if (!document.getElementById('loginForm')) return;
             const urlParams = new URLSearchParams(window.location.search);
             const errParam = urlParams.get('error');
             if (errParam === 'email_not_verified') {
@@ -275,14 +376,25 @@
             }
             if ((refInput && refInput.value.trim()) || refParam) {
                 switchTab('signup');
+            } else if (urlParams.get('forgot') === '1') {
+                showForgotForm();
             }
         });
 
         function showError(msg) {
+            const okEl = document.getElementById('successMsg');
+            if (okEl) okEl.classList.remove('show');
             const el = document.getElementById('errorMsg');
             el.textContent = msg; el.classList.add('show');
         }
-        async function postAuthJson(url, btn, loadingText, idleText, payload, fallbackErr) {
+        function showSuccess(msg) {
+            const errEl = document.getElementById('errorMsg');
+            if (errEl) errEl.classList.remove('show');
+            const el = document.getElementById('successMsg');
+            if (el) { el.textContent = msg; el.classList.add('show'); }
+        }
+        async function postAuthJson(url, btn, loadingText, idleText, payload, fallbackErr, onSuccess) {
+            clearMessages();
             btn.disabled = true; btn.textContent = loadingText;
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -298,7 +410,11 @@
                 let data = null;
                 try { data = raw ? JSON.parse(raw) : null; } catch(_) {}
                 if (data && data.success) {
-                    window.location.href = '/';
+                    if (typeof onSuccess === 'function') {
+                        onSuccess(data);
+                    } else {
+                        window.location.href = '/';
+                    }
                     return;
                 }
                 const errMsg = (data && data.error) || (r.ok ? fallbackErr : `Server error (${r.status}). Please try again.`);
@@ -339,6 +455,55 @@
                     referral_code: document.getElementById('signupReferral').value.trim(),
                 },
                 'Signup failed'
+            );
+            return false;
+        }
+        function handleForgotPassword(e) {
+            e.preventDefault();
+            const email = document.getElementById('forgotEmail').value.trim();
+            if (!email) {
+                showError('Kripya apna registered email enter karein.');
+                return false;
+            }
+            postAuthJson(
+                '/api/auth/forgot-password',
+                document.getElementById('forgotBtn'),
+                'Sending link...',
+                'SEND RESET LINK',
+                { email },
+                'Could not send reset link',
+                (data) => {
+                    showSuccess(data.message || 'Password reset link aapke email par bhej diya gaya hai.');
+                }
+            );
+            return false;
+        }
+        function handleResetPassword(e) {
+            e.preventDefault();
+            const password = document.getElementById('resetPassword').value;
+            const confirm = document.getElementById('resetPasswordConfirm').value;
+            if (password.length < 8) {
+                showError('Password must be at least 8 characters');
+                return false;
+            }
+            if (password !== confirm) {
+                showError('Dono password match nahi kar rahe.');
+                return false;
+            }
+            postAuthJson(
+                '/api/auth/reset-password',
+                document.getElementById('resetBtn'),
+                'Saving password...',
+                'SAVE NEW PASSWORD',
+                {
+                    token: document.getElementById('resetToken').value,
+                    password,
+                },
+                'Could not reset password',
+                (data) => {
+                    showSuccess(data.message || 'New password save ho gaya hai! Redirecting...');
+                    setTimeout(() => { window.location.href = '/'; }, 800);
+                }
             );
             return false;
         }
