@@ -492,6 +492,8 @@ def _pg_init():
                         role VARCHAR(50) DEFAULT 'user',
                         banned BOOLEAN DEFAULT FALSE,
                         created_at VARCHAR(50),
+                        google_id VARCHAR(255) DEFAULT '',
+                        google_picture TEXT DEFAULT '',
                         subscription JSONB DEFAULT '{}'::jsonb,
                         license_key VARCHAR(50),
                         referral_code VARCHAR(50),
@@ -548,6 +550,8 @@ def _pg_init():
                     "role": "VARCHAR(50) DEFAULT 'user'",
                     "banned": "BOOLEAN DEFAULT FALSE",
                     "created_at": "VARCHAR(50)",
+                    "google_id": "VARCHAR(255) DEFAULT ''",
+                    "google_picture": "TEXT DEFAULT ''",
                     "subscription": "JSONB DEFAULT '{}'::jsonb",
                     "license_key": "VARCHAR(50)",
                     "referral_code": "VARCHAR(50)",
@@ -602,57 +606,77 @@ def _pg_init():
         logger.error("PostgreSQL init failed: %s", e)
 
 def _load_json_db() -> dict:
-    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "settings": {}}
-    if DB_FILE.exists():
+    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "settings": {}, "used_txids": {}}
+    bak_file = DB_FILE.with_suffix(".json.bak")
+    for candidate in (DB_FILE, bak_file):
+        if not candidate.exists():
+            continue
         try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
+            with open(candidate, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            for section in ("users", "licenses", "orders", "settings"):
-                db[section] = data.get(section, {})
-            logger.info("Loaded database.json (%d users)", len(db["users"]))
+            if not isinstance(data, dict):
+                continue
+            for section in ("users", "licenses", "orders", "settings", "used_txids"):
+                val = data.get(section)
+                if isinstance(val, dict):
+                    db[section] = val
+            logger.info("Loaded %s (%d users)", candidate.name, len(db["users"]))
+            return db
         except (json.JSONDecodeError, OSError) as e:
-            logger.error("DB load failed: %s", e)
+            logger.error("DB load failed for %s: %s", candidate.name, e)
     return db
 
-def _parse_json_column(val):
+def _parse_json_column(val, default=dict):
+    fallback = default() if callable(default) else {}
     if val is None:
-        return {}
-    if isinstance(val, dict):
+        return fallback
+    if isinstance(val, (dict, list)):
+        if default is list and not isinstance(val, list):
+            return fallback
+        if default is dict and not isinstance(val, dict):
+            return fallback
         return val
     if isinstance(val, str):
         try:
-            return json.loads(val)
+            parsed = json.loads(val)
+            if default is list and not isinstance(parsed, list):
+                return fallback
+            if default is dict and not isinstance(parsed, dict):
+                return fallback
+            return parsed
         except json.JSONDecodeError:
             pass
-    return {}
+    return fallback
 
 def _load_pg_db() -> dict:
-    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}}
+    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "used_txids": {}}
     _pg_init()
     conn = _pg_connect()
     try:
         with conn.cursor() as cur:
             # Load users
-            cur.execute("SELECT id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests FROM users")
+            cur.execute("SELECT id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests, google_id, google_picture FROM users")
             user_rows = cur.fetchall()
             for r in user_rows:
                 db["users"][r[0]] = {
                     "id": r[0],
-                    "email": r[1],
+                    "email": (r[1] or "").strip().lower(),
                     "name": r[2],
-                    "password_hash": r[3],
-                    "role": r[4],
-                    "banned": r[5],
+                    "password_hash": r[3] or "",
+                    "role": r[4] or "user",
+                    "banned": bool(r[5]),
                     "created_at": r[6],
-                    "subscription": _parse_json_column(r[7]),
+                    "subscription": _parse_json_column(r[7], dict),
                     "license_key": r[8],
                     "referral_code": r[9],
                     "referred_by": r[10],
-                    "bot_config": _parse_json_column(r[11]),
+                    "bot_config": _parse_json_column(r[11], dict),
                     "referral_earnings": float(r[12] or 0),
-                    "referral_history": _parse_json_column(r[13]) if len(r) > 13 else [],
+                    "referral_history": _parse_json_column(r[13], list) if len(r) > 13 else [],
                     "payout_wallet": r[14] if len(r) > 14 and r[14] else "",
-                    "payout_requests": _parse_json_column(r[15]) if len(r) > 15 else [],
+                    "payout_requests": _parse_json_column(r[15], list) if len(r) > 15 else [],
+                    "google_id": r[16] if len(r) > 16 and r[16] else "",
+                    "google_picture": r[17] if len(r) > 17 and r[17] else "",
                 }
 
             # Load licenses
@@ -775,8 +799,8 @@ def save_db(db: dict):
                         for uid, u in (db.get("users") or {}).items():
                             user_ids.append(uid)
                             cur.execute("""
-                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, google_id, google_picture, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (id) DO UPDATE SET
                                     email = EXCLUDED.email,
                                     name = EXCLUDED.name,
@@ -784,6 +808,8 @@ def save_db(db: dict):
                                     role = EXCLUDED.role,
                                     banned = EXCLUDED.banned,
                                     created_at = EXCLUDED.created_at,
+                                    google_id = EXCLUDED.google_id,
+                                    google_picture = EXCLUDED.google_picture,
                                     subscription = EXCLUDED.subscription,
                                     license_key = EXCLUDED.license_key,
                                     referral_code = EXCLUDED.referral_code,
@@ -795,12 +821,14 @@ def save_db(db: dict):
                                     payout_requests = EXCLUDED.payout_requests
                             """, (
                                 u.get("id"),
-                                u.get("email"),
+                                (u.get("email") or "").strip().lower(),
                                 u.get("name"),
-                                u.get("password_hash"),
+                                u.get("password_hash") or "",
                                 u.get("role", "user"),
                                 u.get("banned", False),
                                 u.get("created_at"),
+                                u.get("google_id") or "",
+                                u.get("google_picture") or "",
                                 _Json(u.get("subscription", {})),
                                 u.get("license_key"),
                                 u.get("referral_code"),
@@ -909,17 +937,308 @@ def save_db(db: dict):
             except Exception as e:
                 logger.error("PostgreSQL save failed (%s) — writing database.json fallback", e)
         try:
-            # Atomic write: never leave a truncated database.json behind
+            # Atomic write + rolling backup: never leave a truncated database.json behind
             tmp = DB_FILE.with_suffix(".json.tmp")
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(db, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
+            if DB_FILE.exists():
+                try:
+                    shutil.copy2(DB_FILE, DB_FILE.with_suffix(".json.bak"))
+                except OSError:
+                    pass
             os.replace(tmp, DB_FILE)
         except OSError as e:
             logger.error("DB save failed: %s", e)
 
+
+def _norm_email(email: Optional[str]) -> str:
+    """Return canonical lowercase, trimmed email address."""
+    return (email or "").strip().lower()
+
+
+def _find_users_by_email(email: str, db: Optional[dict] = None) -> list:
+    """Return all user dicts matching `email` case-insensitively."""
+    norm = _norm_email(email)
+    if not norm:
+        return []
+    store = db if db is not None else DB
+    return [
+        u for u in (store.get("users") or {}).values()
+        if _norm_email(u.get("email")) == norm
+    ]
+
+
+def _default_bot_config(symbols_list: Optional[list] = None) -> dict:
+    """Standard initial per-user bot configuration."""
+    return {
+        "exchange": "binance",
+        "testnet": True,
+        "symbols_list": list(symbols_list) if symbols_list is not None else [],
+        "timeframe": "5m",
+        "leverage": 10,
+        "amount_mode": "fixed",
+        "amount": 100,
+        "amount_pct": 10,
+        "stop_loss_pct": 0.2,
+        "take_profit_pct": 1.0,
+        "tp_mode": "fixed",
+        "mode": "both",
+        "max_concurrent_trades": 3,
+        "api_key_enc": "",
+        "api_secret_enc": "",
+        "api_passphrase_enc": "",
+    }
+
+
+def _user_richness_score(u: dict, db: Optional[dict] = None) -> tuple:
+    """Rank duplicate user records so the primary account survives merge."""
+    store = db if db is not None else DB
+    uid = u.get("id", "")
+    sub_active = 1 if (u.get("subscription") or {}).get("status") == "active" else 0
+    has_lic = 1 if u.get("license_key") else 0
+    bc = u.get("bot_config") or {}
+    has_keys = 1 if (bc.get("api_key_enc") or bc.get("api_keys_enc")) else 0
+    has_inst = 1 if (uid and (USER_INSTANCES_DIR / uid).exists()) else 0
+    order_cnt = sum(
+        1 for o in (store.get("orders") or {}).values()
+        if o.get("user_id") == uid
+    )
+    has_pw = 1 if u.get("password_hash") else 0
+    is_admin_rec = 1 if (uid == "admin" or _norm_email(u.get("email")) == "admin@tradebot.com") else 0
+    return (is_admin_rec, sub_active, has_lic, has_keys, has_inst, order_cnt, has_pw, uid)
+
+
+def _migrate_user_files(src_uid: str, dst_uid: str) -> bool:
+    """Copy missing instance and config files from `src_uid` to `dst_uid`."""
+    if not src_uid or not dst_uid or src_uid == dst_uid:
+        return False
+    changed = False
+    src_inst = USER_INSTANCES_DIR / src_uid
+    dst_inst = USER_INSTANCES_DIR / dst_uid
+    if src_inst.exists() and src_inst.is_dir():
+        dst_inst.mkdir(parents=True, exist_ok=True)
+        for root, _, files in os.walk(src_inst):
+            rel = Path(root).relative_to(src_inst)
+            (dst_inst / rel).mkdir(parents=True, exist_ok=True)
+            for fn in files:
+                src_f = Path(root) / fn
+                dst_f = dst_inst / rel / fn
+                try:
+                    if not dst_f.exists() or (dst_f.stat().st_size == 0 and src_f.stat().st_size > 0):
+                        shutil.copy2(src_f, dst_f)
+                        changed = True
+                except OSError:
+                    pass
+    src_cfg = USER_CONFIGS_DIR / f"{src_uid}.json"
+    dst_cfg = USER_CONFIGS_DIR / f"{dst_uid}.json"
+    if src_cfg.exists() and not dst_cfg.exists():
+        try:
+            shutil.copy2(src_cfg, dst_cfg)
+            changed = True
+        except OSError:
+            pass
+    return changed
+
+
+def _merge_user_into(src_uid: str, src: dict, keep_id: str, keep: dict, db: dict) -> bool:
+    """Non-destructively merge credentials, subscriptions, orders, referrals, and configs into `keep`."""
+    changed = False
+    keep_email = _norm_email(keep.get("email") or src.get("email"))
+    if keep_email and keep.get("email") != keep_email:
+        keep["email"] = keep_email
+        changed = True
+
+    if not keep.get("password_hash") and src.get("password_hash"):
+        keep["password_hash"] = src["password_hash"]
+        changed = True
+    for fld in ("name", "google_id", "google_picture", "referred_by"):
+        if src.get(fld) and not keep.get(fld):
+            if fld == "referred_by" and src.get(fld) == keep_id:
+                continue
+            keep[fld] = src[fld]
+            changed = True
+    if src.get("banned") and not keep.get("banned"):
+        keep["banned"] = True
+        changed = True
+    if src.get("role") == "admin" and keep.get("role") != "admin":
+        keep["role"] = "admin"
+        changed = True
+    src_created = str(src.get("created_at") or "")
+    keep_created = str(keep.get("created_at") or "")
+    if src_created and (not keep_created or src_created < keep_created):
+        keep["created_at"] = src_created
+        changed = True
+
+    src_sub = src.get("subscription") or {}
+    keep_sub = keep.get("subscription") or {}
+    src_active = src_sub.get("status") == "active"
+    keep_active = keep_sub.get("status") == "active"
+    src_exp = str(src_sub.get("expires_at") or "")
+    keep_exp = str(keep_sub.get("expires_at") or "")
+    if src_active and (not keep_active or src_exp > keep_exp):
+        keep["subscription"] = json.loads(json.dumps(src_sub))
+        if src.get("license_key"):
+            keep["license_key"] = src["license_key"]
+        changed = True
+    elif src.get("license_key") and not keep.get("license_key"):
+        keep["license_key"] = src["license_key"]
+        changed = True
+
+    for lic in (db.get("licenses") or {}).values():
+        if lic.get("used_by") == src_uid:
+            lic["used_by"] = keep_id
+            changed = True
+
+    for o in (db.get("orders") or {}).values():
+        if o.get("user_id") == src_uid:
+            o["user_id"] = keep_id
+            if keep_email:
+                o["user_email"] = keep_email
+            changed = True
+
+    for other in (db.get("users") or {}).values():
+        if other.get("referred_by") == src_uid:
+            other["referred_by"] = keep_id
+            changed = True
+
+    src_hist = src.get("referral_history") or []
+    if src_hist:
+        dst_hist = keep.setdefault("referral_history", [])
+        seen = {json.dumps(item, sort_keys=True, default=str) for item in dst_hist}
+        for item in src_hist:
+            key = json.dumps(item, sort_keys=True, default=str)
+            if key not in seen:
+                dst_hist.append(item)
+                seen.add(key)
+                changed = True
+    src_earn = float(src.get("referral_earnings") or 0.0)
+    if src_earn > 0:
+        keep["referral_earnings"] = float(keep.get("referral_earnings") or 0.0) + src_earn
+        changed = True
+
+    src_payouts = src.get("payout_requests") or []
+    if src_payouts:
+        dst_payouts = keep.setdefault("payout_requests", [])
+        seen_ids = {p.get("id") for p in dst_payouts if isinstance(p, dict) and p.get("id")}
+        for p in src_payouts:
+            pid = p.get("id") if isinstance(p, dict) else None
+            if pid and pid in seen_ids:
+                continue
+            dst_payouts.append(p)
+            if pid:
+                seen_ids.add(pid)
+            changed = True
+
+    keep_bc = keep.setdefault("bot_config", {})
+    for k, v in (src.get("bot_config") or {}).items():
+        if k == "api_keys_enc" and isinstance(v, dict):
+            dst_keys = keep_bc.setdefault("api_keys_enc", {})
+            if not isinstance(dst_keys, dict):
+                dst_keys = {}
+                keep_bc["api_keys_enc"] = dst_keys
+            for ex_name, ex_blob in v.items():
+                if ex_blob and not dst_keys.get(ex_name):
+                    dst_keys[ex_name] = ex_blob
+                    changed = True
+        elif v and not keep_bc.get(k):
+            keep_bc[k] = v
+            changed = True
+
+    procs = db.get("bot_processes") or {}
+    if src_uid in procs:
+        if keep_id not in procs:
+            procs[keep_id] = procs.pop(src_uid)
+        else:
+            procs.pop(src_uid, None)
+        changed = True
+
+    if _migrate_user_files(src_uid, keep_id):
+        changed = True
+    return changed
+
+
+def _dedupe_users_by_email(keep_id: str, db: Optional[dict] = None, save: bool = True) -> str:
+    """Merge duplicate user records sharing the same email into `keep_id` cleanly.
+
+    Preserves password_hash, google_id, role, active subscription, licenses, orders,
+    referrals, payouts, bot_config (including per-exchange keys), and user_instances files.
+    """
+    store = db if db is not None else DB
+    users = store.get("users") or {}
+    keep = users.get(keep_id)
+    if not keep:
+        return keep_id
+    keep_email = _norm_email(keep.get("email"))
+    if not keep_email:
+        return keep_id
+
+    dirty = False
+    if keep.get("email") != keep_email:
+        keep["email"] = keep_email
+        dirty = True
+
+    for uid, u in list(users.items()):
+        if uid == keep_id or _norm_email(u.get("email")) != keep_email:
+            continue
+        _merge_user_into(uid, u, keep_id, keep, store)
+        logger.info("Merged duplicate account %s (id=%s) into %s (id=%s)",
+                    u.get("email"), uid, keep.get("email"), keep_id)
+        del users[uid]
+        dirty = True
+
+    if dirty and save:
+        save_db(store)
+    return keep_id
+
+
+def _heal_users_integrity(db: dict) -> bool:
+    """Normalize emails, merge duplicate-email accounts, and reattach orphaned orders on startup."""
+    if not isinstance(db, dict):
+        return False
+    users = db.setdefault("users", {})
+    healed = False
+
+    by_email: dict = {}
+    for uid, u in list(users.items()):
+        if not isinstance(u, dict):
+            continue
+        norm = _norm_email(u.get("email"))
+        if norm and u.get("email") != norm:
+            u["email"] = norm
+            healed = True
+        if norm:
+            by_email.setdefault(norm, []).append(u)
+
+    for norm_email, group in by_email.items():
+        if len(group) > 1:
+            best = max(group, key=lambda item: _user_richness_score(item, db=db))
+            _dedupe_users_by_email(best["id"], db=db, save=False)
+            healed = True
+
+    email_to_uid = {
+        _norm_email(u.get("email")): uid
+        for uid, u in users.items()
+        if isinstance(u, dict) and _norm_email(u.get("email"))
+    }
+    for o in (db.get("orders") or {}).values():
+        if not isinstance(o, dict):
+            continue
+        ouid = o.get("user_id")
+        oemail = _norm_email(o.get("user_email"))
+        if oemail in email_to_uid and ouid and ouid not in users:
+            target_uid = email_to_uid[oemail]
+            _migrate_user_files(ouid, target_uid)
+            o["user_id"] = target_uid
+            healed = True
+
+    return healed
+
+
 DB = load_db()
+if _heal_users_integrity(DB):
+    save_db(DB)
 
 def _load_wallet_settings():
     """Restore admin-saved payment wallets after a restart/redeploy.
@@ -1145,6 +1464,16 @@ def _check_rate_limit(client_key: str, max_requests: int = 30, window_seconds: i
         _rate_limit_store[client_key] = timestamps
         return True
 
+def _client_ip() -> str:
+    """Resolve real client IP, trusting proxy headers only from local proxy."""
+    remote = request.remote_addr or "unknown"
+    if remote in ("127.0.0.1", "::1"):
+        for hdr in ("CF-Connecting-IP", "X-Forwarded-For", "X-Real-IP"):
+            raw = (request.headers.get(hdr) or "").strip()
+            if raw:
+                return raw.split(",")[0].strip()
+    return remote
+
 # ============================================================
 # Auth helpers
 # ============================================================
@@ -1153,6 +1482,8 @@ def is_logged_in() -> bool:
     return "user_id" in session
 
 def is_admin() -> bool:
+    if session.get("admin_authenticated"):
+        return True
     user_id = session.get("user_id")
     if not user_id:
         return False
@@ -2130,14 +2461,14 @@ def favicon():
 
 @app.route("/api/auth/signup", methods=["POST"])
 def api_signup():
-    # Fix 3: Rate limit signup to 3 attempts per 10 minutes per IP
-    client_ip = request.remote_addr or "unknown"
-    if not _check_rate_limit(f"signup:{client_ip}", max_requests=3, window_seconds=600):
+    # Rate limit signup per real client IP
+    client_ip = _client_ip()
+    if not _check_rate_limit(f"signup:{client_ip}", max_requests=5, window_seconds=600):
         return jsonify({"success": False, "error": "Too many signup attempts. Please wait 10 minutes."}), 429
 
-    data = request.get_json(force=True)
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password", "")
+    data = request.get_json(force=True, silent=True) or {}
+    email = _norm_email(data.get("email"))
+    password = data.get("password") or ""
     name = (data.get("name") or "").strip()
 
     if not email or not password:
@@ -2148,9 +2479,8 @@ def api_signup():
     if "@" not in email or "." not in email:
         return jsonify({"success": False, "error": "Please enter a valid email address"})
 
-    for u in DB["users"].values():
-        if u.get("email") == email:
-            return jsonify({"success": False, "error": "This email is already registered"})
+    if _find_users_by_email(email):
+        return jsonify({"success": False, "error": "This email is already registered"})
 
     role = "user"
     user_id = str(uuid.uuid4())
@@ -2190,28 +2520,12 @@ def api_signup():
         "referred_by": referred_by,
         "referral_earnings": 0.0,
         "referral_history": [],
-        "bot_config": {
-            "exchange": "binance",
-            "testnet": True,
-            "symbols_list": [],
-            "timeframe": "5m",
-            "leverage": 10,
-            "amount_mode": "fixed",
-            "amount": 100,
-            "amount_pct": 10,
-            "stop_loss_pct": 2,
-            "take_profit_pct": 6,
-            "tp_mode": "both",
-            "mode": "both",
-            "max_concurrent_trades": 3,
-            "api_key_enc": "",
-            "api_secret_enc": "",
-            "api_passphrase_enc": "",
-        },
+        "bot_config": _default_bot_config(),
     }
     DB["users"][user_id] = user
     save_db(DB)
 
+    session.pop("admin_authenticated", None)
     session["user_id"] = user_id
     session.permanent = True
 
@@ -2224,66 +2538,31 @@ def api_signup():
         "message": "Account created! Please activate your license key to get started.",
     })
 
-def _dedupe_users_by_email(keep_id: str):
-    """Merge duplicate user records sharing the same email into `keep_id`.
-
-    A duplicate record is the ONLY way a user logging in with their own email
-    can hit 'license already activated by another user': the login loop simply
-    returns whichever same-email record comes first, and the license may be
-    bound to the other record. Duplicates can appear if an account was ever
-    created twice for the same email (Google auto-signup racing a manual
-    signup, admin bootstrap, restored DB snapshot, etc.).
-    """
-    keep = DB["users"].get(keep_id)
-    if not keep:
-        return
-    keep_email = (keep.get("email") or "").lower()
-    for uid, u in list(DB["users"].items()):
-        if uid == keep_id or (u.get("email") or "").lower() != keep_email:
-            continue
-        merged = False
-        if u.get("license_key") and not keep.get("license_key"):
-            keep["license_key"] = u["license_key"]
-            lic = DB.get("licenses", {}).get(u["license_key"])
-            if lic:
-                lic["used_by"] = keep_id
-            merged = True
-        if (u.get("subscription") or {}).get("status") == "active" and \
-                (keep.get("subscription") or {}).get("status") != "active":
-            keep["subscription"] = u["subscription"]
-            merged = True
-        for k, v in (u.get("bot_config") or {}).items():
-            if v and not keep.setdefault("bot_config", {}).get(k):
-                keep["bot_config"][k] = v
-                merged = True
-        if merged:
-            logger.info("Merged duplicate account %s (id=%s) into %s (id=%s)",
-                        u.get("email"), uid, keep.get("email"), keep_id)
-        del DB["users"][uid]
-    save_db(DB)
-
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
-    # Fix 3: Rate limit login to 5 attempts per 5 minutes per IP
-    client_ip = request.remote_addr or "unknown"
-    if not _check_rate_limit(f"login:{client_ip}", max_requests=5, window_seconds=300):
-        return jsonify({"success": False, "error": "Too many login attempts. Please wait 5 minutes."}), 429
+    data = request.get_json(force=True, silent=True) or {}
+    email = _norm_email(data.get("email"))
+    password = data.get("password") or ""
 
-    data = request.get_json(force=True)
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password", "")
+    client_ip = _client_ip()
+    if (
+        not _check_rate_limit(f"login:{client_ip}:{email or '_'}", max_requests=8, window_seconds=300)
+        or not _check_rate_limit(f"login_ip:{client_ip}", max_requests=30, window_seconds=300)
+    ):
+        return jsonify({"success": False, "error": "Too many login attempts. Please wait 5 minutes."}), 429
 
     if not email or not password:
         return jsonify({"success": False, "error": "Email and password are required"})
 
+    candidates = _find_users_by_email(email)
     user = None
-    for u in DB["users"].values():
-        if u.get("email") == email:
-            user = u
+    for cand in candidates:
+        if verify_password(password, cand.get("password_hash", "")):
+            user = cand
             break
 
-    if not user or not verify_password(password, user.get("password_hash", "")):
+    if not user:
         return jsonify({"success": False, "error": "Invalid email or password"})
 
     if user.get("banned"):
@@ -2299,12 +2578,13 @@ def api_login():
             }
             save_db(DB)
 
-    _dedupe_users_by_email(user["id"])
+    canonical_id = _dedupe_users_by_email(user["id"])
+    user = DB["users"].get(canonical_id, user)
 
     session["user_id"] = user["id"]
     session.permanent = True
 
-    logger.info("User login: %s (role=%s)", email, user.get('role'))
+    logger.info("User login: %s (id=%s, role=%s)", email, user["id"], user.get("role"))
 
     return jsonify({
         "success": True,
@@ -2318,6 +2598,7 @@ def api_logout():
     if user:
         stop_user_bot(user["id"])
     session.pop("user_id", None)
+    session.pop("admin_authenticated", None)
     return jsonify({"success": True})
 
 @app.route("/api/auth/me", methods=["GET"])
@@ -3022,44 +3303,37 @@ def api_admin_login():
     if not ADMIN_SECRET:
         return jsonify({"success": False, "error": "Admin panel is disabled. Set ADMIN_SECRET env var."})
 
-    # Rate limit admin login — server-derived IP only (X-Forwarded-For is client-spoofable)
-    client_ip = request.remote_addr or "unknown"
+    client_ip = _client_ip()
     if not _check_rate_limit(f"admin_login:{client_ip}", max_requests=10, window_seconds=120):
         return jsonify({"success": False, "error": "Too many admin login attempts. Please wait 2 minutes."}), 429
 
-    data = request.get_json(force=True)
+    data = request.get_json(force=True, silent=True) or {}
     password = (data.get("password") or "").strip()
 
     # Constant-time comparison to prevent timing attacks
     if not secrets.compare_digest(password, ADMIN_SECRET):
         return jsonify({"success": False, "error": "Invalid admin password"})
 
-    # If the user is already logged in with an existing account, promote that account to admin
+    # Keep any currently logged-in regular user untouched (never mutate role="admin"
+    # or mix accounts); only grant admin session flag.
     current_uid = session.get("user_id")
     if current_uid and current_uid in DB.get("users", {}):
         cur_u = DB["users"][current_uid]
-        cur_u["role"] = "admin"
-        if cur_u.get("subscription", {}).get("status") != "active":
-            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-            cur_u["subscription"] = {
-                "plan": "lifetime", "status": "active",
-                "started_at": now, "expires_at": "9999-12-31T23:59:59Z",
-            }
-        save_db(DB)
-        session["user_id"] = cur_u["id"]
+        session["admin_authenticated"] = True
         session.permanent = True
-        logger.info("Admin login: elevated logged-in user %s (%s) to admin", cur_u.get("email"), current_uid)
+        logger.info("Admin session granted for logged-in user %s (%s)", cur_u.get("email"), current_uid)
         return jsonify({"success": True, "user": {"id": cur_u["id"], "email": cur_u["email"], "role": "admin"}})
 
-    # Otherwise find or create dedicated admin account
-    admin_user = None
-    for u in DB["users"].values():
-        if u.get("role") == "admin":
-            admin_user = u
-            break
+    # Otherwise find or create the dedicated system admin account only
+    admin_user = DB.get("users", {}).get("admin")
+    if not admin_user:
+        for u in DB["users"].values():
+            if u.get("id") == "admin" or _norm_email(u.get("email")) == "admin@tradebot.com":
+                admin_user = u
+                break
 
     if not admin_user:
-        admin_id = str(uuid.uuid4())
+        admin_id = "admin"
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         admin_user = {
             "id": admin_id,
@@ -3076,7 +3350,7 @@ def api_admin_login():
         }
         DB["users"][admin_id] = admin_user
         save_db(DB)
-        logger.info("Admin user created via admin login")
+        logger.info("Dedicated admin user created via admin login")
 
     if admin_user.get("subscription", {}).get("status") != "active":
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -3086,6 +3360,7 @@ def api_admin_login():
         }
         save_db(DB)
 
+    session["admin_authenticated"] = True
     session["user_id"] = admin_user["id"]
     session.permanent = True
     return jsonify({"success": True, "user": {"id": admin_user["id"], "email": admin_user["email"], "role": "admin"}})
@@ -3097,7 +3372,7 @@ def api_admin_users():
 
     users = []
     for u in DB["users"].values():
-        if u.get("role") == "admin":
+        if u.get("id") == "admin" or _norm_email(u.get("email")) == "admin@tradebot.com":
             continue
         sub = check_subscription(u)
         bot_status = get_bot_status(u["id"])
@@ -3456,12 +3731,10 @@ def google_callback():
                            google_email, {k: userinfo.get(k) for k in ("email", "verified_email", "email_verified")})
             return redirect("/login?error=email_not_verified")
 
-        # Find existing user or create new one
-        user = None
-        for u in DB["users"].values():
-            if u.get("email") == google_email:
-                user = u
-                break
+        # Find existing user (richest primary record if duplicates exist) or create new one
+        google_email_norm = _norm_email(google_email)
+        matches = _find_users_by_email(google_email_norm)
+        user = max(matches, key=lambda item: _user_richness_score(item)) if matches else None
 
         if not user:
             # Auto-create account via Google
@@ -3479,8 +3752,8 @@ def google_callback():
 
             user = {
                 "id": user_id,
-                "email": google_email,
-                "name": google_name or google_email.split("@")[0],
+                "email": google_email_norm,
+                "name": google_name or google_email_norm.split("@")[0],
                 "password_hash": "",
                 "role": "user",
                 "banned": False,
@@ -3496,32 +3769,32 @@ def google_callback():
                 "referred_by": referred_by,
                 "referral_earnings": 0.0,
                 "referral_history": [],
-                "bot_config": {
-                    "exchange": "binance", "testnet": True, "symbols_list": [],
-                    "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
-                    "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.2,
-                    "take_profit_pct": 1.0, "tp_mode": "fixed", "mode": "both",
-                    "max_concurrent_trades": 3,
-                    "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
-                },
+                "bot_config": _default_bot_config(),
             }
             DB["users"][user_id] = user
             save_db(DB)
             logger.info("New Google signup: %s (id=%s, ref_code=%s, referred_by=%s)",
-                        google_email, user_id, referral_code, referred_by)
+                        google_email_norm, user_id, referral_code, referred_by)
 
         if user.get("banned"):
             return redirect("/?error=account_suspended")
 
-        if user.get("google_id") != google_id:
-            user["google_id"] = google_id  # keep the account bound to this Google id
-            save_db(DB)
+        canonical_id = _dedupe_users_by_email(user["id"])
+        user = DB["users"].get(canonical_id, user)
 
-        _dedupe_users_by_email(user["id"])
+        google_changed = False
+        if google_id and user.get("google_id") != google_id:
+            user["google_id"] = google_id
+            google_changed = True
+        if google_picture and user.get("google_picture") != google_picture:
+            user["google_picture"] = google_picture
+            google_changed = True
+        if google_changed:
+            save_db(DB)
 
         session["user_id"] = user["id"]
         session.permanent = True
-        logger.info("Google login: %s", google_email)
+        logger.info("Google login: %s (id=%s)", google_email_norm, user["id"])
 
         # Mobile OAuth round-trip: return securely via single-use auth code, native intent AND msid polling
         if is_mobile:
@@ -3907,31 +4180,32 @@ def api_quick_buy():
             session.clear()
             return jsonify({"success": False, "error": "Session expired. Please log in again."}), 401
     else:
-        email = (data.get("email") or "").strip().lower()
-        password = data.get("password", "")
+        email = _norm_email(data.get("email"))
+        password = data.get("password") or ""
         if not email or not password:
             return jsonify({"success": False, "error": "Email and password are required"}), 400
         if "@" not in email or "." not in email:
             return jsonify({"success": False, "error": "Please enter a valid email address"}), 400
 
-        # Rate limit quick-buy password verification (previously an unauthenticated
-        # brute-force oracle bypassing the login rate limit)
-        if not _check_rate_limit(f"quick_buy:{request.remote_addr}", max_requests=5, window_seconds=300):
+        # Rate limit quick-buy password verification per real client IP + email
+        client_ip = _client_ip()
+        if not _check_rate_limit(f"quick_buy:{client_ip}:{email}", max_requests=8, window_seconds=300):
             return jsonify({"success": False, "error": "Too many attempts. Please wait 5 minutes."}), 429
 
-        # Check if user already exists
-        user = None
-        for u in DB["users"].values():
-            if (u.get("email") or "").lower() == email:
-                user = u
-                break
-
-        if user:
-            # Existing user - verify password (generic message: no account enumeration)
-            if not verify_password(password, user.get("password_hash", "")):
+        # Check all records matching this email (don't stop on a passwordless duplicate)
+        matches = _find_users_by_email(email)
+        if matches:
+            user = None
+            for cand in matches:
+                if verify_password(password, cand.get("password_hash", "")):
+                    user = cand
+                    break
+            if not user:
                 return jsonify({"success": False, "error": "This email already has an account. Please enter the correct password for this email."}), 401
             if user.get("banned"):
                 return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
+            canonical_id = _dedupe_users_by_email(user["id"])
+            user = DB["users"].get(canonical_id, user)
         else:
             # Create brand new user (same minimum as normal signup)
             if len(password) < 8:
@@ -3959,7 +4233,7 @@ def api_quick_buy():
             user = {
                 "id": user_id,
                 "email": email,
-                "name": data.get("name") or email.split("@")[0],
+                "name": (data.get("name") or "").strip() or email.split("@")[0],
                 "password_hash": hash_password(password),
                 "role": "user",
                 "banned": False,
@@ -3970,28 +4244,12 @@ def api_quick_buy():
                 "referred_by": referred_by,
                 "referral_earnings": 0.0,
                 "referral_history": [],
-                "bot_config": {
-                    "exchange": "binance",
-                    "testnet": True,
-                    "symbols_list": ["BTCUSDT"],
-                    "timeframe": "5m",
-                    "leverage": 10,
-                    "amount_mode": "fixed",
-                    "amount": 100,
-                    "amount_pct": 10,
-                    "stop_loss_pct": 0.2,
-                    "take_profit_pct": 1.0,
-                    "tp_mode": "fixed",
-                    "mode": "both",
-                    "max_concurrent_trades": 3,
-                    "api_key_enc": "",
-                    "api_secret_enc": "",
-                    "api_passphrase_enc": "",
-                },
+                "bot_config": _default_bot_config(["BTCUSDT"]),
             }
             DB["users"][user_id] = user
             save_db(DB)
 
+        session.pop("admin_authenticated", None)
         session["user_id"] = user["id"]
         session.permanent = True
 
@@ -4625,6 +4883,8 @@ mobile_init(
     db=DB,
     save_db=save_db,
     rate_limit=_check_rate_limit,
+    client_ip=_client_ip,
+    dedupe_user=_dedupe_users_by_email,
     encrypt=encrypt,
     decrypt=decrypt,
     decrypt_checked=decrypt_checked,

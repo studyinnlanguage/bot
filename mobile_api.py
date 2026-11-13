@@ -81,6 +81,47 @@ def _save():
     _cfg["save_db"](_db())
 
 
+def _norm_email(email) -> str:
+    return (email or "").strip().lower()
+
+
+def _client_ip() -> str:
+    fn = _cfg.get("client_ip")
+    if callable(fn):
+        return fn()
+    remote = request.remote_addr or "unknown"
+    if remote in ("127.0.0.1", "::1"):
+        for hdr in ("CF-Connecting-IP", "X-Forwarded-For", "X-Real-IP"):
+            raw = (request.headers.get(hdr) or "").strip()
+            if raw:
+                return raw.split(",")[0].strip()
+    return remote
+
+
+def _find_users_by_email(db: dict, email: str) -> list:
+    norm = _norm_email(email)
+    if not norm:
+        return []
+    return [
+        u for u in (db.get("users") or {}).values()
+        if _norm_email(u.get("email")) == norm
+    ]
+
+
+def _pick_primary_user(matches: list):
+    if not matches:
+        return None
+    return max(
+        matches,
+        key=lambda u: (
+            1 if (u.get("subscription") or {}).get("status") == "active" else 0,
+            1 if u.get("license_key") else 0,
+            1 if u.get("password_hash") else 0,
+            u.get("id", ""),
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # JWT (HS256) — compact, dependency-free
 # ---------------------------------------------------------------------------
@@ -210,18 +251,17 @@ def _user_snapshot(user: dict) -> dict:
 def m_register():
     db = _db()
     data = request.get_json(force=True, silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
+    email = _norm_email(data.get("email"))
     password = data.get("password") or ""
     name = (data.get("name") or "").strip()[:80]
-    if not _cfg["rate_limit"](f"m_register:{request.remote_addr}", 3, 600):
+    if not _cfg["rate_limit"](f"m_register:{_client_ip()}", 5, 600):
         return jsonify({"success": False, "error": "Too many attempts. Try later."}), 429
     if not email or "@" not in email or "." not in email:
         return jsonify({"success": False, "error": "Please enter a valid email address"}), 400
     if len(password) < 8:
         return jsonify({"success": False, "error": "Password must be at least 8 characters"}), 400
-    for u in db["users"].values():
-        if (u.get("email") or "").lower() == email:
-            return jsonify({"success": False, "error": "An account with this email already exists. Please log in."}), 409
+    if _find_users_by_email(db, email):
+        return jsonify({"success": False, "error": "An account with this email already exists. Please log in."}), 409
 
     from werkzeug.security import generate_password_hash
     user_id = str(uuid.uuid4())
@@ -267,20 +307,28 @@ def m_register():
 def m_login():
     db = _db()
     data = request.get_json(force=True, silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
+    email = _norm_email(data.get("email"))
     password = data.get("password") or ""
-    if not _cfg["rate_limit"](f"m_login:{request.remote_addr}", 5, 300):
+    client_ip = _client_ip()
+    if (
+        not _cfg["rate_limit"](f"m_login:{client_ip}:{email or '_'}", 8, 300)
+        or not _cfg["rate_limit"](f"m_login_ip:{client_ip}", 30, 300)
+    ):
         return jsonify({"success": False, "error": "Too many attempts. Please wait 5 minutes."}), 429
     user = None
-    for u in db["users"].values():
-        if (u.get("email") or "").lower() == email:
-            user = u
+    for cand in _find_users_by_email(db, email):
+        if _cfg["verify_password"](password, cand.get("password_hash", "")):
+            user = cand
             break
-    if not user or not _cfg["verify_password"](password, user.get("password_hash", "")):
+    if not user:
         return jsonify({"success": False, "error": "Invalid email or password"}), 401
     if user.get("banned"):
         return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
-    logger.info("Mobile login: %s", email)
+    dedupe_fn = _cfg.get("dedupe_user")
+    if callable(dedupe_fn):
+        canonical_id = dedupe_fn(user["id"])
+        user = db["users"].get(canonical_id, user)
+    logger.info("Mobile login: %s (id=%s)", email, user["id"])
     return jsonify({"success": True, "user": _user_snapshot(user), **_issue_tokens(user)})
 
 
@@ -347,11 +395,7 @@ def m_google():
         return jsonify({"success": False, "error": "Google token expired"}), 401
 
     # Find or create the account (same account as web)
-    user = None
-    for u in db["users"].values():
-        if (u.get("email") or "").lower() == email:
-            user = u
-            break
+    user = _pick_primary_user(_find_users_by_email(db, email))
     if not user:
         user_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -363,8 +407,8 @@ def m_google():
                     referred_by = u["id"]
                     break
         user = {
-            "id": user_id, "email": email,
-            "name": info.get("name") or email.split("@")[0],
+            "id": user_id, "email": _norm_email(email),
+            "name": info.get("name") or _norm_email(email).split("@")[0],
             "password_hash": "", "role": "user", "banned": False, "created_at": now,
             "subscription": {"plan": "none", "status": "inactive", "started_at": now,
                              "expires_at": None},
@@ -390,6 +434,10 @@ def m_google():
 
     if user.get("banned"):
         return jsonify({"success": False, "error": "Account suspended. Please contact support."}), 403
+    dedupe_fn = _cfg.get("dedupe_user")
+    if callable(dedupe_fn):
+        canonical_id = dedupe_fn(user["id"])
+        user = db["users"].get(canonical_id, user)
     if user.get("google_id") != info.get("sub", ""):
         user["google_id"] = info.get("sub", "")
         _save()
