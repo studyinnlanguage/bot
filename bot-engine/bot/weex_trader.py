@@ -421,10 +421,15 @@ class WEEXFuturesTrader:
                             step_size = 10**(-qty_prec) if qty_prec >= 0 else 10**abs(qty_prec)
 
                             min_qty = float(sym_info.get("minOrderSize", step_size))
+                            try:
+                                min_notional = float(sym_info.get("minNotional") or sym_info.get("minOrderValue") or 5.0)
+                            except (TypeError, ValueError):
+                                min_notional = 5.0
 
                             self._contract_cache[sym] = {
                                 "step_size": step_size,
                                 "min_qty": min_qty,
+                                "min_notional": min_notional,
                                 "tick_size": tick_size,
                                 "contract_size": 1
                             }
@@ -464,6 +469,7 @@ class WEEXFuturesTrader:
             "min_qty": float(info.get("min_qty", 0.001)),
             "max_qty": float(info.get("max_qty", 1e9)),
             "tick_size": float(info.get("tick_size", 0.01)),
+            "min_notional": float(info.get("min_notional", 5.0)),
         }
 
     # ---------- Account (private, signed) ----------
@@ -1041,12 +1047,26 @@ class WEEXFuturesTrader:
 
 
     @staticmethod
-    def _round_to_step(value: float, step: float) -> float:
+    def _round_to_step(value: float, step: float):
         if step <= 0:
             return value
-        decimals = max(0, int(math.ceil(-math.log10(step))))
-        rounded = math.floor(value / step) * step
-        return round(rounded, decimals)
+        decimals = max(0, int(math.ceil(-math.log10(step)))) if step < 1 else 0
+        rounded = math.floor((value / step) + 1e-12) * step
+        val = round(rounded, decimals)
+        if step >= 1 and abs(step - round(step)) < 1e-9:
+            return int(round(val))
+        return val
+
+    @staticmethod
+    def _ceil_to_step(value: float, step: float):
+        if step <= 0:
+            return value
+        decimals = max(0, int(math.ceil(-math.log10(step)))) if step < 1 else 0
+        rounded = math.ceil((value / step) - 1e-12) * step
+        val = round(rounded, decimals)
+        if step >= 1 and abs(step - round(step)) < 1e-9:
+            return int(round(val))
+        return val
 
     def compute_quantity(self, notional_usdt: float, price: float,
                          leverage: int, qty_step: float = 0.001) -> float:

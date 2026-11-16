@@ -988,14 +988,33 @@ class SymbolWorker(threading.Thread):
             })
             return
 
-        # Compute trade size
-        trade_size = self._compute_trade_size(mark_price, cfg.get("leverage", 10))
+        # Ensure leverage is confirmed BEFORE sizing so exchange leverage caps
+        # (e.g., 125x -> 25x on altcoins) are reflected in margin/notional math.
+        cfg_lev = max(1, int(cfg.get("leverage", 10) or 10))
+        effective_lev = cfg_lev
+        try:
+            cached_sym_lev = getattr(self.engine.trader, "_symbol_leverage", {}).get(symbol)
+            if cached_sym_lev and int(cached_sym_lev) == cfg_lev:
+                effective_lev = int(cached_sym_lev)
+            elif hasattr(self.engine.trader, "set_leverage"):
+                lev_res = self.engine.trader.set_leverage(symbol, cfg_lev)
+                if isinstance(lev_res, dict) and lev_res.get("leverage"):
+                    effective_lev = int(lev_res["leverage"])
+        except Exception:
+            effective_lev = cfg_lev
+
+        # Compute trade size (checks min_qty, MIN_NOTIONAL, and available margin)
+        self._last_size_reason = None
+        trade_size = self._compute_trade_size(mark_price, effective_lev)
         if trade_size <= 0:
             self.engine.release_entry_intent(symbol)
             if self.candles_processed % 12 == 0:
+                reason_msg = getattr(self, "_last_size_reason", None) or (
+                    f"[{symbol}] Order size below exchange minimum at {effective_lev}x leverage."
+                )
                 self.engine._emit("log", {
                     "level": "warn",
-                    "msg": f"[{symbol}] Trade size 0 - wallet balance too low for 1% trade. Use Fixed USDT mode instead."
+                    "msg": reason_msg,
                 })
             return
 
@@ -1004,14 +1023,16 @@ class SymbolWorker(threading.Thread):
             filters = self.engine.trader.get_symbol_filters(symbol)
             min_qty = filters.get("min_qty", 0.001)
             max_qty = filters.get("max_qty", 1e9)
+            step = filters.get("step_size") or filters.get("qty_step") or 0.001
             if max_qty > 0 and trade_size > max_qty:
-                trade_size = self.engine.trader._round_to_step(max_qty, filters.get("step_size", 0.001))
+                trade_size = self.engine.trader._round_to_step(max_qty, step)
             if trade_size < min_qty:
                 self.engine.release_entry_intent(symbol)
                 if self.candles_processed % 12 == 0:
                     self.engine._emit("log", {
                         "level": "warn",
-                        "msg": f"[{symbol}] Quantity {trade_size:.6f} below min {min_qty}. Increase amount or use Fixed USDT."
+                        "msg": (f"[{symbol}] Quantity {trade_size} below min_qty {min_qty} "
+                                f"(~${min_qty * mark_price:.2f} min order). Increase amount/leverage or pick lower-min coin.")
                     })
                 return
         except Exception:
@@ -1040,11 +1061,13 @@ class SymbolWorker(threading.Thread):
         tp_pct = 1.0
         tp_mode = "fixed"
 
-        # Determine effective leverage from user config
-        lev = self._get_effective_leverage(symbol)
+        # Determine effective leverage for ROE / logging (sync exchange if changed)
+        lev = max(1, int(effective_lev or self._get_effective_leverage(symbol)))
         try:
             if hasattr(self.engine.trader, "set_leverage"):
-                self.engine.trader.set_leverage(symbol, lev)
+                lev_sync = self.engine.trader.set_leverage(symbol, lev)
+                if isinstance(lev_sync, dict) and lev_sync.get("leverage"):
+                    lev = max(1, int(lev_sync["leverage"]))
         except Exception:
             pass
 
@@ -1141,14 +1164,7 @@ class SymbolWorker(threading.Thread):
                 except Exception as he:
                     logger.error("Failed to record trade open in history: %s", he)
 
-                # Log exchange SL status
-                if order.get("sl_price"):
-                    self.engine._emit("log", {
-                        "level": "success",
-                        "msg": (f"[{symbol}] ✅ Exchange SL attached | "
-                                f"SL={order.get('sl_price', 'N/A')} | "
-                                f"(Target=TP +1.0%)")
-                    })
+                self._emit_sltp_order_status(symbol, order)
                 try:
                     self.engine.notifier.notify_trade_open(
                         symbol, "LONG", actual_qty, actual_entry,
@@ -1223,14 +1239,7 @@ class SymbolWorker(threading.Thread):
                 except Exception as he:
                     logger.error("Failed to record trade open in history: %s", he)
 
-                # Log exchange SL status
-                if order.get("sl_price"):
-                    self.engine._emit("log", {
-                        "level": "success",
-                        "msg": (f"[{symbol}] ✅ Exchange SL attached | "
-                                f"SL={order.get('sl_price', 'N/A')} | "
-                                f"(Target=TP +1.0%)")
-                    })
+                self._emit_sltp_order_status(symbol, order)
                 try:
                     self.engine.notifier.notify_trade_open(
                         symbol, "SHORT", actual_qty, actual_entry,
@@ -1238,6 +1247,27 @@ class SymbolWorker(threading.Thread):
                     )
                 except Exception as e:
                     logger.error("Trade open notification failed: %s", e)
+
+    def _emit_sltp_order_status(self, symbol: str, order: dict):
+        """Log exchange-side SL/TP confirmation or rejection while keeping watchdog active."""
+        if not isinstance(order, dict):
+            return
+        if order.get("sl_price"):
+            tp_part = f" | TP={order['tp_price']}" if order.get("tp_price") else ""
+            self.engine._emit("log", {
+                "level": "success",
+                "msg": f"[{symbol}] ✅ Exchange SL attached | SL={order.get('sl_price')}{tp_part} (Software Watchdog active)"
+            })
+        elif order.get("sl_error"):
+            self.engine._emit("log", {
+                "level": "warn",
+                "msg": f"[{symbol}] ⚠️ Exchange SL notice: {self._clean_err_msg(order.get('sl_error'))} (Software SL watchdog active)"
+            })
+        if order.get("tp_error") and not order.get("tp_price"):
+            self.engine._emit("log", {
+                "level": "warn",
+                "msg": f"[{symbol}] ⚠️ Exchange TP notice: {self._clean_err_msg(order.get('tp_error'))} (Software TP watchdog active)"
+            })
 
     def _get_actual_entry_price(self, symbol: str, fallback: float) -> float:
         """Get actual entry price from Binance position after order fill."""
@@ -1397,23 +1427,43 @@ class SymbolWorker(threading.Thread):
         - 'fixed'  : use cfg['amount'] as USDT margin, scaled by leverage for total notional exposure
         - 'percent': use (balance * amount_pct / 100) as USDT margin, scaled by leverage for total notional exposure
 
-        Fetches the REAL step_size from the exchange so compute_quantity rounds correctly.
+        Validates against exchange step_size, min_qty, MIN_NOTIONAL, max_qty,
+        and available wallet margin so small accounts ($10-$20, 10%, $1 Fixed)
+        never hit silent rounding/notional rejections.
         """
+        import math
+
+        self._last_size_reason = None
         cfg = self.config
         amount_mode = cfg.get("amount_mode", "fixed")
         lev = max(1, int(leverage or cfg.get("leverage", 10)))
 
-        if amount_mode == "percent":
+        balance: Optional[float] = None
+        if hasattr(self.engine.trader, "get_balance"):
             try:
-                balance = self.engine.trader.get_balance()
+                bal_val = self.engine.trader.get_balance()
+                if bal_val is not None:
+                    balance = float(bal_val)
             except Exception:
-                balance = 0.0
-            pct = float(cfg.get("amount_pct", 10))
-            margin = balance * pct / 100.0
+                balance = None
+
+        if amount_mode == "percent":
+            bal = float(balance or 0.0)
+            pct = float(cfg.get("amount_pct", 10) or 10)
+            margin = bal * pct / 100.0
             notional = margin * lev
+            if bal <= 0 or margin <= 0:
+                self._last_size_reason = (
+                    f"[{self.symbol}] Available USDT balance ${bal:.2f} hai — {pct:g}% trade size $0 ho raha hai "
+                    f"(Futures wallet balance / API auth check karein)."
+                )
+                return 0.0
         else:
-            margin = float(cfg.get("amount", 100))
+            margin = float(cfg.get("amount", 100) or 0.0)
             notional = margin * lev
+            if margin <= 0:
+                self._last_size_reason = f"[{self.symbol}] Order investment amount must be > $0."
+                return 0.0
 
         # Check Binance leverage bracket limit (prevents error -2027: Exceeded maximum allowable position)
         max_notional = 0.0
@@ -1429,20 +1479,90 @@ class SymbolWorker(threading.Thread):
                         self.symbol, notional, lev, max_notional, clamped_notional)
             notional = clamped_notional
 
-        # Fetch real step_size and max_qty from exchange for accurate rounding and clamp
-        qty_step = 0.001  # safe fallback
+        # Fetch real step_size, min_qty, max_qty, min_notional from exchange
+        qty_step = 0.001
+        min_qty = 0.001
         max_qty = 1e9
+        min_notional = 0.0
         try:
             filters = self.engine.trader.get_symbol_filters(self.symbol)
-            qty_step = filters.get("step_size", 0.001)
-            max_qty = filters.get("max_qty", 1e9)
+            qty_step = float(filters.get("step_size") or filters.get("qty_step") or 0.001)
+            min_qty = float(filters.get("min_qty", 0.001) or 0.001)
+            max_qty = float(filters.get("max_qty", 1e9) or 1e9)
+            min_notional = float(filters.get("min_notional", 0.0) or 0.0)
         except Exception:
             pass
+
+        def _ceil_step(val: float, step: float):
+            if hasattr(self.engine.trader, "_ceil_to_step"):
+                return self.engine.trader._ceil_to_step(val, step)
+            if step <= 0:
+                return val
+            dec = max(0, int(math.ceil(-math.log10(step)))) if step < 1 else 0
+            r = math.ceil((val / step) - 1e-12) * step
+            return int(round(r)) if (step >= 1 and abs(step - round(step)) < 1e-9) else round(r, dec)
 
         qty = self.engine.trader.compute_quantity(notional, price, lev, qty_step=qty_step)
         if max_qty > 0 and qty > max_qty:
             logger.info("[%s] Clamping trade size from %s to exchange max_qty %s", self.symbol, qty, max_qty)
             qty = self.engine.trader._round_to_step(max_qty, qty_step)
+
+        min_qty_for_notional = _ceil_step((min_notional * 1.02) / price, qty_step) if (min_notional > 0 and price > 0) else 0.0
+        eff_min_qty = max(min_qty, min_qty_for_notional)
+        if eff_min_qty > 0 and qty_step > 0:
+            eff_min_qty = _ceil_step(eff_min_qty, qty_step)
+
+        below_min = (
+            qty <= 0
+            or (eff_min_qty > 0 and qty < eff_min_qty)
+            or (min_notional > 0 and price > 0 and (qty * price) < min_notional)
+        )
+        if below_min and price > 0 and eff_min_qty > 0:
+            req_notional = eff_min_qty * price
+            req_margin = req_notional / lev
+            raw_min_usd = max(min_notional, min_qty * price)
+            bal_ok = (balance is None or balance <= 0 or req_margin <= balance * 0.88)
+            is_floor_deficit = (raw_min_usd > 0 and notional >= raw_min_usd * 0.80)
+            is_small_safe_bump = (req_margin <= max(margin * 1.5, margin + 0.75) and req_notional <= 25.0)
+            if (max_qty <= 0 or eff_min_qty <= max_qty) and bal_ok and (is_floor_deficit or is_small_safe_bump):
+                logger.info("[%s] Rounding trade size up to exchange min qty=%s ($%.2f notional, $%.2f margin @ %dx)",
+                            self.symbol, eff_min_qty, req_notional, req_margin, lev)
+                qty = eff_min_qty
+            else:
+                needed_lev = math.ceil(req_notional / margin) if margin > 0 else 0
+                alt_coins = "/".join([c for c in ("SOL", "XRP", "DOGE", "ADA", "SUI", "BNB") if not self.symbol.startswith(c)][:5])
+                if not bal_ok and balance is not None and balance > 0:
+                    hint_lev = f" Leverage {needed_lev}x+ karein ya" if (0 < needed_lev <= 125 and needed_lev > lev) else ""
+                    self._last_size_reason = (
+                        f"[{self.symbol}] Free balance ${balance:.2f} kam hai — exchange min ${req_notional:.2f} "
+                        f"(qty {eff_min_qty}, ${req_margin:.2f} margin @ {lev}x) ke liye enough margin nahi."
+                        f"{hint_lev} {alt_coins} trade karein."
+                    )
+                else:
+                    bal_txt = f" | Bal=${balance:.2f}" if (balance is not None and balance > 0) else ""
+                    hint_lev = f"Leverage {needed_lev}x+ karein, " if (0 < needed_lev <= 125 and needed_lev > lev) else ""
+                    self._last_size_reason = (
+                        f"[{self.symbol}] Exchange min ${req_notional:.2f} (qty {eff_min_qty}, ${req_margin:.2f} margin @ {lev}x) "
+                        f"> aapka order ${margin:.2f} (${notional:.2f} notional{bal_txt}). "
+                        f"{hint_lev}Fixed ${max(1, math.ceil(req_margin)):d}+ rakhein, ya {alt_coins} trade karein."
+                    )
+                return 0.0
+
+        # Final available-balance guard so Fixed / adjusted orders don't fail with -2019
+        if balance is not None and balance > 0 and price > 0 and qty > 0:
+            est_margin = (qty * price) / lev
+            if est_margin > balance * 0.94:
+                safe_qty = self.engine.trader.compute_quantity((balance * 0.90) * lev, price, lev, qty_step=qty_step)
+                if safe_qty >= eff_min_qty and (min_notional <= 0 or (safe_qty * price) >= min_notional):
+                    qty = safe_qty
+                else:
+                    req_n = max(min_notional, eff_min_qty * price)
+                    self._last_size_reason = (
+                        f"[{self.symbol}] Free balance ${balance:.2f} kam hai — min order "
+                        f"${req_n:.2f} (${req_n / lev:.2f} margin @ {lev}x) ke liye enough margin nahi."
+                    )
+                    return 0.0
+
         return qty
 
     def _candles_to_list(self, df, n=200):

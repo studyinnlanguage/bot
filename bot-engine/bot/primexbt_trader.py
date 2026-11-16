@@ -1086,10 +1086,13 @@ class PrimeXBTTrader:
             if isinstance(res, dict) and "settings" in res:
                 for s in res["settings"]:
                     if s.get("symbol") == clean_sym:
+                        q_step = float(s.get("qtyStep", min_qty))
                         return {
                             "min_qty": float(s.get("minQty", min_qty)),
                             "max_qty": float(s.get("maxQty", 100000)),
-                            "qty_step": float(s.get("qtyStep", min_qty)),
+                            "qty_step": q_step,
+                            "step_size": q_step,
+                            "min_notional": float(s.get("minNotional", 0.0) or 0.0),
                             "max_leverage": int(s.get("maxLeverage", max_lev)),
                         }
         except Exception:
@@ -1099,6 +1102,8 @@ class PrimeXBTTrader:
             "min_qty": min_qty,
             "max_qty": 100000.0,
             "qty_step": min_qty,
+            "step_size": min_qty,
+            "min_notional": 0.0,
             "max_leverage": max_lev,
         }
 
@@ -1355,11 +1360,26 @@ class PrimeXBTTrader:
         return self._round_to_step(raw_qty, qty_step) if qty_step > 0 else round(raw_qty, 8)
 
     @staticmethod
-    def _round_to_step(value: float, step: float) -> float:
+    def _round_to_step(value: float, step: float):
         if step <= 0:
             return value
-        decimals = max(0, int(math.ceil(-math.log10(step))))
-        return round(math.floor(value / step) * step, decimals)
+        decimals = max(0, int(math.ceil(-math.log10(step)))) if step < 1 else 0
+        rounded = math.floor((value / step) + 1e-12) * step
+        val = round(rounded, decimals)
+        if step >= 1 and abs(step - round(step)) < 1e-9:
+            return int(round(val))
+        return val
+
+    @staticmethod
+    def _ceil_to_step(value: float, step: float):
+        if step <= 0:
+            return value
+        decimals = max(0, int(math.ceil(-math.log10(step)))) if step < 1 else 0
+        rounded = math.ceil((value / step) - 1e-12) * step
+        val = round(rounded, decimals)
+        if step >= 1 and abs(step - round(step)) < 1e-9:
+            return int(round(val))
+        return val
 
     def close_position(self, symbol: str) -> dict:
         """Market close active position on PrimeXBT."""

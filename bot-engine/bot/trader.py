@@ -152,9 +152,11 @@ class BinanceFuturesTrader:
             logger.warning("Binance credentials: %s", self.credential_warning)
         self.testnet = bool(testnet)
         self.client = None
-        self._exchange_info_cache: dict = {}  # symbol -> {step_size, min_qty, tick_size}
+        self._exchange_info_cache: dict = {}  # symbol -> {step_size, min_qty, tick_size, min_notional}
         self._symbol_leverage: dict[str, int] = {}  # symbol -> last set/confirmed leverage
         self._symbol_max_notional: dict[str, float] = {}  # symbol -> max allowed notional at current leverage
+        self._is_hedge_mode: Optional[bool] = None
+        self._use_algo_orders: bool = False
         self._connect()
 
     def _connect(self):
@@ -513,11 +515,11 @@ class BinanceFuturesTrader:
         return self._symbol_max_notional.get(symbol, 0.0)
 
     def get_symbol_filters(self, symbol: str) -> dict:
-        """Fetch exchange info filters (LOT_SIZE step, min qty, PRICE_FILTER tick) for a symbol.
+        """Fetch exchange info filters (LOT_SIZE, MARKET_LOT_SIZE, MIN_NOTIONAL, PRICE_FILTER).
         Caches results to avoid repeated API calls.
 
         Returns:
-            dict with keys: step_size, min_qty, tick_size, max_qty
+            dict with keys: step_size, min_qty, tick_size, max_qty, min_notional
             Falls back to defaults if API fails.
         """
         symbol = symbol.upper()
@@ -529,6 +531,7 @@ class BinanceFuturesTrader:
             "min_qty": 0.001,
             "max_qty": 1e9,
             "tick_size": 0.01,
+            "min_notional": 5.0,
         }
         try:
             if _CONNECTOR == "binance-futures-connector":
@@ -543,6 +546,7 @@ class BinanceFuturesTrader:
                 lot = filters.get("LOT_SIZE", {})
                 market_lot = filters.get("MARKET_LOT_SIZE", {})
                 price = filters.get("PRICE_FILTER", {})
+                mn = filters.get("MIN_NOTIONAL", {})
                 s_step = float(lot.get("stepSize", 0.001))
                 s_min = float(lot.get("minQty", 0.001))
                 s_max = float(lot.get("maxQty", 1e9))
@@ -556,11 +560,16 @@ class BinanceFuturesTrader:
                     m_step = float(market_lot.get("stepSize", 0))
                     if m_step > 0:
                         s_step = m_step
+                try:
+                    min_notional = float(mn.get("notional", 5.0) or 5.0)
+                except (TypeError, ValueError):
+                    min_notional = 5.0
                 self._exchange_info_cache[sym_name] = {
                     "step_size": s_step,
                     "min_qty": s_min,
                     "max_qty": s_max,
                     "tick_size": float(price.get("tickSize", 0.01)),
+                    "min_notional": min_notional,
                 }
 
             if symbol in self._exchange_info_cache:
@@ -575,32 +584,127 @@ class BinanceFuturesTrader:
             return defaults
 
     @staticmethod
-    def _round_to_step(value: float, step: float) -> float:
-        """Round value down to the nearest multiple of step."""
+    def _round_to_step(value: float, step: float):
+        """Round value down to the nearest multiple of step without float underflow."""
         if step <= 0:
             return value
-        # Determine decimal places from step
         import math
-        decimals = max(0, int(math.ceil(-math.log10(step))))
-        rounded = math.floor(value / step) * step
-        return round(rounded, decimals)
+        decimals = max(0, int(math.ceil(-math.log10(step)))) if step < 1 else 0
+        rounded = math.floor((value / step) + 1e-12) * step
+        val = round(rounded, decimals)
+        if step >= 1 and abs(step - round(step)) < 1e-9:
+            return int(round(val))
+        return val
+
+    @staticmethod
+    def _ceil_to_step(value: float, step: float):
+        """Round value up to the nearest multiple of step."""
+        if step <= 0:
+            return value
+        import math
+        decimals = max(0, int(math.ceil(-math.log10(step)))) if step < 1 else 0
+        rounded = math.ceil((value / step) - 1e-12) * step
+        val = round(rounded, decimals)
+        if step >= 1 and abs(step - round(step)) < 1e-9:
+            return int(round(val))
+        return val
+
+    def _get_position_mode(self, force: bool = False) -> bool:
+        """Return True if Binance account is in Hedge Mode (dualSidePosition), else False."""
+        if not force and self._is_hedge_mode is not None:
+            return self._is_hedge_mode
+        is_hedge = False
+        try:
+            pm = None
+            if _CONNECTOR == "binance-futures-connector" and hasattr(self.client, "get_position_mode"):
+                pm = self.client.get_position_mode()
+            elif hasattr(self.client, "futures_get_position_mode"):
+                pm = self.client.futures_get_position_mode()
+            if isinstance(pm, dict):
+                is_hedge = bool(pm.get("dualSidePosition", False))
+        except Exception as e:
+            logger.debug("get_position_mode check notice: %s", e)
+            if self._is_hedge_mode is not None:
+                return self._is_hedge_mode
+        self._is_hedge_mode = is_hedge
+        return is_hedge
+
+    def _fapi_signed_request(self, method: str, path: str, params: dict = None, timeout: int = 15) -> dict:
+        """Signed REST call against Binance USDT-M Futures API (used for /fapi/v1/algoOrder)."""
+        import hmac as _hmac
+        import time as _time
+        import urllib.parse as _up
+        import requests as _requests
+
+        base = "https://testnet.binancefuture.com" if self.testnet else "https://fapi.binance.com"
+        payload = {}
+        for k, v in (params or {}).items():
+            if v is not None:
+                if isinstance(v, bool):
+                    payload[k] = "true" if v else "false"
+                else:
+                    payload[k] = str(v)
+        payload["timestamp"] = str(int(_time.time() * 1000))
+        payload["recvWindow"] = "10000"
+        query = _up.urlencode(payload)
+        sig = _hmac.new(
+            self.api_secret.encode("utf-8"),
+            query.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        url = f"{base}{path}?{query}&signature={sig}"
+        resp = _requests.request(
+            method.upper(),
+            url,
+            headers={"X-MBX-APIKEY": self.api_key},
+            timeout=timeout,
+        )
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw": resp.text[:200]}
+        if resp.status_code >= 400 or (isinstance(data, dict) and isinstance(data.get("code"), int) and data["code"] < 0):
+            code = data.get("code") if isinstance(data, dict) else resp.status_code
+            msg = data.get("msg") if isinstance(data, dict) else str(data)[:200]
+            raise RuntimeError(f"Binance {code}: {msg}")
+        return data if isinstance(data, dict) else {"raw": data}
+
+    @staticmethod
+    def _infer_hedge_pos_side(side: str, reduce_only: bool) -> str:
+        """Determine Binance Hedge Mode positionSide from order side & intent."""
+        s = side.upper()
+        if reduce_only:
+            return "LONG" if s == "SELL" else "SHORT"
+        return "LONG" if s == "BUY" else "SHORT"
+
+    def _submit_client_order(self, kwargs: dict):
+        """Dispatch order kwargs through whichever Binance Python connector is loaded."""
+        if _CONNECTOR == "binance-futures-connector":
+            return self.client.new_order(**kwargs)
+        return self.client.futures_create_order(**kwargs)
+
+    @staticmethod
+    def _bool_param(val: bool):
+        return ("true" if val else "false") if _CONNECTOR == "binance-futures-connector" else bool(val)
+
+    def _apply_hedge_or_oneway_params(self, kwargs: dict, side: str, reduce_only: bool,
+                                      position_side: Optional[str], is_hedge: bool):
+        kwargs.pop("reduceOnly", None)
+        kwargs.pop("positionSide", None)
+        if is_hedge:
+            kwargs["positionSide"] = (str(position_side).upper() if position_side else self._infer_hedge_pos_side(side, reduce_only))
+        else:
+            if reduce_only:
+                kwargs["reduceOnly"] = self._bool_param(True)
+            if position_side and str(position_side).upper() in ("LONG", "SHORT"):
+                kwargs["positionSide"] = str(position_side).upper()
 
     def place_market_order(self, symbol: str, side: str, quantity: float,
                            reduce_only: bool = False,
                            position_side: str = None) -> dict:
         """
         Place a MARKET order. Automatically rounds quantity to the symbol's
-        LOT_SIZE step size to avoid Binance error -1111 (Precision over maximum).
-
-        Args:
-            symbol: e.g. "BTCUSDT"
-            side: "BUY" or "SELL"
-            quantity: base-asset quantity (>0)
-            reduce_only: if True, only reduces existing position (for exits)
-            position_side: "LONG" or "SHORT" for Hedge Mode, or None for One-Way Mode
-
-        Returns:
-            dict with success flag and order info.
+        LOT_SIZE step size and handles One-Way vs Hedge Mode cleanly.
         """
         side = side.upper()
         if side not in ("BUY", "SELL"):
@@ -608,7 +712,8 @@ class BinanceFuturesTrader:
         if quantity <= 0:
             return {"success": False, "error": "Quantity must be > 0"}
 
-        # Fetch symbol filters and round quantity properly
+        step = 0.001
+        min_qty = 0.001
         try:
             filters = self.get_symbol_filters(symbol)
             step = filters["step_size"]
@@ -625,38 +730,40 @@ class BinanceFuturesTrader:
             logger.warning("Could not apply step size rounding for %s: %s. Using raw qty.", symbol, e)
             quantity = round(quantity, 6)
 
-        try:
-            if _CONNECTOR == "binance-futures-connector":
-                kwargs = {
-                    "symbol": symbol,
-                    "side": side,
-                    "type": "MARKET",
-                    "quantity": quantity,
-                }
-                if reduce_only:
-                    kwargs["reduceOnly"] = "true"
-                if position_side:
-                    kwargs["positionSide"] = str(position_side).upper()
-                resp = self.client.new_order(**kwargs)
-            else:
-                kwargs = {
-                    "symbol": symbol,
-                    "side": side,
-                    "type": "MARKET",
-                    "quantity": quantity,
-                }
-                if reduce_only:
-                    kwargs["reduceOnly"] = True
-                if position_side:
-                    kwargs["positionSide"] = str(position_side).upper()
-                resp = self.client.futures_create_order(**kwargs)
+        is_hedge = self._get_position_mode() if position_side is None else (str(position_side).upper() in ("LONG", "SHORT"))
+        kwargs = {
+            "symbol": symbol,
+            "side": side,
+            "type": "MARKET",
+            "quantity": quantity,
+        }
+        self._apply_hedge_or_oneway_params(kwargs, side, reduce_only, position_side, is_hedge)
 
+        try:
+            resp = self._submit_client_order(kwargs)
             oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
             logger.info("Order placed: %s %s qty=%s reduceOnly=%s posSide=%s -> orderId=%s",
-                        side, symbol, quantity, reduce_only, position_side, oid)
+                        side, symbol, quantity, kwargs.get("reduceOnly", False), kwargs.get("positionSide"), oid)
             return {"success": True, "order": resp, "quantity": quantity}
         except Exception as e:
             err_msg = str(e)
+            # Auto-recover One-Way vs Hedge Mode mismatch (-4061 / -1106)
+            if "-4061" in err_msg or "-1106" in err_msg or "position side does not match" in err_msg.lower():
+                flipped_hedge = self._get_position_mode(force=True)
+                if flipped_hedge == is_hedge:
+                    flipped_hedge = not is_hedge
+                    self._is_hedge_mode = flipped_hedge
+                self._apply_hedge_or_oneway_params(kwargs, side, reduce_only, None, flipped_hedge)
+                try:
+                    resp = self._submit_client_order(kwargs)
+                    oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
+                    logger.info("Order placed after positionMode sync (hedge=%s): %s %s qty=%s -> orderId=%s",
+                                flipped_hedge, side, symbol, quantity, oid)
+                    return {"success": True, "order": resp, "quantity": quantity}
+                except Exception as e_pm:
+                    err_msg = str(e_pm)
+                    e = e_pm
+
             # Auto-handle Binance error -2027: Exceeded maximum allowable position at current leverage
             if "-2027" in err_msg or "-4005" in err_msg or "maximum allowable position" in err_msg.lower() or "quantity greater than max" in err_msg.lower():
                 for factor in (0.5, 0.25):
@@ -666,10 +773,7 @@ class BinanceFuturesTrader:
                                        symbol, retry_qty, factor * 100)
                         try:
                             kwargs["quantity"] = retry_qty
-                            if _CONNECTOR == "binance-futures-connector":
-                                resp = self.client.new_order(**kwargs)
-                            else:
-                                resp = self.client.futures_create_order(**kwargs)
+                            resp = self._submit_client_order(kwargs)
                             oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
                             logger.info("Order placed after bracket downscale: %s %s qty=%s -> orderId=%s",
                                         side, symbol, retry_qty, oid)
@@ -709,42 +813,38 @@ class BinanceFuturesTrader:
             logger.warning("Could not apply step/tick size for %s: %s", symbol, e)
             quantity = round(quantity, 6)
 
-        try:
-            time_in_force = "GTX" if post_only else "GTC"
-            if _CONNECTOR == "binance-futures-connector":
-                kwargs = {
-                    "symbol": symbol,
-                    "side": side,
-                    "type": "LIMIT",
-                    "quantity": quantity,
-                    "price": price,
-                    "timeInForce": time_in_force,
-                }
-                if reduce_only:
-                    kwargs["reduceOnly"] = "true"
-                if position_side:
-                    kwargs["positionSide"] = str(position_side).upper()
-                resp = self.client.new_order(**kwargs)
-            else:
-                kwargs = {
-                    "symbol": symbol,
-                    "side": side,
-                    "type": "LIMIT",
-                    "quantity": quantity,
-                    "price": price,
-                    "timeInForce": time_in_force,
-                }
-                if reduce_only:
-                    kwargs["reduceOnly"] = True
-                if position_side:
-                    kwargs["positionSide"] = str(position_side).upper()
-                resp = self.client.futures_create_order(**kwargs)
+        time_in_force = "GTX" if post_only else "GTC"
+        is_hedge = self._get_position_mode() if position_side is None else (str(position_side).upper() in ("LONG", "SHORT"))
+        kwargs = {
+            "symbol": symbol,
+            "side": side,
+            "type": "LIMIT",
+            "quantity": quantity,
+            "price": price,
+            "timeInForce": time_in_force,
+        }
+        self._apply_hedge_or_oneway_params(kwargs, side, reduce_only, position_side, is_hedge)
 
+        try:
+            resp = self._submit_client_order(kwargs)
             oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
             logger.info("Limit/Maker order placed: %s %s qty=%s price=%s TIF=%s posSide=%s -> orderId=%s",
-                        side, symbol, quantity, price, time_in_force, position_side, oid)
+                        side, symbol, quantity, price, time_in_force, kwargs.get("positionSide"), oid)
             return {"success": True, "order": resp, "quantity": quantity, "price": price}
         except Exception as e:
+            err_msg = str(e)
+            if "-4061" in err_msg or "-1106" in err_msg or "position side does not match" in err_msg.lower():
+                flipped_hedge = self._get_position_mode(force=True)
+                if flipped_hedge == is_hedge:
+                    flipped_hedge = not is_hedge
+                    self._is_hedge_mode = flipped_hedge
+                self._apply_hedge_or_oneway_params(kwargs, side, reduce_only, None, flipped_hedge)
+                try:
+                    resp = self._submit_client_order(kwargs)
+                    oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
+                    return {"success": True, "order": resp, "quantity": quantity, "price": price}
+                except Exception as e_pm:
+                    e = e_pm
             logger.warning("Limit/Maker order failed (%s): %s", side, e)
             return {"success": False, "error": str(e), "quantity": quantity, "price": price}
 
@@ -845,128 +945,231 @@ class BinanceFuturesTrader:
 
         return res_fallback if res_fallback.get("error") else res
 
-    def open_long(self, symbol: str, quantity: float,
-                  sl_price: float = None, tp_price: float = None,
-                  order_type: str = "market", price: float = None) -> dict:
-        """Open a LONG position (market order default for instant momentum fills)."""
+    def _open_position(self, symbol: str, entry_side: str, quantity: float,
+                       sl_price: float = None, tp_price: float = None,
+                       order_type: str = "market", price: float = None) -> dict:
+        """Open LONG (BUY) or SHORT (SELL) and attach exchange SL/TP in One-Way or Hedge mode."""
+        is_hedge = self._get_position_mode()
+        pos_side = self._infer_hedge_pos_side(entry_side, reduce_only=False) if is_hedge else None
+
         result = None
         if order_type in ("maker", "limit") and price and price > 0:
-            result = self.place_limit_order(symbol, "BUY", quantity, price, post_only=(order_type == "maker"))
+            result = self.place_limit_order(
+                symbol, entry_side, quantity, price,
+                post_only=(order_type == "maker"),
+                position_side=pos_side,
+            )
             if not result.get("success"):
                 logger.info("[%s] Maker entry rejected/unfilled -> falling back to MARKET order", symbol)
                 result = None
         if not result:
-            result = self.place_market_order(symbol, "BUY", quantity, reduce_only=False)
+            result = self.place_market_order(
+                symbol, entry_side, quantity,
+                reduce_only=False,
+                position_side=pos_side,
+            )
 
-        # SL/TP placed after entry (see docstring for watchdog backup details)
         if result.get("success") and (sl_price or tp_price):
+            actual_qty = float(result.get("quantity") or quantity)
+            exit_side = "SELL" if entry_side.upper() == "BUY" else "BUY"
+            actual_pos_side = None
+            try:
+                kwargs_used = result.get("order") or {}
+                if isinstance(kwargs_used, dict) and kwargs_used.get("positionSide") in ("LONG", "SHORT"):
+                    actual_pos_side = kwargs_used.get("positionSide")
+                elif self._is_hedge_mode:
+                    actual_pos_side = self._infer_hedge_pos_side(entry_side, reduce_only=False)
+            except Exception:
+                actual_pos_side = pos_side
+
             if sl_price and sl_price > 0:
-                sl_result = self.place_stop_loss(symbol, "SELL", sl_price, quantity)
-                if not sl_result.get("success"):
-                    logger.warning(f"[{symbol}] SL order failed (software watchdog will back up): {sl_result.get('error')}")
+                sl_result = self.place_stop_loss(
+                    symbol, exit_side, sl_price, actual_qty, position_side=actual_pos_side
+                )
+                if sl_result.get("success"):
+                    result["sl_price"] = sl_result.get("stop_price", sl_price)
+                else:
+                    result["sl_error"] = sl_result.get("error", "SL order rejected")
+                    logger.warning("[%s] SL order failed (software watchdog active): %s", symbol, result["sl_error"])
+
             if tp_price and tp_price > 0:
-                tp_result = self.place_take_profit(symbol, "SELL", tp_price, quantity)
-                if not tp_result.get("success"):
-                    logger.warning(f"[{symbol}] TP order failed (software watchdog will back up): {tp_result.get('error')}")
+                tp_result = self.place_take_profit(
+                    symbol, exit_side, tp_price, actual_qty, position_side=actual_pos_side
+                )
+                if tp_result.get("success"):
+                    result["tp_price"] = tp_result.get("stop_price", tp_price)
+                else:
+                    result["tp_error"] = tp_result.get("error", "TP order rejected")
+                    logger.warning("[%s] TP order failed (software watchdog active): %s", symbol, result["tp_error"])
+
         return result
+
+    def open_long(self, symbol: str, quantity: float,
+                  sl_price: float = None, tp_price: float = None,
+                  order_type: str = "market", price: float = None) -> dict:
+        """Open a LONG position (market order default for instant momentum fills)."""
+        return self._open_position(symbol, "BUY", quantity, sl_price=sl_price, tp_price=tp_price,
+                                   order_type=order_type, price=price)
 
     def open_short(self, symbol: str, quantity: float,
                    sl_price: float = None, tp_price: float = None,
                    order_type: str = "market", price: float = None) -> dict:
         """Open a SHORT position (market order default for instant momentum fills)."""
-        result = None
-        if order_type in ("maker", "limit") and price and price > 0:
-            result = self.place_limit_order(symbol, "SELL", quantity, price, post_only=(order_type == "maker"))
-            if not result.get("success"):
-                logger.info("[%s] Maker entry rejected/unfilled -> falling back to MARKET order", symbol)
-                result = None
-        if not result:
-            result = self.place_market_order(symbol, "SELL", quantity, reduce_only=False)
-
-        # SL/TP placed after entry (see docstring for watchdog backup details)
-        if result.get("success") and (sl_price or tp_price):
-            if sl_price and sl_price > 0:
-                sl_result = self.place_stop_loss(symbol, "BUY", sl_price, quantity)
-                if not sl_result.get("success"):
-                    logger.warning(f"[{symbol}] SL order failed (software watchdog will back up): {sl_result.get('error')}")
-            if tp_price and tp_price > 0:
-                tp_result = self.place_take_profit(symbol, "BUY", tp_price, quantity)
-                if not tp_result.get("success"):
-                    logger.warning(f"[{symbol}] TP order failed (software watchdog will back up): {tp_result.get('error')}")
-        return result
+        return self._open_position(symbol, "SELL", quantity, sl_price=sl_price, tp_price=tp_price,
+                                   order_type=order_type, price=price)
 
     # ---------- Stop Loss / Take Profit Orders ----------
 
-    def place_stop_loss(self, symbol: str, side: str, stop_price: float, quantity: float) -> dict:
+    def _place_conditional_order(self, symbol: str, side: str, order_type: str,
+                                 stop_price: float, quantity: float,
+                                 position_side: str = None) -> dict:
+        """Place STOP_MARKET or TAKE_PROFIT_MARKET using Algo API fallback on Binance -4120."""
+        side = side.upper()
+        try:
+            filters = self.get_symbol_filters(symbol)
+            tick = filters["tick_size"]
+            stop_price = self._round_to_step(stop_price, tick)
+            qty = self._round_to_step(quantity, filters["step_size"])
+            min_qty = filters.get("min_qty", 0.0)
+            if qty <= 0 or (min_qty > 0 and qty < min_qty):
+                return {"success": False, "error": f"{order_type} quantity {qty} below min_qty {min_qty}"}
+
+            is_hedge = (
+                str(position_side).upper() in ("LONG", "SHORT")
+                if position_side is not None
+                else self._get_position_mode()
+            )
+            eff_pos_side = (
+                str(position_side).upper()
+                if position_side and str(position_side).upper() in ("LONG", "SHORT")
+                else (self._infer_hedge_pos_side(side, reduce_only=True) if is_hedge else None)
+            )
+
+            def _send_via_algo(hedge_flag: bool, p_side: Optional[str]) -> dict:
+                params = {
+                    "symbol": symbol,
+                    "side": side,
+                    "algoType": "CONDITIONAL",
+                    "type": order_type,
+                    "triggerPrice": stop_price,
+                    "quantity": qty,
+                    "workingType": "MARK_PRICE",
+                }
+                if hedge_flag:
+                    params["positionSide"] = p_side or self._infer_hedge_pos_side(side, reduce_only=True)
+                else:
+                    params["reduceOnly"] = "true"
+                resp = self._fapi_signed_request("POST", "/fapi/v1/algoOrder", params=params)
+                oid = resp.get("algoId") or resp.get("clientAlgoId") or resp.get("orderId", "?")
+                return {**resp, "orderId": oid}
+
+            def _send_via_standard(hedge_flag: bool, p_side: Optional[str]) -> dict:
+                kwargs = {
+                    "symbol": symbol,
+                    "side": side,
+                    "type": order_type,
+                    "stopPrice": stop_price,
+                    "quantity": qty,
+                    "workingType": "MARK_PRICE",
+                }
+                self._apply_hedge_or_oneway_params(kwargs, side, True, p_side, hedge_flag)
+                return self._submit_client_order(kwargs)
+
+            resp = None
+            used_algo = False
+            if self._use_algo_orders:
+                used_algo = True
+                try:
+                    resp = _send_via_algo(is_hedge, eff_pos_side)
+                except Exception as e_algo:
+                    msg = str(e_algo)
+                    if "-4061" in msg or "-1106" in msg or "position side" in msg.lower():
+                        is_hedge = self._get_position_mode(force=True)
+                        eff_pos_side = self._infer_hedge_pos_side(side, reduce_only=True) if is_hedge else None
+                        resp = _send_via_algo(is_hedge, eff_pos_side)
+                    else:
+                        raise
+            else:
+                try:
+                    resp = _send_via_standard(is_hedge, eff_pos_side)
+                except Exception as e_std:
+                    msg = str(e_std)
+                    if "-4120" in msg or "algo order" in msg.lower() or "not supported for this endpoint" in msg.lower():
+                        self._use_algo_orders = True
+                        used_algo = True
+                        try:
+                            resp = _send_via_algo(is_hedge, eff_pos_side)
+                        except Exception as e_algo2:
+                            msg2 = str(e_algo2)
+                            if "-4061" in msg2 or "-1106" in msg2 or "position side" in msg2.lower():
+                                is_hedge = self._get_position_mode(force=True)
+                                eff_pos_side = self._infer_hedge_pos_side(side, reduce_only=True) if is_hedge else None
+                                resp = _send_via_algo(is_hedge, eff_pos_side)
+                            else:
+                                raise
+                    elif "-4061" in msg or "-1106" in msg or "position side" in msg.lower():
+                        flipped_hedge = self._get_position_mode(force=True)
+                        if flipped_hedge == is_hedge:
+                            flipped_hedge = not is_hedge
+                            self._is_hedge_mode = flipped_hedge
+                        eff_pos_side = self._infer_hedge_pos_side(side, reduce_only=True) if flipped_hedge else None
+                        resp = _send_via_standard(flipped_hedge, eff_pos_side)
+                    else:
+                        raise
+
+            oid = resp.get("orderId", "?") if isinstance(resp, dict) else "?"
+            tag = "Algo " if used_algo else ""
+            logger.info("%s%s placed: %s %s qty=%s trigger=%s posSide=%s -> orderId=%s",
+                        tag, order_type, side, symbol, qty, stop_price, eff_pos_side, oid)
+            return {"success": True, "order": resp, "stop_price": stop_price, "algo": used_algo}
+        except Exception as e:
+            logger.error("%s order failed: %s", order_type, e)
+            return {"success": False, "error": str(e)}
+
+    def place_stop_loss(self, symbol: str, side: str, stop_price: float, quantity: float,
+                        position_side: str = None) -> dict:
         """Place a STOP_MARKET order for Stop Loss.
         side: opposite of position side (e.g. 'SELL' for LONG position)."""
-        try:
-            filters = self.get_symbol_filters(symbol)
-            tick = filters["tick_size"]
-            stop_price = self._round_to_step(stop_price, tick)
-            qty = self._round_to_step(quantity, filters["step_size"])
-            if _CONNECTOR == "binance-futures-connector":
-                resp = self.client.new_order(
-                    symbol=symbol, side=side, type="STOP_MARKET",
-                    stopPrice=stop_price, quantity=qty, reduceOnly="true",
-                    workingType="MARK_PRICE",
-                )
-            else:
-                resp = self.client.futures_create_order(
-                    symbol=symbol, side=side, type="STOP_MARKET",
-                    stopPrice=stop_price, quantity=qty, reduceOnly=True,
-                    workingType="MARK_PRICE",
-                )
-            logger.info("SL placed: %s %s qty=%s stopPrice=%s -> orderId=%s",
-                        side, symbol, qty, stop_price, resp.get("orderId"))
-            return {"success": True, "order": resp}
-        except Exception as e:
-            logger.error("SL order failed: %s", e)
-            return {"success": False, "error": str(e)}
+        return self._place_conditional_order(
+            symbol, side, "STOP_MARKET", stop_price, quantity, position_side=position_side
+        )
 
-    def place_take_profit(self, symbol: str, side: str, stop_price: float, quantity: float) -> dict:
+    def place_take_profit(self, symbol: str, side: str, stop_price: float, quantity: float,
+                          position_side: str = None) -> dict:
         """Place a TAKE_PROFIT_MARKET order.
         side: opposite of position side (e.g. 'SELL' for LONG position)."""
-        try:
-            filters = self.get_symbol_filters(symbol)
-            tick = filters["tick_size"]
-            stop_price = self._round_to_step(stop_price, tick)
-            qty = self._round_to_step(quantity, filters["step_size"])
-            if _CONNECTOR == "binance-futures-connector":
-                resp = self.client.new_order(
-                    symbol=symbol, side=side, type="TAKE_PROFIT_MARKET",
-                    stopPrice=stop_price, quantity=qty, reduceOnly="true",
-                    workingType="MARK_PRICE",
-                )
-            else:
-                resp = self.client.futures_create_order(
-                    symbol=symbol, side=side, type="TAKE_PROFIT_MARKET",
-                    stopPrice=stop_price, quantity=qty, reduceOnly=True,
-                    workingType="MARK_PRICE",
-                )
-            logger.info("TP placed: %s %s qty=%s stopPrice=%s -> orderId=%s",
-                        side, symbol, qty, stop_price, resp.get("orderId"))
-            return {"success": True, "order": resp}
-        except Exception as e:
-            logger.error("TP order failed: %s", e)
-            return {"success": False, "error": str(e)}
+        return self._place_conditional_order(
+            symbol, side, "TAKE_PROFIT_MARKET", stop_price, quantity, position_side=position_side
+        )
 
     def cancel_open_orders(self, symbol: str) -> dict:
-        """Cancel all open orders for a symbol (used before placing new SL/TP or closing position)."""
+        """Cancel all open standard & algo orders for a symbol before SL/TP update or close."""
+        std_err = None
+        raw = None
         try:
             if _CONNECTOR == "binance-futures-connector":
-                resp = self.client.cancel_open_orders(symbol=symbol)
+                raw = self.client.cancel_open_orders(symbol=symbol)
             else:
-                resp = self.client.futures_cancel_all_open_orders(symbol=symbol)
-            return {"success": True, "raw": resp}
+                raw = self.client.futures_cancel_all_open_orders(symbol=symbol)
         except Exception as e:
             err_msg = str(e)
-            if "-2011" in err_msg or "unknown order" in err_msg.lower():
-                # Binance returns -2011 if there are no open orders; that is normal and clean
-                logger.debug("[%s] cancel_open_orders: no open orders found to cancel", symbol)
-                return {"success": True, "message": "No open orders to cancel"}
-            logger.warning("[%s] Cancel orders notice: %s", symbol, e)
-            return {"success": False, "error": err_msg}
+            if "-2011" not in err_msg and "unknown order" not in err_msg.lower():
+                std_err = err_msg
+                logger.warning("[%s] Cancel orders notice: %s", symbol, e)
+
+        # Also clear Binance Algo conditional open orders (SL/TP placed via /fapi/v1/algoOrder)
+        is_real_client = type(self.client).__module__.startswith("binance.")
+        if self.api_key and self.api_secret and (self._use_algo_orders or (not self.testnet and is_real_client)):
+            try:
+                self._fapi_signed_request("DELETE", "/fapi/v1/algoOpenOrders", params={"symbol": symbol})
+            except Exception as e_algo:
+                msg_a = str(e_algo)
+                if "-2011" not in msg_a and "no open" not in msg_a.lower() and "404" not in msg_a:
+                    logger.debug("[%s] Cancel algo open orders notice: %s", symbol, msg_a)
+
+        if std_err:
+            return {"success": False, "error": std_err}
+        return {"success": True, "raw": raw}
 
     # ---------- Helpers ----------
 
