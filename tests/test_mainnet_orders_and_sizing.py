@@ -159,6 +159,38 @@ class TestBinanceMainnetExecution:
         assert res["quantity"] == 0.5
         assert sltp_qtys == [0.5, 0.5]
 
+    def test_close_small_position_under_min_notional_keeps_reduce_only(self, monkeypatch):
+        from bot.trader import Position
+        trader, mock_client = _make_binance_trader(monkeypatch, hedge=False, testnet=True)
+        trader._use_algo_orders = True
+
+        # ETHUSDT 0.008 ETH (~$14.52 < $20 MIN_NOTIONAL): Binance rejects non-reduceOnly with -4164.
+        monkeypatch.setattr(
+            trader,
+            "get_position",
+            lambda sym: Position("ETHUSDT", "LONG", 0.008, 1819.99, 1815.56, -0.04, 50),
+        )
+        cancel_count = {"n": 0}
+        monkeypatch.setattr(trader, "cancel_open_orders", lambda sym: (cancel_count.__setitem__("n", cancel_count["n"] + 1) or {"success": True}))
+
+        seen_orders = []
+
+        def fake_new_order(**kwargs):
+            seen_orders.append(dict(kwargs))
+            # First close hits -2022 before second cancel settles; retry MUST still pass reduceOnly='true'
+            if kwargs.get("reduceOnly") != "true":
+                raise RuntimeError("(-4164, \"Order's notional must be no smaller than 20 (unless you choose reduce only)\")")
+            if len(seen_orders) == 1:
+                raise RuntimeError("(-2022, 'ReduceOnly Order is rejected.')")
+            return {"orderId": 4004}
+
+        mock_client.new_order.side_effect = fake_new_order
+        res = trader.close_position("ETHUSDT")
+        assert res["success"] is True
+        assert cancel_count["n"] == 2
+        assert len(seen_orders) == 2
+        assert seen_orders[1].get("reduceOnly") == "true"
+
 
 class TestSmallBalanceAndExchangeFilters:
     def _make_worker(self, symbol, cfg, *, balance=14.0, filters=None, max_notional=0.0):

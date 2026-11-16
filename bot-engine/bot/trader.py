@@ -889,21 +889,12 @@ class BinanceFuturesTrader:
         close_side = "SELL" if latest_pos.side == "LONG" else "BUY"
         qty = abs(latest_pos.size) if quantity is None else min(abs(float(quantity)), abs(latest_pos.size))
 
-        # Check if account is in Hedge Mode (Dual-Side Position)
-        is_hedge = False
-        try:
-            if _CONNECTOR == "binance-futures-connector":
-                pm = self.client.get_position_mode()
-            else:
-                pm = self.client.futures_get_position_mode()
-            if isinstance(pm, dict):
-                is_hedge = bool(pm.get("dualSidePosition", False))
-        except Exception as e:
-            logger.debug("[%s] get_position_mode check: %s", symbol, e)
+        # Check if account is in Hedge Mode (Dual-Side Position) and sync cache
+        is_hedge = self._get_position_mode(force=True)
 
         # 2. Place market order to close
         # In Hedge mode: reduceOnly is NOT permitted by Binance; positionSide is required.
-        # In One-Way mode: reduceOnly=True is standard.
+        # In One-Way mode: reduceOnly=True is REQUIRED so small (< MIN_NOTIONAL) positions close cleanly.
         res = self.place_market_order(
             symbol=symbol,
             side=close_side,
@@ -916,17 +907,15 @@ class BinanceFuturesTrader:
             return res
 
         err_msg = str(res.get("error", ""))
-        logger.warning("[%s] Initial close order notice (%s). Executing aggressive close fallback...", symbol, err_msg)
+        logger.warning("[%s] Initial close order notice (%s). Re-cancelling orders & retrying...", symbol, err_msg)
 
-        # 3. Aggressive Fallback:
-        # If -2022 or reduceOnly error occurred, cancel open orders again and pause
+        # 3. Cancel open standard + algo orders again and wait briefly for matching engine
         try:
             self.cancel_open_orders(symbol)
         except Exception:
             pass
-        time.sleep(0.15)
+        time.sleep(0.2)
 
-        # Check if position was already closed by an exchange order that filled
         latest_pos = self.get_position(symbol)
         if latest_pos.side == "NONE" or abs(latest_pos.size) <= 0:
             logger.info("[%s] Position verified closed after cancelling open orders", symbol)
@@ -934,18 +923,34 @@ class BinanceFuturesTrader:
 
         qty = abs(latest_pos.size) if quantity is None else min(abs(float(quantity)), abs(latest_pos.size))
         close_side = "SELL" if latest_pos.side == "LONG" else "BUY"
+        is_hedge = self._get_position_mode()
 
-        # Retry with reduce_only=False (exact qty market order closes the remaining position)
-        res_fallback = self.place_market_order(
+        # Retry WITH reduce_only=True in One-Way mode first (waives Binance MIN_NOTIONAL -4164!)
+        res_retry = self.place_market_order(
             symbol=symbol,
             side=close_side,
             quantity=qty,
-            reduce_only=False,
+            reduce_only=(not is_hedge),
             position_side=(latest_pos.side if is_hedge else None),
         )
-        if res_fallback.get("success"):
-            logger.info("[%s] Aggressive fallback close succeeded!", symbol)
-            return res_fallback
+        if res_retry.get("success"):
+            logger.info("[%s] Close succeeded on reduce-only retry after cancelling open orders!", symbol)
+            return res_retry
+
+        res_fallback = res_retry
+        retry_err = str(res_retry.get("error", ""))
+        # Only fall back to reduce_only=False when One-Way reduceOnly itself failed for non-notional reasons
+        if not is_hedge and "-4164" not in retry_err and "notional" not in retry_err.lower():
+            res_fallback = self.place_market_order(
+                symbol=symbol,
+                side=close_side,
+                quantity=qty,
+                reduce_only=False,
+                position_side=None,
+            )
+            if res_fallback.get("success"):
+                logger.info("[%s] Aggressive fallback close succeeded!", symbol)
+                return res_fallback
 
         time.sleep(0.1)
         final_check = self.get_position(symbol)
@@ -1168,7 +1173,7 @@ class BinanceFuturesTrader:
 
         # Also clear Binance Algo conditional open orders (SL/TP placed via /fapi/v1/algoOrder)
         is_real_client = type(self.client).__module__.startswith("binance.")
-        if self.api_key and self.api_secret and (self._use_algo_orders or (not self.testnet and is_real_client)):
+        if self.api_key and self.api_secret and (self._use_algo_orders or is_real_client):
             try:
                 self._fapi_signed_request("DELETE", "/fapi/v1/algoOpenOrders", params={"symbol": symbol})
             except Exception as e_algo:
