@@ -153,6 +153,14 @@
         </script>
         {% else %}
 
+        <div id="storageAlertBanner" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:8px;border:1px solid rgba(246,70,93,0.45);background:rgba(246,70,93,0.1);color:#f5c2c7;font-size:12px;align-items:center;justify-content:space-between;gap:12px;">
+            <div>
+                <strong id="storageAlertTitle" style="color:#ff6b7d;">Storage Warning:</strong>
+                <span id="storageAlertText"></span>
+            </div>
+            <button class="btn-sm btn-verify" style="white-space:nowrap;" onclick="switchTab('backup')">Backup &amp; Fix</button>
+        </div>
+
         <div class="stats">
             <div class="stat-card">
                 <div class="stat-label">Total Users</div>
@@ -177,11 +185,12 @@
         </div>
 
         <div class="tabs">
-            <button class="tab active" onclick="switchTab('orders', event)">Payment Orders</button>
-            <button class="tab" onclick="switchTab('licenses', event)">License Keys</button>
-            <button class="tab" onclick="switchTab('users', event)">Users</button>
-            <button class="tab" onclick="switchTab('payouts', event)">Referral Payouts <span id="payoutsCount" style="color:#f0b90b;"></span></button>
-            <button class="tab" onclick="switchTab('smtp', event)">📧 SMTP Email <span id="smtpBadgeStatus" style="font-size:10px;"></span></button>
+            <button class="tab active" data-tab="orders" onclick="switchTab('orders', event)">Payment Orders</button>
+            <button class="tab" data-tab="licenses" onclick="switchTab('licenses', event)">License Keys <span id="licensesCount" style="color:#848e9c;"></span></button>
+            <button class="tab" data-tab="users" onclick="switchTab('users', event)">Users <span id="usersCount" style="color:#848e9c;"></span></button>
+            <button class="tab" data-tab="payouts" onclick="switchTab('payouts', event)">Referral Payouts <span id="payoutsCount" style="color:#f0b90b;"></span></button>
+            <button class="tab" data-tab="smtp" onclick="switchTab('smtp', event)">📧 SMTP Email <span id="smtpBadgeStatus" style="font-size:10px;"></span></button>
+            <button class="tab" data-tab="backup" onclick="switchTab('backup', event)">💾 Backup &amp; Storage <span id="storageBadgeStatus" style="font-size:10px;"></span></button>
         </div>
 
         <!-- ORDERS TAB -->
@@ -332,6 +341,60 @@
             </div>
         </div>
 
+        <!-- BACKUP & STORAGE TAB -->
+        <div id="tab-backup" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    🗄️ Database &amp; Persistence Health
+                    <span id="storageHealthPill" class="badge" style="float:right;margin-top:-2px;">CHECKING...</span>
+                </div>
+                <div class="card-body">
+                    <div id="storageHealthMsg" style="padding:10px 12px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid #2b3139;font-size:12px;margin-bottom:14px;">
+                        Checking server storage status...
+                    </div>
+                    <div id="storageDetailsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;font-size:12px;color:#b7bdc6;">
+                    </div>
+                    <div style="margin-top:14px;padding:10px 12px;border-radius:6px;background:rgba(240,185,11,0.06);border:1px solid rgba(240,185,11,0.25);font-size:12px;color:#eaecef;line-height:1.55;">
+                        <strong style="color:#f0b90b;">Redeploy Protection Checklist (Coolify / Docker / VPS):</strong><br>
+                        1. Best option: Set <code style="color:#f0b90b;">DATABASE_URL</code> (PostgreSQL) in Coolify Environment Variables (already supported natively with <code style="color:#f0b90b;">psycopg2-binary</code> in Docker).<br>
+                        2. Or mount a Coolify Persistent Volume at <code style="color:#f0b90b;">/data</code> (the app auto-detects <code style="color:#f0b90b;">/data</code> for <code style="color:#f0b90b;">database.json</code>, <code style="color:#f0b90b;">user_instances</code>, <code style="color:#f0b90b;">uploads</code> &amp; keys).<br>
+                        3. Set <code style="color:#f0b90b;">ENCRYPTION_KEY</code> &amp; <code style="color:#f0b90b;">FLASK_SECRET</code> in Coolify Environment Variables so saved exchange API keys and login sessions never break after redeploys.
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:20px;">
+                <div class="card-header">⬇️ 1-Click Full Backup Download</div>
+                <div class="card-body">
+                    <p style="color:#848e9c;font-size:12px;margin-bottom:12px;">
+                        Download a complete JSON backup of all <strong>Users, Password Hashes, Encrypted API Keys, Bot Configs, Licenses, Orders, Payment Wallets &amp; SMTP</strong>. Keep this file safe before major server changes.
+                    </p>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                        <button class="btn-create" onclick="downloadBackup()">⬇️ Download Full Backup (.json)</button>
+                        <button class="btn-sm copy-btn" style="padding:8px 14px;" onclick="loadStorageStatus()">↻ Refresh Storage Status</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:20px;">
+                <div class="card-header">⬆️ 1-Click Restore Backup</div>
+                <div class="card-body">
+                    <p style="color:#848e9c;font-size:12px;margin-bottom:12px;">
+                        Upload a previously downloaded <code style="color:#f0b90b;">weexionic-backup-*.json</code> file to restore users, API keys, licenses, orders, and settings directly from browser — no SSH/VPS commands needed.
+                    </p>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:720px;">
+                        <input type="file" id="backupFileInput" accept=".json,application/json" class="input-sm" style="flex:1;min-width:220px;">
+                        <select id="restoreMode" class="input-sm" style="width:190px;">
+                            <option value="merge" selected>Safe Merge (Recommended)</option>
+                            <option value="replace">Full Replace (Overwrite All)</option>
+                        </select>
+                        <button class="btn-sm btn-verify" style="padding:9px 16px;white-space:nowrap;" onclick="restoreBackup()">Restore Backup</button>
+                    </div>
+                    <div id="restoreResult" style="margin-top:12px;font-size:12px;display:none;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Screenshot Modal -->
         <div class="modal-overlay" id="ssModal" onclick="if(event.target===this)this.classList.remove('show')">
             <div class="modal">
@@ -343,14 +406,32 @@
 
         <script>
             function switchTab(tab, event) {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab').forEach(t => {
+                    t.classList.toggle('active', t.getAttribute('data-tab') === tab);
+                });
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                event.target.classList.add('active');
-                document.getElementById('tab-' + tab).classList.add('active');
+                const targetTab = document.getElementById('tab-' + tab);
+                if (targetTab) targetTab.classList.add('active');
+                if (event && event.currentTarget) event.currentTarget.classList.add('active');
             }
 
             async function loadAll() {
-                await Promise.all([loadOrders(), loadLicenses(), loadUsers(), loadWallet(), loadPayouts(), loadSmtp()]);
+                await Promise.all([
+                    loadOrders(),
+                    loadLicenses(),
+                    loadUsers(),
+                    loadWallet(),
+                    loadPayouts(),
+                    loadSmtp(),
+                    loadStorageStatus(),
+                ]);
+            }
+
+            function renderLoadError(containerId, msg) {
+                const el = document.getElementById(containerId);
+                if (el) {
+                    el.innerHTML = '<div class="empty" style="color:#ff6b7d;">Failed to load: ' + esc(msg || 'Unknown error') + '</div>';
+                }
             }
 
             // ===== ORDERS =====
@@ -358,8 +439,17 @@
                 try {
                     const r = await fetch('/api/admin/orders');
                     const data = await r.json();
-                    if (data.success) { renderOrders(data.orders); updateStats(null, data.orders); }
-                } catch(e) {}
+                    if (!r.ok || !data || !data.success) {
+                        renderLoadError('ordersList', (data && data.error) || ('HTTP ' + r.status));
+                        return;
+                    }
+                    const orders = data.orders || [];
+                    renderOrders(orders);
+                    updateStats(null, orders, null);
+                } catch(e) {
+                    console.error('loadOrders failed', e);
+                    renderLoadError('ordersList', e && e.message ? e.message : 'Network error');
+                }
             }
 
             // XSS guard: every server/user-controlled value must pass through esc()
@@ -367,6 +457,10 @@
                 return String(v == null ? '' : v)
                     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+
+            function jsArg(v) {
+                return esc(JSON.stringify(String(v == null ? '' : v)));
             }
 
             function renderOrders(orders) {
@@ -444,7 +538,7 @@
                             ? '✅ License email sent to user!' 
                             : ('⚠️ Email NOT sent: ' + (data.email_error || 'SMTP not configured'));
                         alert('Order Verified!\nLicense Key: ' + data.license_key + '\n\n' + emailMsg);
-                        loadOrders(); loadLicenses();
+                        loadOrders(); loadLicenses(); loadUsers(); loadStorageStatus();
                     } else { alert('Failed: ' + (data.error || 'Unknown error')); }
                 } catch(e) { alert('Network error'); }
             }
@@ -468,12 +562,27 @@
                 try {
                     const r = await fetch('/api/admin/licenses');
                     const data = await r.json();
-                    if (data.success) { renderLicenses(data.licenses); }
-                } catch(e) {}
+                    if (!r.ok || !data || !data.success) {
+                        renderLoadError('licensesList', (data && data.error) || ('HTTP ' + r.status));
+                        document.getElementById('activeLics').textContent = '!';
+                        document.getElementById('unusedLics').textContent = '!';
+                        return;
+                    }
+                    const lics = data.licenses || [];
+                    renderLicenses(lics);
+                    updateStats(lics, null, null);
+                } catch(e) {
+                    console.error('loadLicenses failed', e);
+                    renderLoadError('licensesList', e && e.message ? e.message : 'Network error');
+                    document.getElementById('activeLics').textContent = '!';
+                    document.getElementById('unusedLics').textContent = '!';
+                }
             }
 
             function renderLicenses(licenses) {
                 const list = document.getElementById('licensesList');
+                const cntEl = document.getElementById('licensesCount');
+                if (cntEl) cntEl.textContent = '(' + licenses.length + ')';
                 if (licenses.length === 0) {
                     list.innerHTML = '<div class="empty">No licenses yet. Generate one below.</div>';
                     return;
@@ -482,13 +591,15 @@
                     const statusBadge = l.revoked ? '<span class="badge badge-revoked">revoked</span>' :
                                        l.used_by ? '<span class="badge badge-used">used</span>' :
                                        '<span class="badge badge-unused">unused</span>';
-                    const actions = '<button class="btn-sm copy-btn" onclick="copyKey(\'' + l.key + '\')">Copy</button>'
-                        + (!l.revoked ? '<button class="btn-sm btn-revoke" onclick="revokeLicense(\'' + l.key + '\')">Revoke</button>' : '')
-                        + '<button class="btn-sm btn-delete" onclick="deleteLicense(\'' + l.key + '\')">Delete</button>';
+                    const keyArg = jsArg(l.key);
+                    const actions = '<button class="btn-sm copy-btn" onclick="copyKey(' + keyArg + ')">Copy</button>'
+                        + (!l.revoked ? '<button class="btn-sm btn-revoke" onclick="revokeLicense(' + keyArg + ')">Revoke</button>' : '')
+                        + '<button class="btn-sm btn-delete" onclick="deleteLicense(' + keyArg + ')">Delete</button>';
+                    const daysLabel = l.days === 9999 ? 'Lifetime' : ((l.days || 0) + 'd');
                     return '<div class="license-row">'
-                        + '<div class="license-key">' + l.key + '</div>'
-                        + '<div>' + l.plan + '</div>'
-                        + '<div>' + (l.days === 9999 ? 'Lifetime' : l.days + 'd') + '</div>'
+                        + '<div class="license-key">' + esc(l.key) + '</div>'
+                        + '<div>' + esc(l.plan || '-') + '</div>'
+                        + '<div>' + esc(daysLabel) + '</div>'
                         + '<div>' + (l.expires_at ? new Date(l.expires_at).toLocaleDateString() : '-') + '</div>'
                         + '<div>' + statusBadge + '</div>'
                         + '<div>' + actions + '</div>'
@@ -548,30 +659,47 @@
                 try {
                     const r = await fetch('/api/admin/users');
                     const data = await r.json();
-                    if (data.success) renderUsers(data.users);
-                } catch(e) {}
+                    if (!r.ok || !data || !data.success) {
+                        renderLoadError('usersList', (data && data.error) || ('HTTP ' + r.status));
+                        document.getElementById('totalUsers').textContent = '!';
+                        document.getElementById('botsRunning').textContent = '!';
+                        return;
+                    }
+                    const users = data.users || [];
+                    renderUsers(users);
+                    updateStats(null, null, users);
+                } catch(e) {
+                    console.error('loadUsers failed', e);
+                    renderLoadError('usersList', e && e.message ? e.message : 'Network error');
+                    document.getElementById('totalUsers').textContent = '!';
+                    document.getElementById('botsRunning').textContent = '!';
+                }
             }
 
             function renderUsers(users) {
                 const list = document.getElementById('usersList');
+                const cntEl = document.getElementById('usersCount');
+                if (cntEl) cntEl.textContent = '(' + users.length + ')';
                 if (users.length === 0) {
                     list.innerHTML = '<div class="empty">No users yet.</div>';
                     return;
                 }
                 list.innerHTML = users.map(u => {
-                    const subBadge = u.subscription.active ?
-                        '<span class="badge badge-active">' + u.subscription.plan + ' - ' + u.subscription.days_left + 'd</span>' :
+                    const sub = u.subscription || {};
+                    const subBadge = sub.active ?
+                        '<span class="badge badge-active">' + esc(sub.plan || 'active') + ' - ' + esc(sub.days_left != null ? sub.days_left : 0) + 'd</span>' :
                         '<span class="badge badge-inactive">inactive</span>';
                     const botBadge = u.bot_running ?
                         '<span class="badge badge-running">running</span>' :
                         '<span class="badge" style="background:rgba(94,102,115,0.15);color:#848e9c;">stopped</span>';
                     const banBadge = u.banned ? '<span class="badge badge-banned">banned</span>' : '';
-                    const actions = '<button class="btn-sm btn-verify" onclick="issueUserResetLink(\'' + u.id + '\')">Reset Link</button>'
-                        + '<button class="btn-sm ' + (u.banned ? 'btn-unban' : 'btn-ban') + '" onclick="banUser(\'' + u.id + '\', ' + !u.banned + ')">' + (u.banned ? 'Unban' : 'Ban') + '</button>'
-                        + '<button class="btn-sm btn-delete" onclick="deleteUser(\'' + u.id + '\')">Delete</button>';
-                    const refInfo = 'Ref: ' + (u.referral_code || '-') + ' (' + (u.referral_count || 0) + ' users, $' + (u.referral_earnings || 0) + ')' + (u.referred_by_name ? ' | Invited by: ' + esc(u.referred_by_name) : '');
+                    const uidArg = jsArg(u.id);
+                    const actions = '<button class="btn-sm btn-verify" onclick="issueUserResetLink(' + uidArg + ')">Reset Link</button>'
+                        + '<button class="btn-sm ' + (u.banned ? 'btn-unban' : 'btn-ban') + '" onclick="banUser(' + uidArg + ', ' + !u.banned + ')">' + (u.banned ? 'Unban' : 'Ban') + '</button>'
+                        + '<button class="btn-sm btn-delete" onclick="deleteUser(' + uidArg + ')">Delete</button>';
+                    const refInfo = 'Ref: ' + (u.referral_code || '-') + ' (' + (u.referral_count || 0) + ' users, $' + (u.referral_earnings || 0) + ')' + (u.referred_by_name ? ' | Invited by: ' + u.referred_by_name : '');
                     return '<div class="user-row">'
-                        + '<div><div style="font-weight:600;">' + esc(u.email) + '</div><div style="color:#848e9c;font-size:11px;">' + esc(u.name) + ' | License: ' + esc(u.license_key || 'none') + ' | ' + esc(refInfo) + '</div></div>'
+                        + '<div><div style="font-weight:600;">' + esc(u.email || '-') + '</div><div style="color:#848e9c;font-size:11px;">' + esc(u.name || '') + ' | License: ' + esc(u.license_key || 'none') + ' | ' + esc(refInfo) + '</div></div>'
                         + '<div>' + subBadge + '</div>'
                         + '<div>' + botBadge + '</div>'
                         + '<div>' + banBadge + '</div>'
@@ -654,15 +782,19 @@
                 } catch(e) { alert('Network error'); }
             }
 
-            function updateStats(licenses, orders) {
-                if (licenses) {
-                    const active = licenses.filter(l => l.active && !l.revoked).length;
-                    const unused = licenses.filter(l => !l.used_by && !l.revoked).length;
+            function updateStats(licenses, orders, users) {
+                if (Array.isArray(users)) {
+                    document.getElementById('totalUsers').textContent = users.length;
+                    document.getElementById('botsRunning').textContent = users.filter(u => u && u.bot_running).length;
+                }
+                if (Array.isArray(licenses)) {
+                    const active = licenses.filter(l => l && l.active && !l.revoked).length;
+                    const unused = licenses.filter(l => l && !l.used_by && !l.revoked).length;
                     document.getElementById('activeLics').textContent = active;
                     document.getElementById('unusedLics').textContent = unused;
                 }
-                if (orders) {
-                    const pending = orders.filter(o => o.status === 'submitted' || o.status === 'pending').length;
+                if (Array.isArray(orders)) {
+                    const pending = orders.filter(o => o && (o.status === 'submitted' || o.status === 'pending')).length;
                     document.getElementById('pendingOrders').textContent = pending;
                 }
             }
@@ -846,6 +978,95 @@
                 } catch(e) {
                     resultDiv.style.color = '#f0b90b';
                     resultDiv.textContent = '❌ Network error sending test email';
+                }
+            }
+
+            // ===== STORAGE HEALTH & BACKUP/RESTORE =====
+            async function loadStorageStatus() {
+                try {
+                    const r = await fetch('/api/admin/storage-status');
+                    const data = await r.json();
+                    if (!r.ok || !data || !data.success || !data.storage) return;
+                    const s = data.storage;
+                    const badge = document.getElementById('storageBadgeStatus');
+                    const pill = document.getElementById('storageHealthPill');
+                    const msgBox = document.getElementById('storageHealthMsg');
+                    const grid = document.getElementById('storageDetailsGrid');
+                    const banner = document.getElementById('storageAlertBanner');
+                    const alertTitle = document.getElementById('storageAlertTitle');
+                    const alertText = document.getElementById('storageAlertText');
+
+                    if (s.level === 'ok') {
+                        if (badge) { badge.textContent = '🟢 PostgreSQL'; badge.style.color = '#0ecb81'; }
+                        if (pill) { pill.className = 'badge badge-active'; pill.textContent = 'POSTGRESQL ACTIVE'; }
+                        if (banner) banner.style.display = 'none';
+                    } else if (s.level === 'danger') {
+                        if (badge) { badge.textContent = '🔴 At Risk'; badge.style.color = '#ff6b7d'; }
+                        if (pill) { pill.className = 'badge badge-rejected'; pill.textContent = s.backend.toUpperCase(); }
+                        if (banner) {
+                            banner.style.display = 'flex';
+                            if (alertTitle) alertTitle.textContent = 'Persistence Warning:';
+                            if (alertText) alertText.textContent = s.message;
+                        }
+                    } else {
+                        if (badge) { badge.textContent = '🟡 Local JSON'; badge.style.color = '#f0b90b'; }
+                        if (pill) { pill.className = 'badge badge-pending'; pill.textContent = 'JSON STORAGE'; }
+                        if (banner) banner.style.display = 'none';
+                    }
+
+                    if (msgBox) msgBox.textContent = s.message || '';
+                    if (grid) {
+                        const counts = s.counts || {};
+                        grid.innerHTML = [
+                            '<div><strong>Backend:</strong> ' + esc(s.backend) + '</div>',
+                            '<div><strong>PostgreSQL Live:</strong> ' + (s.pg_connected ? 'Yes (Connected)' : (s.database_url_set ? 'Error' : 'Not configured')) + '</div>',
+                            '<div><strong>Data Dir:</strong> ' + esc(s.data_dir) + '</div>',
+                            '<div><strong>Volume Mount Detected:</strong> ' + (s.volume_mounted ? 'Yes' : 'No') + '</div>',
+                            '<div><strong>ENCRYPTION_KEY Env:</strong> ' + (s.encryption_key_env_set ? 'Set in Env' : 'Using .encryption_key file') + '</div>',
+                            '<div><strong>Records Stored:</strong> ' + esc(counts.users || 0) + ' users / ' + esc(counts.licenses || 0) + ' licenses / ' + esc(counts.orders || 0) + ' orders</div>',
+                        ].join('');
+                    }
+                } catch(e) {
+                    console.error('loadStorageStatus failed', e);
+                }
+            }
+
+            function downloadBackup() {
+                window.location.href = '/api/admin/backup/export';
+            }
+
+            async function restoreBackup() {
+                const inp = document.getElementById('backupFileInput');
+                const mode = document.getElementById('restoreMode').value || 'merge';
+                const resDiv = document.getElementById('restoreResult');
+                if (!inp || !inp.files || inp.files.length === 0) {
+                    alert('Please choose a weexionic-backup-*.json file first.');
+                    return;
+                }
+                if (mode === 'replace' && !confirm('Full Replace will OVERWRITE current database with the backup file. Continue?')) {
+                    return;
+                }
+                const fd = new FormData();
+                fd.append('file', inp.files[0]);
+                fd.append('mode', mode);
+                resDiv.style.display = 'block';
+                resDiv.style.color = '#f0b90b';
+                resDiv.textContent = '⏳ Restoring backup...';
+                try {
+                    const r = await fetch('/api/admin/backup/restore', { method: 'POST', body: fd });
+                    const data = await r.json();
+                    if (r.ok && data && data.success) {
+                        resDiv.style.color = '#0ecb81';
+                        resDiv.textContent = '✅ ' + (data.message || 'Backup restored cleanly!');
+                        inp.value = '';
+                        await loadAll();
+                    } else {
+                        resDiv.style.color = '#ff6b7d';
+                        resDiv.textContent = '❌ Restore failed: ' + ((data && data.error) || ('HTTP ' + r.status));
+                    }
+                } catch(e) {
+                    resDiv.style.color = '#ff6b7d';
+                    resDiv.textContent = '❌ Network error restoring backup';
                 }
             }
 

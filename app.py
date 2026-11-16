@@ -68,10 +68,35 @@ try:
 except Exception:
     pass
 BOT_ENGINE_DIR = BASE_DIR / "bot-engine"
-DB_FILE = BASE_DIR / "database.json"
+
+
+def _resolve_data_dir() -> Path:
+    """Resolve persistent data directory (DATA_DIR env -> mounted /data -> BASE_DIR)."""
+    env_dir = (os.environ.get("DATA_DIR") or os.environ.get("STORAGE_DIR") or "").strip()
+    if env_dir:
+        return Path(env_dir)
+    if os.name != "nt" and Path("/data").is_dir() and not (BASE_DIR / "database.json").exists():
+        return Path("/data")
+    return BASE_DIR
+
+
+def _seed_secret_from_base(target_file: Path, base_file: Path):
+    """Seed a local secret file into DATA_DIR once so existing keys carry over."""
+    try:
+        if target_file != base_file and not target_file.exists() and base_file.exists():
+            raw = base_file.read_text(encoding="utf-8").strip()
+            if raw:
+                target_file.write_text(raw, encoding="utf-8")
+    except Exception:
+        pass
+
+
+DATA_DIR = _resolve_data_dir()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_FILE = DATA_DIR / "database.json"
 
 # PostgreSQL is the PRIMARY database when DATABASE_URL is set
-# (recommended on Railway / VPS). Without it, the app transparently
+# (recommended on Railway / VPS / Coolify). Without it, the app transparently
 # falls back to the local database.json file so it still runs anywhere.
 # 'bot_processes' pid/port state is ALSO mirrored to .bot_processes.json so a
 # restarted SaaS worker re-adopts still-running bot-engine instances.
@@ -84,13 +109,16 @@ except ImportError:
     psycopg2 = None
     _Json = None
 PG_ENABLED = bool(DATABASE_URL) and psycopg2 is not None
-LOG_DIR = BASE_DIR / "logs"
-USER_CONFIGS_DIR = BASE_DIR / "user_configs"
-USER_INSTANCES_DIR = BASE_DIR / "user_instances"
-LOG_DIR.mkdir(exist_ok=True)
-USER_CONFIGS_DIR.mkdir(exist_ok=True)
-USER_INSTANCES_DIR.mkdir(exist_ok=True)
-BOT_PROCESSES_FILE = BASE_DIR / ".bot_processes.json"
+_PG_LOAD_FAILED = False
+_PG_LOAD_ERROR = ""
+_PG_RETRY_DELAYS = (1.0, 2.0)
+LOG_DIR = DATA_DIR / "logs"
+USER_CONFIGS_DIR = DATA_DIR / "user_configs"
+USER_INSTANCES_DIR = DATA_DIR / "user_instances"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+USER_CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+USER_INSTANCES_DIR.mkdir(parents=True, exist_ok=True)
+BOT_PROCESSES_FILE = DATA_DIR / ".bot_processes.json"
 
 def _load_bot_processes() -> dict:
     try:
@@ -121,6 +149,11 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("saas")
+if DATABASE_URL and psycopg2 is None:
+    logger.error(
+        "[DB] DATABASE_URL is configured but psycopg2-binary is not installed! "
+        "Falling back to file storage; install psycopg2-binary for PostgreSQL persistence."
+    )
 
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
@@ -128,7 +161,8 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
 # Fix 2: FLASK_SECRET must be set in production to preserve sessions across restarts
 _flask_secret = os.environ.get("FLASK_SECRET", "").strip()
 if not _flask_secret:
-    _secret_file = BASE_DIR / ".flask_secret"
+    _secret_file = DATA_DIR / ".flask_secret"
+    _seed_secret_from_base(_secret_file, BASE_DIR / ".flask_secret")
     if _secret_file.exists():
         try:
             _flask_secret = _secret_file.read_text(encoding="utf-8").strip()
@@ -225,7 +259,8 @@ else:
 # that relied on it must re-save users' API keys once after setting the env.
 _ENCRYPTION_RAW = os.environ.get("ENCRYPTION_KEY", "")
 if not _ENCRYPTION_RAW:
-    _enc_key_file = BASE_DIR / ".encryption_key"
+    _enc_key_file = DATA_DIR / ".encryption_key"
+    _seed_secret_from_base(_enc_key_file, BASE_DIR / ".encryption_key")
     try:
         if _enc_key_file.exists():
             _ENCRYPTION_RAW = _enc_key_file.read_text().strip()
@@ -252,7 +287,8 @@ _ENCRYPTION_KEY_BYTES = hashlib.sha256(_ENCRYPTION_RAW.encode("utf-8")).digest()
 # Persist to .bot_engine_token if unset so restarts / workers stay in sync.
 BOT_ENGINE_TOKEN = os.environ.get("BOT_ENGINE_TOKEN", "").strip()
 if not BOT_ENGINE_TOKEN:
-    _bot_token_file = BASE_DIR / ".bot_engine_token"
+    _bot_token_file = DATA_DIR / ".bot_engine_token"
+    _seed_secret_from_base(_bot_token_file, BASE_DIR / ".bot_engine_token")
     try:
         if _bot_token_file.exists():
             BOT_ENGINE_TOKEN = _bot_token_file.read_text(encoding="utf-8").strip()
@@ -371,8 +407,8 @@ SAAS_SMTP_USER = os.environ.get("SAAS_SMTP_USER", "")
 SAAS_SMTP_PASS = os.environ.get("SAAS_SMTP_PASS", "")
 
 # Upload directory for payment screenshots
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR = DATA_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Package definitions (Monthly = $19 [$2 ref bonus]; 1-Year = $79 [$10 ref bonus]; Lifetime = $500 [$50 ref bonus])
 PACKAGES = {
@@ -462,8 +498,42 @@ def verify_password(password: str, stored: str) -> bool:
 # Database (JSON file with thread lock)
 # ============================================================
 
+_PG_DELETE_SQL = {
+    ("users", "id"): "DELETE FROM users WHERE id = %s",
+    ("licenses", "key"): "DELETE FROM licenses WHERE key = %s",
+    ("orders", "id"): "DELETE FROM orders WHERE id = %s",
+}
+
+
 def _pg_connect():
+    if "connect_timeout=" not in DATABASE_URL:
+        return psycopg2.connect(DATABASE_URL, connect_timeout=5)
     return psycopg2.connect(DATABASE_URL)
+
+
+def _pg_delete_record(table: str, key_col: str, key_val: str) -> bool:
+    """Explicitly delete a single row in PostgreSQL (only called by intentional delete/merge paths)."""
+    if not (PG_ENABLED and not _PG_LOAD_FAILED) or not key_val:
+        return False
+    sql = _PG_DELETE_SQL.get((table, key_col))
+    if not sql:
+        raise ValueError(f"Unsupported PostgreSQL delete target: {table}.{key_col}")
+    try:
+        conn = _pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, (key_val,))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error("PostgreSQL delete %s(%s=%s) failed: %s", table, key_col, key_val, e)
+        return False
+
 
 def _sync_table_columns(cur, table_name, expected_columns):
     """Check if all expected columns exist in the table. If not, auto-add them."""
@@ -478,7 +548,7 @@ def _sync_table_columns(cur, table_name, expected_columns):
             logger.info("Auto-migration: Adding missing column '%s' to table '%s'", col_name, table_name)
             cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}")
 
-def _pg_init():
+def _pg_init(raise_on_error: bool = False):
     try:
         conn = _pg_connect()
         try:
@@ -538,6 +608,13 @@ def _pg_init():
                         verified_at VARCHAR(50),
                         license_key VARCHAR(50),
                         rejection_reason TEXT
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS app_kv (
+                        key VARCHAR(100) PRIMARY KEY,
+                        value JSONB DEFAULT '{}'::jsonb,
+                        updated_at VARCHAR(50)
                     )
                 """)
                 
@@ -604,6 +681,8 @@ def _pg_init():
             conn.close()
     except Exception as e:
         logger.error("PostgreSQL init failed: %s", e)
+        if raise_on_error:
+            raise
 
 def _load_json_db() -> dict:
     db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "settings": {}, "used_txids": {}}
@@ -648,9 +727,13 @@ def _parse_json_column(val, default=dict):
             pass
     return fallback
 
+def _pg_json(val):
+    return _Json(val) if _Json is not None else json.dumps(val)
+
+
 def _load_pg_db() -> dict:
-    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "used_txids": {}}
-    _pg_init()
+    db = {"users": {}, "licenses": {}, "orders": {}, "bot_processes": {}, "settings": {}, "used_txids": {}}
+    _pg_init(raise_on_error=True)
     conn = _pg_connect()
     try:
         with conn.cursor() as cur:
@@ -719,27 +802,66 @@ def _load_pg_db() -> dict:
                     "license_key": r[15],
                     "rejection_reason": r[16]
                 }
+
+            # Load settings and used_txids from app_kv
+            try:
+                cur.execute("SELECT key, value FROM app_kv WHERE key IN ('settings', 'used_txids')")
+                for k, v in cur.fetchall():
+                    parsed = _parse_json_column(v, dict)
+                    if k == "settings" and isinstance(parsed, dict):
+                        db["settings"] = parsed
+                    elif k == "used_txids" and isinstance(parsed, dict):
+                        db["used_txids"] = parsed
+            except Exception as kv_err:
+                logger.warning("app_kv load note: %s", kv_err)
     finally:
         conn.close()
     logger.info("Loaded %d users, %d licenses, %d orders from PostgreSQL",
                 len(db["users"]), len(db["licenses"]), len(db["orders"]))
     return db
 
-def _attach_file_settings(db: dict):
-    """settings{} lives in database.json even when PostgreSQL is primary."""
+
+def _attach_file_settings(db: dict) -> bool:
+    """Merge settings{}/used_txids{} sidecar from database.json into Postgres DB when keys are missing."""
+    seeded = False
     try:
-        s = {}
-        if DB_FILE.exists():
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                s = (json.load(f) or {}).get("settings") or {}
-        db["settings"] = s
+        file_data = {}
+        bak_file = DB_FILE.with_suffix(".json.bak")
+        for candidate in (DB_FILE, bak_file):
+            if candidate.exists():
+                try:
+                    file_data = json.loads(candidate.read_text(encoding="utf-8")) or {}
+                    if isinstance(file_data, dict):
+                        break
+                except Exception:
+                    file_data = {}
+        if not isinstance(file_data, dict):
+            file_data = {}
+
+        pg_settings = db.setdefault("settings", {})
+        file_settings = file_data.get("settings") or {}
+        if isinstance(file_settings, dict):
+            for k, v in file_settings.items():
+                if v and not pg_settings.get(k):
+                    pg_settings[k] = v
+                    seeded = True
+
+        pg_txids = db.setdefault("used_txids", {})
+        file_txids = file_data.get("used_txids") or {}
+        if isinstance(file_txids, dict):
+            for k, v in file_txids.items():
+                if k not in pg_txids:
+                    pg_txids[k] = v
+                    seeded = True
     except Exception as e:
         logger.debug("settings sidecar load skipped: %s", e)
         db.setdefault("settings", {})
+        db.setdefault("used_txids", {})
+    return seeded
 
 
 def _write_settings_sidecar(db: dict):
-    """Persist settings{} to database.json even when PostgreSQL is primary."""
+    """Persist settings{}/used_txids{} sidecar to database.json without clobbering existing sections."""
     try:
         data = {}
         if DB_FILE.exists():
@@ -748,7 +870,11 @@ def _write_settings_sidecar(db: dict):
                     data = json.load(f) or {}
             except Exception:
                 data = {}
+        if not isinstance(data, dict):
+            data = {}
         data["settings"] = db.get("settings") or {}
+        if db.get("used_txids"):
+            data["used_txids"] = db.get("used_txids") or {}
         tmp = DB_FILE.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
@@ -759,25 +885,56 @@ def _write_settings_sidecar(db: dict):
         logger.error("settings sidecar save failed: %s", e)
 
 
+def _count_non_admin_users(data: dict) -> int:
+    users = (data or {}).get("users") or {}
+    if not isinstance(users, dict):
+        return 0
+    return sum(
+        1 for u in users.values()
+        if isinstance(u, dict)
+        and u.get("id") != "admin"
+        and (u.get("email") or "").strip().lower() != "admin@tradebot.com"
+    )
+
+
 def load_db() -> dict:
     """Load the DB — PostgreSQL when available, else database.json."""
+    global _PG_LOAD_FAILED, _PG_LOAD_ERROR
     if PG_ENABLED:
-        try:
-            db = _load_pg_db()
-            _attach_file_settings(db)
-            if db["users"] or db["licenses"] or db["orders"]:
-                return db
-            # Empty Postgres → one-time seed from the existing database.json.
-            if DB_FILE.exists():
-                seed = _load_json_db()
-                for section in ("users", "licenses", "orders"):
-                    db[section].update(seed[section])
+        last_err = None
+        delays = list(_PG_RETRY_DELAYS) + [0]
+        for attempt, delay in enumerate(delays, start=1):
+            try:
+                db = _load_pg_db()
+                _PG_LOAD_FAILED = False
+                _PG_LOAD_ERROR = ""
+                sidecar_seeded = _attach_file_settings(db)
                 if db["users"] or db["licenses"] or db["orders"]:
-                    save_db(db)
-                    logger.info("Seeded PostgreSQL from database.json (%d users)", len(db["users"]))
-            return db
-        except Exception as e:
-            logger.error("PostgreSQL load failed (%s) — falling back to database.json", e)
+                    if sidecar_seeded:
+                        save_db(db)
+                    return db
+                # Empty Postgres → one-time seed from the existing database.json.
+                if DB_FILE.exists():
+                    seed = _load_json_db()
+                    for section in ("users", "licenses", "orders", "settings", "used_txids"):
+                        if isinstance(seed.get(section), dict):
+                            db.setdefault(section, {}).update(seed[section])
+                    if db["users"] or db["licenses"] or db["orders"] or db.get("settings"):
+                        save_db(db)
+                        logger.info("Seeded PostgreSQL from database.json (%d users)", len(db["users"]))
+                return db
+            except Exception as e:
+                last_err = e
+                logger.warning("PostgreSQL load attempt %d/%d failed: %s", attempt, len(delays), e)
+                if delay and attempt < len(delays):
+                    time.sleep(delay)
+        _PG_LOAD_FAILED = True
+        _PG_LOAD_ERROR = str(last_err or "Unknown PostgreSQL connection error")
+        logger.critical(
+            "PostgreSQL load failed after %d attempts (%s) — running with %s fallback "
+            "and blocking destructive PostgreSQL writes to protect existing database rows.",
+            len(delays), _PG_LOAD_ERROR, DB_FILE.name,
+        )
     return _load_json_db()
 
 _db_lock = _threading.Lock()
@@ -790,152 +947,163 @@ def save_db(db: dict):
     """Persist the DB (PostgreSQL primary, database.json fallback)."""
     with _db_lock:
         if PG_ENABLED:
-            try:
-                conn = _pg_connect()
+            if _PG_LOAD_FAILED:
+                logger.error(
+                    "Refusing PostgreSQL save while _PG_LOAD_FAILED=True to protect existing PG rows — "
+                    "writing local database.json fallback only."
+                )
+            else:
                 try:
-                    with conn.cursor() as cur:
-                        # 1. Sync Users (delete removed/merged IDs first so UNIQUE(email) never collides)
-                        user_ids = list((db.get("users") or {}).keys())
-                        if user_ids:
-                            cur.execute("DELETE FROM users WHERE id NOT IN %s", (tuple(user_ids),))
-                        else:
-                            cur.execute("DELETE FROM users")
-                        for uid, u in (db.get("users") or {}).items():
-                            cur.execute("""
-                                INSERT INTO users (id, email, name, password_hash, role, banned, created_at, google_id, google_picture, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (id) DO UPDATE SET
-                                    email = EXCLUDED.email,
-                                    name = EXCLUDED.name,
-                                    password_hash = EXCLUDED.password_hash,
-                                    role = EXCLUDED.role,
-                                    banned = EXCLUDED.banned,
-                                    created_at = EXCLUDED.created_at,
-                                    google_id = EXCLUDED.google_id,
-                                    google_picture = EXCLUDED.google_picture,
-                                    subscription = EXCLUDED.subscription,
-                                    license_key = EXCLUDED.license_key,
-                                    referral_code = EXCLUDED.referral_code,
-                                    referred_by = EXCLUDED.referred_by,
-                                    bot_config = EXCLUDED.bot_config,
-                                    referral_earnings = EXCLUDED.referral_earnings,
-                                    referral_history = EXCLUDED.referral_history,
-                                    payout_wallet = EXCLUDED.payout_wallet,
-                                    payout_requests = EXCLUDED.payout_requests
-                            """, (
-                                u.get("id"),
-                                (u.get("email") or "").strip().lower(),
-                                u.get("name"),
-                                u.get("password_hash") or "",
-                                u.get("role", "user"),
-                                u.get("banned", False),
-                                u.get("created_at"),
-                                u.get("google_id") or "",
-                                u.get("google_picture") or "",
-                                _Json(u.get("subscription", {})),
-                                u.get("license_key"),
-                                u.get("referral_code"),
-                                u.get("referred_by"),
-                                _Json(u.get("bot_config", {})),
-                                float(u.get("referral_earnings", 0.0) or 0.0),
-                                _Json(u.get("referral_history", [])),
-                                u.get("payout_wallet", "") or "",
-                                _Json(u.get("payout_requests", []))
-                            ))
+                    conn = _pg_connect()
+                    try:
+                        with conn.cursor() as cur:
+                            # 1. Upsert Users (explicit deletes happen ONLY in _pg_delete_record / replace restore)
+                            for uid, u in (db.get("users") or {}).items():
+                                cur.execute("""
+                                    INSERT INTO users (id, email, name, password_hash, role, banned, created_at, google_id, google_picture, subscription, license_key, referral_code, referred_by, bot_config, referral_earnings, referral_history, payout_wallet, payout_requests)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    ON CONFLICT (id) DO UPDATE SET
+                                        email = EXCLUDED.email,
+                                        name = EXCLUDED.name,
+                                        password_hash = EXCLUDED.password_hash,
+                                        role = EXCLUDED.role,
+                                        banned = EXCLUDED.banned,
+                                        created_at = EXCLUDED.created_at,
+                                        google_id = EXCLUDED.google_id,
+                                        google_picture = EXCLUDED.google_picture,
+                                        subscription = EXCLUDED.subscription,
+                                        license_key = EXCLUDED.license_key,
+                                        referral_code = EXCLUDED.referral_code,
+                                        referred_by = EXCLUDED.referred_by,
+                                        bot_config = EXCLUDED.bot_config,
+                                        referral_earnings = EXCLUDED.referral_earnings,
+                                        referral_history = EXCLUDED.referral_history,
+                                        payout_wallet = EXCLUDED.payout_wallet,
+                                        payout_requests = EXCLUDED.payout_requests
+                                """, (
+                                    u.get("id"),
+                                    (u.get("email") or "").strip().lower(),
+                                    u.get("name"),
+                                    u.get("password_hash") or "",
+                                    u.get("role", "user"),
+                                    u.get("banned", False),
+                                    u.get("created_at"),
+                                    u.get("google_id") or "",
+                                    u.get("google_picture") or "",
+                                    _pg_json(u.get("subscription", {})),
+                                    u.get("license_key"),
+                                    u.get("referral_code"),
+                                    u.get("referred_by"),
+                                    _pg_json(u.get("bot_config", {})),
+                                    float(u.get("referral_earnings", 0.0) or 0.0),
+                                    _pg_json(u.get("referral_history", [])),
+                                    u.get("payout_wallet", "") or "",
+                                    _pg_json(u.get("payout_requests", []))
+                                ))
 
-                        # 2. Sync Licenses
-                        lic_keys = []
-                        for key, l in (db.get("licenses") or {}).items():
-                            lic_keys.append(key)
-                            cur.execute("""
-                                INSERT INTO licenses (key, plan, days, note, created_at, expires_at, used_by, activated_at, active, revoked)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (key) DO UPDATE SET
-                                    plan = EXCLUDED.plan,
-                                    days = EXCLUDED.days,
-                                    note = EXCLUDED.note,
-                                    created_at = EXCLUDED.created_at,
-                                    expires_at = EXCLUDED.expires_at,
-                                    used_by = EXCLUDED.used_by,
-                                    activated_at = EXCLUDED.activated_at,
-                                    active = EXCLUDED.active,
-                                    revoked = EXCLUDED.revoked
-                            """, (
-                                l.get("key"),
-                                l.get("plan"),
-                                l.get("days"),
-                                l.get("note"),
-                                l.get("created_at"),
-                                l.get("expires_at"),
-                                l.get("used_by"),
-                                l.get("activated_at"),
-                                l.get("active", False),
-                                l.get("revoked", False)
-                            ))
-                        if lic_keys:
-                            cur.execute("DELETE FROM licenses WHERE key NOT IN %s", (tuple(lic_keys),))
-                        else:
-                            cur.execute("DELETE FROM licenses")
+                            # 2. Upsert Licenses
+                            for key, l in (db.get("licenses") or {}).items():
+                                cur.execute("""
+                                    INSERT INTO licenses (key, plan, days, note, created_at, expires_at, used_by, activated_at, active, revoked)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    ON CONFLICT (key) DO UPDATE SET
+                                        plan = EXCLUDED.plan,
+                                        days = EXCLUDED.days,
+                                        note = EXCLUDED.note,
+                                        created_at = EXCLUDED.created_at,
+                                        expires_at = EXCLUDED.expires_at,
+                                        used_by = EXCLUDED.used_by,
+                                        activated_at = EXCLUDED.activated_at,
+                                        active = EXCLUDED.active,
+                                        revoked = EXCLUDED.revoked
+                                """, (
+                                    l.get("key"),
+                                    l.get("plan"),
+                                    l.get("days"),
+                                    l.get("note"),
+                                    l.get("created_at"),
+                                    l.get("expires_at"),
+                                    l.get("used_by"),
+                                    l.get("activated_at"),
+                                    l.get("active", False),
+                                    l.get("revoked", False)
+                                ))
 
-                        # 3. Sync Orders
-                        order_ids = []
-                        for oid, o in (db.get("orders") or {}).items():
-                            order_ids.append(oid)
-                            cur.execute("""
-                                INSERT INTO orders (id, user_id, user_email, user_name, package_id, package_name, amount, currency, days, status, tx_hash, screenshot, created_at, submitted_at, verified_at, license_key, rejection_reason)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (id) DO UPDATE SET
-                                    user_id = EXCLUDED.user_id,
-                                    user_email = EXCLUDED.user_email,
-                                    user_name = EXCLUDED.user_name,
-                                    package_id = EXCLUDED.package_id,
-                                    package_name = EXCLUDED.package_name,
-                                    amount = EXCLUDED.amount,
-                                    currency = EXCLUDED.currency,
-                                    days = EXCLUDED.days,
-                                    status = EXCLUDED.status,
-                                    tx_hash = EXCLUDED.tx_hash,
-                                    screenshot = EXCLUDED.screenshot,
-                                    created_at = EXCLUDED.created_at,
-                                    submitted_at = EXCLUDED.submitted_at,
-                                    verified_at = EXCLUDED.verified_at,
-                                    license_key = EXCLUDED.license_key,
-                                    rejection_reason = EXCLUDED.rejection_reason
-                            """, (
-                                o.get("id"),
-                                o.get("user_id"),
-                                o.get("user_email"),
-                                o.get("user_name"),
-                                o.get("package_id"),
-                                o.get("package_name"),
-                                o.get("amount"),
-                                o.get("currency", "USDT"),
-                                o.get("days"),
-                                o.get("status", "pending"),
-                                o.get("tx_hash"),
-                                o.get("screenshot"),
-                                o.get("created_at"),
-                                o.get("submitted_at"),
-                                o.get("verified_at"),
-                                o.get("license_key"),
-                                o.get("rejection_reason")
-                            ))
-                        if order_ids:
-                            cur.execute("DELETE FROM orders WHERE id NOT IN %s", (tuple(order_ids),))
-                        else:
-                            cur.execute("DELETE FROM orders")
+                            # 3. Upsert Orders
+                            for oid, o in (db.get("orders") or {}).items():
+                                cur.execute("""
+                                    INSERT INTO orders (id, user_id, user_email, user_name, package_id, package_name, amount, currency, days, status, tx_hash, screenshot, created_at, submitted_at, verified_at, license_key, rejection_reason)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    ON CONFLICT (id) DO UPDATE SET
+                                        user_id = EXCLUDED.user_id,
+                                        user_email = EXCLUDED.user_email,
+                                        user_name = EXCLUDED.user_name,
+                                        package_id = EXCLUDED.package_id,
+                                        package_name = EXCLUDED.package_name,
+                                        amount = EXCLUDED.amount,
+                                        currency = EXCLUDED.currency,
+                                        days = EXCLUDED.days,
+                                        status = EXCLUDED.status,
+                                        tx_hash = EXCLUDED.tx_hash,
+                                        screenshot = EXCLUDED.screenshot,
+                                        created_at = EXCLUDED.created_at,
+                                        submitted_at = EXCLUDED.submitted_at,
+                                        verified_at = EXCLUDED.verified_at,
+                                        license_key = EXCLUDED.license_key,
+                                        rejection_reason = EXCLUDED.rejection_reason
+                                """, (
+                                    o.get("id"),
+                                    o.get("user_id"),
+                                    o.get("user_email"),
+                                    o.get("user_name"),
+                                    o.get("package_id"),
+                                    o.get("package_name"),
+                                    o.get("amount"),
+                                    o.get("currency", "USDT"),
+                                    o.get("days"),
+                                    o.get("status", "pending"),
+                                    o.get("tx_hash"),
+                                    o.get("screenshot"),
+                                    o.get("created_at"),
+                                    o.get("submitted_at"),
+                                    o.get("verified_at"),
+                                    o.get("license_key"),
+                                    o.get("rejection_reason")
+                                ))
 
-                    conn.commit()
+                            # 4. Persist settings & used_txids in app_kv so SMTP/wallets/resets survive container rebuilds
+                            _kv_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                            for _kv_key in ("settings", "used_txids"):
+                                _kv_val = db.get(_kv_key)
+                                if isinstance(_kv_val, dict):
+                                    cur.execute("""
+                                        INSERT INTO app_kv (key, value, updated_at)
+                                        VALUES (%s, %s, %s)
+                                        ON CONFLICT (key) DO UPDATE SET
+                                            value = EXCLUDED.value,
+                                            updated_at = EXCLUDED.updated_at
+                                    """, (_kv_key, _pg_json(_kv_val), _kv_ts))
+
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        raise e
+                    finally:
+                        conn.close()
+                    _write_settings_sidecar(db)
+                    return
                 except Exception as e:
-                    conn.rollback()
-                    raise e
-                finally:
-                    conn.close()
-                _write_settings_sidecar(db)
-                return
-            except Exception as e:
-                logger.error("PostgreSQL save failed (%s) — writing database.json fallback", e)
+                    logger.error("PostgreSQL save failed (%s) — writing database.json fallback", e)
         try:
+            # Safety guard: if an existing file has real users and we're saving 0 non-admin users,
+            # snapshot prewipe backup before overwriting.
+            if DB_FILE.exists() and _count_non_admin_users(db) == 0:
+                try:
+                    existing_raw = json.loads(DB_FILE.read_text(encoding="utf-8"))
+                    if _count_non_admin_users(existing_raw) > 0:
+                        shutil.copy2(DB_FILE, DB_FILE.with_suffix(".json.prewipe.bak"))
+                except Exception:
+                    pass
             # Atomic write + rolling backup: never leave a truncated database.json behind
             tmp = DB_FILE.with_suffix(".json.tmp")
             with open(tmp, "w", encoding="utf-8") as f:
@@ -1212,6 +1380,7 @@ def _dedupe_users_by_email(keep_id: str, db: Optional[dict] = None, save: bool =
         logger.info("Merged duplicate account %s (id=%s) into %s (id=%s)",
                     u.get("email"), uid, keep.get("email"), keep_id)
         del users[uid]
+        _pg_delete_record("users", "id", uid)
         dirty = True
 
     if dirty and save:
@@ -1525,23 +1694,37 @@ def current_user() -> Optional[dict]:
 def check_subscription(user: dict) -> dict:
     """Check user's subscription status.
     Admin users ALWAYS have active lifetime subscription."""
+    if not isinstance(user, dict):
+        return {"active": False, "status": "none", "days_left": 0, "plan": "none"}
     if user.get("role") == "admin":
         return {"active": True, "status": "active", "days_left": 9999, "plan": "lifetime"}
 
-    sub = user.get("subscription", {})
-    if not sub:
+    sub = user.get("subscription")
+    if not isinstance(sub, dict) or not sub:
         return {"active": False, "status": "none", "days_left": 0, "plan": "none"}
 
     expires_at = sub.get("expires_at")
     if not expires_at:
         return {"active": False, "status": "none", "days_left": 0, "plan": "none"}
 
+    if isinstance(expires_at, (int, float)):
+        expires_str = datetime.fromtimestamp(float(expires_at), tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    elif isinstance(expires_at, datetime):
+        expires_str = expires_at.isoformat()
+    else:
+        expires_str = str(expires_at).strip()
+
+    if not expires_str:
+        return {"active": False, "status": "none", "days_left": 0, "plan": "none"}
+
     # Lifetime licenses never expire
-    if expires_at.startswith("9999"):
+    if expires_str.startswith("9999"):
         return {"active": True, "status": "active", "days_left": 9999, "plan": sub.get("plan", "lifetime")}
 
     try:
-        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        expiry = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         delta = expiry - now
         # Use total_seconds for accurate check — timedelta.days ignores hours
@@ -1550,10 +1733,10 @@ def check_subscription(user: dict) -> dict:
 
         if is_expired:
             return {"active": False, "status": "expired", "days_left": 0,
-                    "plan": sub.get("plan", "trial"), "expires_at": expires_at}
+                    "plan": sub.get("plan", "trial"), "expires_at": expires_str}
 
         return {"active": True, "status": "active", "days_left": days_left,
-                "plan": sub.get("plan", "trial"), "expires_at": expires_at}
+                "plan": sub.get("plan", "trial"), "expires_at": expires_str}
     except (ValueError, TypeError) as e:
         logger.error("Subscription check error: %s", e)
         return {"active": False, "status": "error", "days_left": 0, "plan": "none"}
@@ -2295,7 +2478,7 @@ def kill_process(pid: int):
     except (ProcessLookupError, PermissionError, OSError, subprocess.TimeoutExpired):
         pass
 
-def get_bot_status(user_id: str) -> dict:
+def get_bot_status(user_id: str, persist_cleanup: bool = True) -> dict:
     """Get bot status for a user."""
     proc_info = DB.get("bot_processes", {}).get(user_id)
     if not proc_info or not proc_info.get("pid"):
@@ -2310,7 +2493,7 @@ def get_bot_status(user_id: str) -> dict:
     if is_process_alive(proc_info["pid"]):
         return {
             "running": True,
-            "port": proc_info["port"],
+            "port": proc_info.get("port"),
             "pid": proc_info["pid"],
             "started_at": proc_info.get("started_at"),
         }
@@ -2320,7 +2503,8 @@ def get_bot_status(user_id: str) -> dict:
         if user_id in shared:
             shared.pop(user_id, None)
             _save_bot_processes(shared)
-        save_db(DB)
+        if persist_cleanup:
+            save_db(DB)
         return {"running": False}
 
 def proxy_to_bot(user_id: str, method: str, path: str, body=None) -> dict:
@@ -3507,36 +3691,48 @@ def api_admin_users():
         return jsonify({"success": False, "error": "Admin access required"}), 403
 
     users = []
-    for u in DB["users"].values():
-        if u.get("id") == "admin" or _norm_email(u.get("email")) == "admin@tradebot.com":
+    all_users = DB.get("users") or {}
+    for uid_key, u in list(all_users.items()):
+        if not isinstance(u, dict):
+            continue
+        uid_str = str(u.get("id") or uid_key or "")
+        email_str = str(u.get("email") or "")
+        if uid_str == "admin" or _norm_email(email_str) == "admin@tradebot.com":
             continue
         sub = check_subscription(u)
-        bot_status = get_bot_status(u["id"])
-        # Count referrals
-        referral_count = sum(1 for x in DB["users"].values() if x.get("referred_by") == u["id"])
-        # Find who referred this user
+        bot_status = get_bot_status(uid_str, persist_cleanup=False)
+        referral_count = sum(
+            1 for x in all_users.values()
+            if isinstance(x, dict) and x.get("referred_by") == uid_str
+        )
         referrer_name = ""
-        if u.get("referred_by"):
-            referrer = DB["users"].get(u["referred_by"])
-            if referrer:
-                referrer_name = referrer.get("name", referrer.get("email", ""))
+        ref_uid = u.get("referred_by")
+        if ref_uid:
+            referrer = all_users.get(ref_uid)
+            if isinstance(referrer, dict):
+                referrer_name = referrer.get("name") or referrer.get("email") or ""
+        try:
+            ref_earnings = float(u.get("referral_earnings", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            ref_earnings = 0.0
+        bot_cfg = u.get("bot_config") if isinstance(u.get("bot_config"), dict) else {}
         users.append({
-            "id": u["id"],
-            "email": u["email"],
-            "name": u.get("name", ""),
-            "banned": u.get("banned", False),
+            "id": uid_str,
+            "email": email_str,
+            "name": u.get("name") or "",
+            "banned": bool(u.get("banned", False)),
             "created_at": u.get("created_at"),
             "subscription": sub,
             "license_key": u.get("license_key"),
-            "referral_code": u.get("referral_code", ""),
+            "referral_code": u.get("referral_code") or "",
             "referral_count": referral_count,
-            "referral_earnings": float(u.get("referral_earnings", 0.0) or 0.0),
+            "referral_earnings": ref_earnings,
             "referred_by_name": referrer_name,
-            "bot_running": bot_status.get("running", False),
-            "exchange": u.get("bot_config", {}).get("exchange", "none"),
+            "bot_running": bool(bot_status.get("running", False)),
+            "exchange": bot_cfg.get("exchange", "none") or "none",
         })
 
-    return jsonify({"success": True, "users": users})
+    return jsonify({"success": True, "users": users, "total": len(users)})
 
 @app.route("/api/admin/licenses", methods=["GET"])
 def api_admin_list_licenses():
@@ -3624,6 +3820,7 @@ def api_admin_delete_license():
         return jsonify({"success": False, "error": "License not found"})
 
     DB["licenses"].pop(key, None)
+    _pg_delete_record("licenses", "key", key)
     save_db(DB)
     return jsonify({"success": True, "message": f"License {key} deleted"})
 
@@ -3667,6 +3864,7 @@ def api_admin_delete():
 
     stop_user_bot(user_id)
     DB["users"].pop(user_id, None)
+    _pg_delete_record("users", "id", user_id)
     save_db(DB)
     return jsonify({"success": True, "message": "User deleted"})
 
@@ -4855,12 +5053,21 @@ def api_admin_orders():
     if not is_admin():
         return jsonify({"success": False, "error": "Admin access required"}), 403
 
-    orders = list(DB.get("orders", {}).values())
-    for o in orders:
-        u = DB["users"].get(o.get("user_id"), {})
-        o["user_name"] = u.get("name", "")
-        o["user_email"] = u.get("email", "")
-    orders.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    orders = []
+    users_map = DB.get("users") or {}
+    for raw_order in (DB.get("orders") or {}).values():
+        if not isinstance(raw_order, dict):
+            continue
+        item = dict(raw_order)
+        u = users_map.get(item.get("user_id"))
+        if isinstance(u, dict):
+            item["user_name"] = u.get("name") or item.get("user_name") or ""
+            item["user_email"] = u.get("email") or item.get("user_email") or ""
+        else:
+            item["user_name"] = item.get("user_name") or ""
+            item["user_email"] = item.get("user_email") or ""
+        orders.append(item)
+    orders.sort(key=lambda x: x.get("created_at", "") or "", reverse=True)
     return jsonify({"success": True, "orders": orders})
 
 
@@ -5157,6 +5364,325 @@ def api_admin_approve_payout():
     save_db(DB)
     logger.info("Admin approved referral payout %s (tx=%s)", payout_id, tx_hash)
     return jsonify({"success": True, "message": f"Payout {payout_id} marked as paid!"})
+
+
+# ============================================================
+# Admin Storage Health & 1-Click Backup / Restore
+# ============================================================
+
+def _is_path_mountpoint_different_from_root(path: Path) -> bool:
+    """Detect on Linux whether `path` resides on a separate mount (e.g. Docker volume)."""
+    if os.name == "nt":
+        return False
+    try:
+        root_dev = os.stat("/").st_dev
+        target = path if path.exists() else path.parent
+        return os.stat(target).st_dev != root_dev
+    except OSError:
+        return False
+
+
+def _probe_pg_live() -> tuple:
+    """Return (pg_connected: bool, error_message: str)."""
+    if not PG_ENABLED:
+        if DATABASE_URL and psycopg2 is None:
+            return False, "DATABASE_URL is set but psycopg2-binary is not installed"
+        return False, _PG_LOAD_ERROR or ""
+    try:
+        conn = _pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            return True, ""
+        finally:
+            conn.close()
+    except Exception as e:
+        return False, str(e)
+
+
+def _get_storage_status() -> dict:
+    pg_connected, pg_err = _probe_pg_live()
+    in_container = (
+        os.name != "nt"
+        and (
+            Path("/.dockerenv").exists()
+            or bool(os.environ.get("COOLIFY_URL") or os.environ.get("RAILWAY_ENVIRONMENT"))
+        )
+    )
+    volume_mounted = (
+        _is_path_mountpoint_different_from_root(DATA_DIR)
+        or _is_path_mountpoint_different_from_root(DB_FILE)
+        or _is_path_mountpoint_different_from_root(USER_INSTANCES_DIR)
+    )
+    ephemeral_risk = bool(not pg_connected and in_container and not volume_mounted)
+    if pg_connected:
+        backend = "postgresql"
+        level = "ok"
+        message = "PostgreSQL connected — users, API keys, licenses, orders, SMTP & wallets persist across redeploys."
+    elif DATABASE_URL and psycopg2 is None:
+        backend = "postgresql_driver_missing"
+        level = "danger"
+        message = "DATABASE_URL is set, but psycopg2-binary is missing in runtime. Rebuild with updated Dockerfile."
+    elif PG_ENABLED and (_PG_LOAD_FAILED or not pg_connected):
+        backend = "postgresql_error"
+        level = "danger"
+        message = f"PostgreSQL connection issue ({pg_err or _PG_LOAD_ERROR or 'unreachable'}). Destructive PG writes blocked."
+    elif ephemeral_risk:
+        backend = "ephemeral_json"
+        level = "danger"
+        message = (
+            "Container local storage detected without DATABASE_URL or mounted /data volume — "
+            "Coolify/Docker redeploys wipe local container files! Set DATABASE_URL or mount /data + download backups."
+        )
+    else:
+        backend = "json_file"
+        level = "warn"
+        message = (
+            f"Using local JSON file ({DB_FILE}). Safe on VPS disk restarts if file stays mounted, "
+            "but PostgreSQL (DATABASE_URL) or regular JSON backups are recommended."
+        )
+
+    non_admin_users = _count_non_admin_users(DB)
+    return {
+        "backend": backend,
+        "level": level,
+        "message": message,
+        "pg_enabled": PG_ENABLED,
+        "pg_connected": pg_connected,
+        "pg_load_failed": _PG_LOAD_FAILED,
+        "pg_error": pg_err or _PG_LOAD_ERROR,
+        "database_url_set": bool(DATABASE_URL),
+        "psycopg2_installed": psycopg2 is not None,
+        "in_container": in_container,
+        "volume_mounted": volume_mounted,
+        "ephemeral_risk": ephemeral_risk,
+        "data_dir": str(DATA_DIR),
+        "db_file": str(DB_FILE),
+        "db_file_exists": DB_FILE.exists(),
+        "encryption_key_env_set": bool(os.environ.get("ENCRYPTION_KEY", "").strip()),
+        "flask_secret_env_set": bool(os.environ.get("FLASK_SECRET", "").strip()),
+        "counts": {
+            "users": non_admin_users,
+            "licenses": len(DB.get("licenses") or {}),
+            "orders": len(DB.get("orders") or {}),
+        },
+    }
+
+
+@app.route("/api/admin/storage-status", methods=["GET"])
+def api_admin_storage_status():
+    """Admin: inspect active database backend & redeploy persistence health."""
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+    return jsonify({"success": True, "storage": _get_storage_status()})
+
+
+@app.route("/api/admin/backup/export", methods=["GET"])
+def api_admin_backup_export():
+    """Admin: download full JSON backup of users, encrypted API keys, licenses, orders, wallets & SMTP."""
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+
+    instance_configs = {}
+    if USER_INSTANCES_DIR.exists():
+        for entry in USER_INSTANCES_DIR.iterdir():
+            if not entry.is_dir():
+                continue
+            cfg_file = entry / "config.json"
+            if cfg_file.exists():
+                try:
+                    parsed = json.loads(cfg_file.read_text(encoding="utf-8"))
+                    if isinstance(parsed, dict):
+                        instance_configs[entry.name] = parsed
+                except Exception:
+                    pass
+
+    now_dt = datetime.now(timezone.utc)
+    payload = {
+        "meta": {
+            "exported_at": now_dt.isoformat().replace("+00:00", "Z"),
+            "format_version": 1,
+            "counts": {
+                "users": _count_non_admin_users(DB),
+                "licenses": len(DB.get("licenses") or {}),
+                "orders": len(DB.get("orders") or {}),
+                "instance_configs": len(instance_configs),
+            },
+        },
+        "users": DB.get("users") or {},
+        "licenses": DB.get("licenses") or {},
+        "orders": DB.get("orders") or {},
+        "settings": DB.get("settings") or {},
+        "used_txids": DB.get("used_txids") or {},
+        "user_instances_configs": instance_configs,
+    }
+    fname = f"weexionic-backup-{now_dt.strftime('%Y%m%d-%H%M%S')}.json"
+    body = json.dumps(payload, indent=2, ensure_ascii=False)
+    return Response(
+        body,
+        mimetype="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.route("/api/admin/backup/restore", methods=["POST"])
+def api_admin_backup_restore():
+    """Admin: restore users, encrypted API keys, licenses, orders, wallets & SMTP from a JSON backup."""
+    global _PG_LOAD_FAILED, _PG_LOAD_ERROR
+    if not is_admin():
+        return jsonify({"success": False, "error": "Admin access required"}), 403
+
+    mode = "merge"
+    backup = None
+    if request.files and "file" in request.files:
+        f = request.files["file"]
+        mode = str(request.form.get("mode") or "merge").strip().lower()
+        try:
+            backup = json.loads(f.read().decode("utf-8"))
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Invalid backup JSON file: {e}"}), 400
+    else:
+        raw = request.get_json(force=True, silent=True)
+        if isinstance(raw, dict):
+            mode = str(raw.get("mode") or "merge").strip().lower()
+            backup = raw.get("backup") if isinstance(raw.get("backup"), dict) else raw
+
+    if mode not in ("merge", "replace"):
+        mode = "merge"
+
+    if not isinstance(backup, dict) or not any(
+        isinstance(backup.get(k), dict) for k in ("users", "licenses", "orders", "settings")
+    ):
+        return jsonify({"success": False, "error": "Invalid backup format: expected users/licenses/orders JSON"}), 400
+
+    inc_users = backup.get("users") if isinstance(backup.get("users"), dict) else {}
+    inc_licenses = backup.get("licenses") if isinstance(backup.get("licenses"), dict) else {}
+    inc_orders = backup.get("orders") if isinstance(backup.get("orders"), dict) else {}
+    inc_settings = backup.get("settings") if isinstance(backup.get("settings"), dict) else {}
+    inc_txids = backup.get("used_txids") if isinstance(backup.get("used_txids"), dict) else {}
+    inc_cfgs = backup.get("user_instances_configs") if isinstance(backup.get("user_instances_configs"), dict) else {}
+
+    restored_counts = {"users": 0, "licenses": 0, "orders": 0, "configs": 0}
+
+    with _db_lock:
+        if mode == "replace":
+            DB["users"] = {}
+            DB["licenses"] = {}
+            DB["orders"] = {}
+            DB["settings"] = {}
+            DB["used_txids"] = {}
+
+        users_store = DB.setdefault("users", {})
+        for uid, u in inc_users.items():
+            if not isinstance(u, dict):
+                continue
+            u_copy = json.loads(json.dumps(u))
+            u_uid = str(u_copy.get("id") or uid)
+            u_copy["id"] = u_uid
+            u_copy["email"] = _norm_email(u_copy.get("email"))
+            existing = users_store.get(u_uid)
+            if existing and isinstance(existing, dict) and mode == "merge":
+                if _user_richness_score(u_copy, db=backup) >= _user_richness_score(existing, db=DB):
+                    users_store[u_uid] = u_copy
+                    _merge_user_into(u_uid, existing, u_uid, users_store[u_uid], DB)
+                else:
+                    _merge_user_into(u_uid, u_copy, u_uid, existing, DB)
+            else:
+                users_store[u_uid] = u_copy
+            if u_uid != "admin" and u_copy["email"] != "admin@tradebot.com":
+                restored_counts["users"] += 1
+
+        lic_store = DB.setdefault("licenses", {})
+        for lkey, lval in inc_licenses.items():
+            if not isinstance(lval, dict):
+                continue
+            l_copy = json.loads(json.dumps(lval))
+            key_str = str(l_copy.get("key") or lkey)
+            l_copy["key"] = key_str
+            if mode == "replace" or key_str not in lic_store:
+                lic_store[key_str] = l_copy
+                restored_counts["licenses"] += 1
+
+        ord_store = DB.setdefault("orders", {})
+        for oid, oval in inc_orders.items():
+            if not isinstance(oval, dict):
+                continue
+            o_copy = json.loads(json.dumps(oval))
+            oid_str = str(o_copy.get("id") or oid)
+            o_copy["id"] = oid_str
+            if mode == "replace" or oid_str not in ord_store:
+                ord_store[oid_str] = o_copy
+                restored_counts["orders"] += 1
+
+        DB.setdefault("used_txids", {}).update(inc_txids)
+
+        settings_store = DB.setdefault("settings", {})
+        for sk, sv in inc_settings.items():
+            if mode == "replace" or not settings_store.get(sk):
+                settings_store[sk] = json.loads(json.dumps(sv))
+
+        # Restore per-user engine config files safely
+        for uid, cfg in inc_cfgs.items():
+            if not isinstance(cfg, dict):
+                continue
+            clean_uid = str(uid).strip()
+            if not clean_uid or "/" in clean_uid or "\\" in clean_uid or ".." in clean_uid:
+                continue
+            inst_dir = USER_INSTANCES_DIR / clean_uid
+            cfg_path = inst_dir / "config.json"
+            if mode == "replace" or not cfg_path.exists():
+                inst_dir.mkdir(parents=True, exist_ok=True)
+                cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+                restored_counts["configs"] += 1
+
+        _heal_users_integrity(DB)
+
+        # If PG was previously marked failed, check whether PG is reachable now
+        if PG_ENABLED and _PG_LOAD_FAILED:
+            pg_ok, _ = _probe_pg_live()
+            if pg_ok:
+                _PG_LOAD_FAILED = False
+                _PG_LOAD_ERROR = ""
+
+        # Explicit replace mode cleans stale rows in Postgres before upserting restored snapshot
+        if PG_ENABLED and not _PG_LOAD_FAILED and mode == "replace":
+            try:
+                conn = _pg_connect()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("DELETE FROM orders")
+                        cur.execute("DELETE FROM licenses")
+                        cur.execute("DELETE FROM users")
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                finally:
+                    conn.close()
+            except Exception as pg_err:
+                logger.error("PostgreSQL replace-clear failed: %s", pg_err)
+
+    save_db(DB)
+    _load_wallet_settings()
+    logger.info("Admin restored backup (mode=%s): %s", mode, restored_counts)
+    return jsonify({
+        "success": True,
+        "mode": mode,
+        "restored": restored_counts,
+        "counts": {
+            "users": _count_non_admin_users(DB),
+            "licenses": len(DB.get("licenses") or {}),
+            "orders": len(DB.get("orders") or {}),
+        },
+        "message": (
+            f"Backup restored ({mode}): {restored_counts['users']} users, "
+            f"{restored_counts['licenses']} licenses, {restored_counts['orders']} orders."
+        ),
+    })
 
 # ============================================================
 # Fix 11: Security Headers Middleware

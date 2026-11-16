@@ -68,5 +68,7 @@ user_instances/
 uploads/
 database.json
 database.json.bak
+database.json.prewipe.bak
+database.json.tmp
 *.pyc
 __pycache__/

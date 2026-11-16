@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir \
     "numpy>=1.24.0" \
     "pyarrow>=15.0.0" \
     "python-dotenv>=1.0.1" \
+    "psycopg2-binary>=2.9.9" \
     "cryptography>=41.0.0" \
     && pip install --no-cache-dir --no-deps "binance-futures-connector>=1.5.0"
 
@@ -35,7 +36,7 @@ RUN pip install --no-cache-dir \
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p logs user_configs bot-engine/logs
+RUN mkdir -p logs user_configs user_instances uploads bot-engine/logs
 
 # Expose port
 EXPOSE 5000

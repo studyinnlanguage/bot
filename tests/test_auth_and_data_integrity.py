@@ -760,4 +760,292 @@ class TestPasswordResetAndLiveConfig:
         }).get_json()["success"] is True
 
 
+class TestAdminStatsPersistenceAndBackup:
+    def test_admin_users_resilient_to_null_bot_config_and_numeric_expiry(self, saas_env):
+        from datetime import datetime, timezone
+        c, saas, _, created_uids = saas_env
+        uid = "uid-corrupt-edge-1"
+        created_uids.append(uid)
+        future_ts = int(datetime.now(timezone.utc).timestamp()) + 86400 * 30
+        saas.DB["users"][uid] = {
+            "id": uid,
+            "email": "edgecase@example.com",
+            "name": "Edge Case User",
+            "password_hash": saas.hash_password("Pass12345!"),
+            "role": "user",
+            "banned": False,
+            "created_at": "2026-10-19T12:00:00Z",
+            "subscription": {"plan": "monthly", "expires_at": future_ts},
+            "license_key": "WX-EDGE-1",
+            "referral_code": "EDGE1",
+            "referred_by": "non-existent-ref",
+            "referral_earnings": None,
+            "bot_config": None,
+        }
+        saas.DB["orders"]["ORD-EDGE1"] = {
+            "id": "ORD-EDGE1",
+            "user_id": "missing-user-id",
+            "user_email": "kept@example.com",
+            "user_name": "Kept Name",
+            "package_id": "monthly",
+            "package_name": "Monthly",
+            "amount": 19,
+            "currency": "USDT",
+            "status": "pending",
+            "created_at": "2026-10-19T12:00:00Z",
+        }
+
+        c.post("/api/admin/login", json={"password": saas.ADMIN_SECRET})
+        ru = c.get("/api/admin/users")
+        assert ru.status_code == 200
+        ubody = ru.get_json()
+        assert ubody["success"] is True
+        edge = next(u for u in ubody["users"] if u["id"] == uid)
+        assert edge["exchange"] == "none"
+        assert edge["subscription"]["active"] is True
+        assert edge["referral_earnings"] == 0.0
+
+        # api_admin_orders keeps stored fallback metadata if user missing, without wiping order dict
+        ro = c.get("/api/admin/orders")
+        assert ro.status_code == 200
+        ord_item = next(o for o in ro.get_json()["orders"] if o["id"] == "ORD-EDGE1")
+        assert ord_item["user_email"] == "kept@example.com"
+        assert ord_item["user_name"] == "Kept Name"
+
+        # Verify Admin Panel template wires all 5 top stats cards + Backup tab cleanly
+        page = c.get(saas.ADMIN_SECRET_PATH)
+        assert page.status_code == 200
+        html = page.get_data(as_text=True)
+        for token in (
+            "updateStats(lics, null, null)",
+            "updateStats(null, null, users)",
+            "document.getElementById('totalUsers')",
+            "document.getElementById('botsRunning')",
+            "/api/admin/backup/export",
+            "/api/admin/backup/restore",
+        ):
+            assert token in html
+
+    def test_pg_load_failure_blocks_destructive_pg_writes_and_no_bulk_delete(self, saas_env, monkeypatch):
+        _, saas, _, _ = saas_env
+        executed_sql = []
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def execute(self, sql, params=None):
+                executed_sql.append((sql, params))
+            def fetchall(self):
+                return []
+            def fetchone(self):
+                return (1,)
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCursor()
+            def commit(self):
+                pass
+            def rollback(self):
+                pass
+            def close(self):
+                pass
+
+        monkeypatch.setattr(saas, "PG_ENABLED", True)
+        monkeypatch.setattr(saas, "_PG_RETRY_DELAYS", ())
+        monkeypatch.setattr(saas, "_pg_connect", lambda: FakeConn())
+        monkeypatch.setattr(saas, "_load_pg_db", lambda: (_ for _ in ()).throw(RuntimeError("PG still booting")))
+
+        orig_failed = saas._PG_LOAD_FAILED
+        orig_err = saas._PG_LOAD_ERROR
+        try:
+            loaded = saas.load_db()
+            assert saas._PG_LOAD_FAILED is True
+            assert "PG still booting" in saas._PG_LOAD_ERROR
+
+            # Subsequent save_db must NOT write or DELETE anything against Postgres!
+            executed_sql.clear()
+            saas.save_db(loaded)
+            assert executed_sql == []
+
+            # Normal Postgres save (when load succeeded) upserts users/licenses/orders + app_kv
+            # and NEVER issues blind "DELETE FROM users" / "DELETE FROM licenses" / "DELETE FROM orders"
+            saas._PG_LOAD_FAILED = False
+            saas._PG_LOAD_ERROR = ""
+            executed_sql.clear()
+            saas.save_db({
+                "users": {"u1": {"id": "u1", "email": "u1@example.com"}},
+                "licenses": {"WX-1": {"key": "WX-1", "plan": "monthly", "days": 30}},
+                "orders": {"ORD-1": {"id": "ORD-1", "user_id": "u1"}},
+                "settings": {"smtp": {"user": "x@gmail.com"}},
+                "used_txids": {"0xabc": "ORD-1"},
+            })
+            sql_blob = "\n".join(s for s, _ in executed_sql).upper()
+            assert "DELETE FROM USERS" not in sql_blob
+            assert "DELETE FROM LICENSES" not in sql_blob
+            assert "DELETE FROM ORDERS" not in sql_blob
+            assert "INSERT INTO APP_KV" in sql_blob
+        finally:
+            saas._PG_LOAD_FAILED = orig_failed
+            saas._PG_LOAD_ERROR = orig_err
+
+    def test_empty_save_creates_prewipe_backup_snapshot(self, saas_env):
+        _, saas, _, _ = saas_env
+        sample = {
+            "users": {
+                "u_real": {"id": "u_real", "email": "real@example.com", "role": "user"},
+            },
+            "licenses": {},
+            "orders": {},
+            "bot_processes": {},
+            "used_txids": {},
+            "settings": {},
+        }
+        saas.save_db(sample)
+        prewipe = _DB_FILE.with_suffix(".json.prewipe.bak")
+        if prewipe.exists():
+            prewipe.unlink()
+        try:
+            saas.save_db({
+                "users": {},
+                "licenses": {},
+                "orders": {},
+                "bot_processes": {},
+                "used_txids": {},
+                "settings": {},
+            })
+            assert prewipe.exists()
+            preserved = json.loads(prewipe.read_text(encoding="utf-8"))
+            assert "u_real" in preserved["users"]
+        finally:
+            if prewipe.exists():
+                prewipe.unlink()
+
+    def test_admin_backup_export_and_restore_roundtrip_preserves_users_keys_and_settings(self, saas_env):
+        import io
+        c, saas, _, created_uids = saas_env
+
+        # Non-admin must be blocked
+        assert c.get("/api/admin/storage-status").status_code == 403
+        assert c.get("/api/admin/backup/export").status_code == 403
+        assert c.post("/api/admin/backup/restore", json={"users": {}}).status_code == 403
+
+        # Seed a complete trader account with encrypted API keys, subscription, license, order, wallet & SMTP
+        r = c.post("/api/auth/signup", json={
+            "email": "BackupTrader@Example.com",
+            "password": "BackupPassword1!",
+            "name": "Backup Trader",
+        })
+        assert r.status_code == 200
+        uid = r.get_json()["user"]["id"]
+        created_uids.append(uid)
+
+        user = saas.DB["users"][uid]
+        user["subscription"] = {
+            "active": True,
+            "plan": "yearly",
+            "status": "active",
+            "expires_at": "2027-06-01T00:00:00Z",
+        }
+        user["license_key"] = "WX-BACKUP-777"
+        user["bot_config"] = {
+            "exchange": "weex",
+            "testnet": False,
+            "live_confirmed": True,
+            "leverage": 100,
+            "api_key_enc": saas.encrypt("WEEX_LIVE_KEY_999"),
+            "api_secret_enc": saas.encrypt("WEEX_LIVE_SEC_999"),
+            "api_passphrase_enc": saas.encrypt("WEEX_PASS_999"),
+            "api_keys_enc": {
+                "weex": {
+                    "api_key_enc": saas.encrypt("WEEX_LIVE_KEY_999"),
+                    "api_secret_enc": saas.encrypt("WEEX_LIVE_SEC_999"),
+                    "api_passphrase_enc": saas.encrypt("WEEX_PASS_999"),
+                }
+            },
+        }
+        saas.DB["licenses"]["WX-BACKUP-777"] = {
+            "key": "WX-BACKUP-777",
+            "plan": "yearly",
+            "days": 365,
+            "used_by": uid,
+            "active": True,
+            "revoked": False,
+        }
+        saas.DB["orders"]["ORD-BACKUP-1"] = {
+            "id": "ORD-BACKUP-1",
+            "user_id": uid,
+            "user_email": "backuptrader@example.com",
+            "package_id": "yearly",
+            "package_name": "1-Year",
+            "amount": 79,
+            "status": "verified",
+            "license_key": "WX-BACKUP-777",
+        }
+        saas.DB["settings"]["smtp"] = {"host": "smtp.gmail.com", "port": 587, "user": "mail@test.com", "pass": "secret12"}
+        saas.DB["used_txids"]["0xbackup123"] = "ORD-BACKUP-1"
+        inst_dir = saas.USER_INSTANCES_DIR / uid
+        inst_dir.mkdir(parents=True, exist_ok=True)
+        cfg_file = inst_dir / "config.json"
+        cfg_file.write_text(json.dumps({"exchange": "weex", "leverage": 100, "symbols_list": ["BTCUSDT"]}), encoding="utf-8")
+        saas.save_db(saas.DB)
+
+        # Admin exports backup
+        c.post("/api/auth/logout")
+        c.post("/api/admin/login", json={"password": saas.ADMIN_SECRET})
+        st = c.get("/api/admin/storage-status")
+        assert st.status_code == 200
+        assert st.get_json()["storage"]["counts"]["users"] >= 1
+
+        exp = c.get("/api/admin/backup/export")
+        assert exp.status_code == 200
+        assert "attachment;" in exp.headers.get("Content-Disposition", "")
+        backup_bytes = exp.get_data()
+        backup_json = json.loads(backup_bytes.decode("utf-8"))
+        assert uid in backup_json["users"]
+        assert "WX-BACKUP-777" in backup_json["licenses"]
+        assert "ORD-BACKUP-1" in backup_json["orders"]
+        assert backup_json["user_instances_configs"][uid]["leverage"] == 100
+
+        # Invalid payload rejected cleanly
+        bad = c.post("/api/admin/backup/restore", json={"foo": "bar"})
+        assert bad.status_code == 400
+
+        # Wipe local DB + instance config cleanly to simulate container rebuild
+        saas.DB["users"].pop(uid, None)
+        saas.DB["licenses"].pop("WX-BACKUP-777", None)
+        saas.DB["orders"].pop("ORD-BACKUP-1", None)
+        saas.DB["settings"].clear()
+        saas.DB["used_txids"].clear()
+        cfg_file.unlink()
+        saas.save_db(saas.DB)
+
+        # Restore via multipart file upload (same path used by Admin UI)
+        rest = c.post(
+            "/api/admin/backup/restore",
+            data={"mode": "merge", "file": (io.BytesIO(backup_bytes), "weexionic-backup.json")},
+            content_type="multipart/form-data",
+        )
+        assert rest.status_code == 200
+        rbody = rest.get_json()
+        assert rbody["success"] is True
+        assert uid in saas.DB["users"]
+        assert "WX-BACKUP-777" in saas.DB["licenses"]
+        assert "ORD-BACKUP-1" in saas.DB["orders"]
+        assert saas.DB["settings"]["smtp"]["user"] == "mail@test.com"
+        assert saas.DB["used_txids"]["0xbackup123"] == "ORD-BACKUP-1"
+        assert saas.decrypt(saas.DB["users"][uid]["bot_config"]["api_key_enc"]) == "WEEX_LIVE_KEY_999"
+        assert cfg_file.exists() and json.loads(cfg_file.read_text(encoding="utf-8"))["leverage"] == 100
+
+        # Restored user can immediately log in with their original password
+        c.post("/api/auth/logout")
+        login_res = c.post("/api/auth/login", json={
+            "email": "backuptrader@example.com",
+            "password": "BackupPassword1!",
+        })
+        assert login_res.get_json()["success"] is True
+
+
+
 
