@@ -1166,6 +1166,29 @@ class PrimeXBTTrader:
                 "raw": res,
             }
         err = res.get("error") if isinstance(res, dict) else str(res)
+        err_low = str(err or "").lower()
+        if any(k in err_low for k in ("leverage", "max", "limit", "exceed", "margin")):
+            for step_lev in (500, 200, 100, 50, 25, 20, 10, 5):
+                if step_lev >= target_lev:
+                    continue
+                res_step = self._request(
+                    "POST",
+                    "/v3/trading/margins/change",
+                    body={"symbol": clean_sym, "marginType": margin_type,
+                          "leverage": step_lev},
+                )
+                if isinstance(res_step, dict) and not res_step.get("error"):
+                    self._symbol_leverage[clean_sym] = step_lev
+                    logger.info("PrimeXBT leverage auto-adjusted to %dx for %s (requested %dx)",
+                                step_lev, clean_sym, leverage)
+                    return {
+                        "success": True,
+                        "leverage": step_lev,
+                        "adjusted": True,
+                        "original": leverage,
+                        "max_allowed": max_allowed,
+                        "raw": res_step,
+                    }
         logger.warning("PrimeXBT leverage update FAILED for %s (%dx): %s", clean_sym, target_lev, err)
         return {
             "success": False,

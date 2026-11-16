@@ -422,6 +422,14 @@ class WEEXFuturesTrader:
 
                             min_qty = float(sym_info.get("minOrderSize", step_size))
                             try:
+                                max_qty = float(sym_info.get("maxOrderSize") or 1e9)
+                            except (TypeError, ValueError):
+                                max_qty = 1e9
+                            try:
+                                max_lev = int(sym_info.get("maxLeverage") or 500)
+                            except (TypeError, ValueError):
+                                max_lev = 500
+                            try:
                                 min_notional = float(sym_info.get("minNotional") or sym_info.get("minOrderValue") or 5.0)
                             except (TypeError, ValueError):
                                 min_notional = 5.0
@@ -429,6 +437,8 @@ class WEEXFuturesTrader:
                             self._contract_cache[sym] = {
                                 "step_size": step_size,
                                 "min_qty": min_qty,
+                                "max_qty": max_qty,
+                                "max_leverage": max_lev,
                                 "min_notional": min_notional,
                                 "tick_size": tick_size,
                                 "contract_size": 1
@@ -470,6 +480,7 @@ class WEEXFuturesTrader:
             "max_qty": float(info.get("max_qty", 1e9)),
             "tick_size": float(info.get("tick_size", 0.01)),
             "min_notional": float(info.get("min_notional", 5.0)),
+            "max_leverage": int(info.get("max_leverage", 500) or 500),
         }
 
     # ---------- Account (private, signed) ----------
@@ -690,56 +701,95 @@ class WEEXFuturesTrader:
         return sym
 
     def set_leverage(self, symbol: str, leverage: int) -> dict:
-        """Set leverage for a symbol. WEEX supports up to 500x.
+        """Set leverage for a symbol (WEEX supports up to 500x, per-symbol maxLeverage capped).
 
-        Tries all valid WEEX Contract V3 leverage endpoints and body formats.
+        Clamps to the symbol's exchangeInfo `maxLeverage` before sending, and
+        auto-steps down if WEEX still rejects for risk/tier limit.
         """
-        leverage = max(1, min(500, int(leverage)))
+        orig_lev = max(1, int(leverage))
+        max_allowed = 500
+        try:
+            f = self.get_symbol_filters(symbol)
+            max_allowed = max(1, min(500, int(f.get("max_leverage", 500) or 500)))
+        except Exception:
+            max_allowed = 500
+        target_lev = max(1, min(max_allowed, orig_lev))
         order_sym = self._order_symbol(symbol)
         plain_sym = self._market_symbol(symbol)
 
-        # WEEX expects {symbol, marginCoin, leverage/crossLeverage, holdSide}
-        bodies_to_try = [
-            {"symbol": order_sym, "marginCoin": "USDT", "leverage": str(leverage), "holdSide": "all"},
-            {"symbol": order_sym, "marginCoin": "USDT", "leverage": leverage, "holdSide": "all"},
-            {"symbol": order_sym, "marginCoin": "USDT", "crossLeverage": str(leverage), "marginType": "CROSSED"},
-            {"symbol": order_sym, "marginType": "CROSSED", "crossLeverage": leverage},
-            {"symbol": order_sym, "leverage": leverage, "marginType": "CROSSED"},
-            {"symbol": order_sym, "crossLeverage": leverage},
-            {"symbol": plain_sym, "marginCoin": "USDT", "leverage": str(leverage), "holdSide": "all"},
-            {"symbol": plain_sym, "marginType": "CROSSED", "crossLeverage": leverage},
-            {"symbol": plain_sym, "leverage": leverage},
-        ]
-        paths_to_try = [
-            "/capi/v3/account/leverage",
-            "/capi/v3/position/change-leverage",
-            "/capi/v3/sim/leverage" if self.demo else "/capi/v3/account/leverage",
-        ]
+        def _bodies_for(lev_val: int) -> list:
+            return [
+                {"symbol": order_sym, "marginCoin": "USDT", "leverage": str(lev_val), "holdSide": "all"},
+                {"symbol": order_sym, "marginCoin": "USDT", "leverage": lev_val, "holdSide": "all"},
+                {"symbol": order_sym, "marginCoin": "USDT", "crossLeverage": str(lev_val), "marginType": "CROSSED"},
+                {"symbol": order_sym, "marginType": "CROSSED", "crossLeverage": lev_val},
+                {"symbol": order_sym, "leverage": lev_val, "marginType": "CROSSED"},
+                {"symbol": order_sym, "crossLeverage": lev_val},
+                {"symbol": plain_sym, "marginCoin": "USDT", "leverage": str(lev_val), "holdSide": "all"},
+                {"symbol": plain_sym, "marginType": "CROSSED", "crossLeverage": lev_val},
+                {"symbol": plain_sym, "leverage": lev_val},
+            ]
+
+        paths_to_try = ["/capi/v3/sim/leverage", "/capi/v3/account/leverage", "/capi/v3/position/change-leverage"] if self.demo \
+            else ["/capi/v3/account/leverage", "/capi/v3/position/change-leverage"]
 
         last_error = None
         for path in paths_to_try:
-            for body in bodies_to_try:
+            for body in _bodies_for(target_lev):
                 try:
                     resp = self._request("POST", path, body=body, signed=True)
-                    self._symbol_leverage[symbol] = leverage
+                    self._symbol_leverage[symbol] = target_lev
                     logger.info("WEEX leverage set to %dx for %s (path=%s, body=%s)",
-                                leverage, symbol, path, list(body.keys()))
-                    return {"success": True, "leverage": leverage, "raw": resp}
+                                target_lev, symbol, path, list(body.keys()))
+                    out = {"success": True, "leverage": target_lev, "max_allowed": max_allowed, "raw": resp}
+                    if target_lev != orig_lev:
+                        out["adjusted"] = True
+                        out["original"] = orig_lev
+                    return out
                 except Exception as e:
                     last_error = e
                     err_str = str(e).lower()
                     if "-1044" in err_str or "invalid access_key" in err_str:
                         return {"success": False, "error": str(e)}
+                    # If endpoint understood the body format but rejected the high leverage number,
+                    # step down cleanly on this same path/body-shape.
+                    if any(k in err_str for k in ("leverage", "exceed", "max", "limit", "tier", "bracket")):
+                        for step_lev in (400, 300, 200, 150, 100, 75, 50, 25, 20, 10, 5):
+                            if step_lev >= target_lev:
+                                continue
+                            retry_body = dict(body)
+                            for lk in ("leverage", "crossLeverage"):
+                                if lk in retry_body:
+                                    retry_body[lk] = str(step_lev) if isinstance(retry_body[lk], str) else step_lev
+                            try:
+                                resp = self._request("POST", path, body=retry_body, signed=True)
+                                self._symbol_leverage[symbol] = step_lev
+                                logger.info("WEEX leverage auto-adjusted to %dx for %s (requested %dx)",
+                                            step_lev, symbol, orig_lev)
+                                return {
+                                    "success": True,
+                                    "leverage": step_lev,
+                                    "adjusted": True,
+                                    "original": orig_lev,
+                                    "max_allowed": max_allowed,
+                                    "raw": resp,
+                                }
+                            except Exception as e_step:
+                                last_error = e_step
+                                continue
                     continue
 
-        self._symbol_leverage[symbol] = leverage
+        self._symbol_leverage[symbol] = target_lev
         logger.warning(
-            "WEEX set_leverage could not be set via API for %s: %s. Using exchange default.",
-            symbol, last_error
+            "WEEX set_leverage could not be set via API for %s: %s. Using capped default %dx.",
+            symbol, last_error, target_lev
         )
         return {
             "success": False,
-            "leverage": leverage,
+            "leverage": target_lev,
+            "adjusted": target_lev != orig_lev,
+            "original": orig_lev,
+            "max_allowed": max_allowed,
             "error": str(last_error),
             "raw": "default",
         }

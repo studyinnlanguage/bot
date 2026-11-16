@@ -255,3 +255,79 @@ class TestSmallBalanceAndExchangeFilters:
         assert f["step_size"] == 0.01
         assert f["qty_step"] == 0.01
         assert "min_notional" in f
+
+    def test_high_leverage_caps_200x_500x_1000x_across_exchanges(self, monkeypatch):
+        # 1. Binance: requesting 500x clamps to 125x with adjusted=True, and -4028 drops to 100x cleanly
+        trader, mock_client = _make_binance_trader(monkeypatch, testnet=False)
+
+        def fake_lev(symbol, leverage):
+            if leverage > 100:
+                raise RuntimeError("(-4028, 'Leverage 125 is not valid')")
+            return {"leverage": leverage, "maxNotionalValue": "500000"}
+
+        mock_client.change_initial_leverage.side_effect = fake_lev
+        r_bin = trader.set_leverage("SOLUSDT", 500)
+        assert r_bin["success"] is True
+        assert r_bin["leverage"] == 100
+        assert r_bin["adjusted"] is True
+        assert r_bin["original"] == 500
+        assert trader._symbol_leverage["SOLUSDT"] == 100
+
+        # 2. WEEX: requesting 500x on DOGEUSDT (maxLeverage=200) clamps to 200x BEFORE hitting API,
+        #    and tier-rejection on SOLUSDT (max=300) auto-steps down cleanly
+        wx = WEEXFuturesTrader("k", "s", "p", testnet=False)
+        wx._contract_cache = {
+            "DOGEUSDT": {"step_size": 100, "min_qty": 100, "max_qty": 1e9, "tick_size": 0.00001, "min_notional": 5.0, "max_leverage": 200},
+            "SOLUSDT": {"step_size": 0.1, "min_qty": 0.1, "max_qty": 1e6, "tick_size": 0.01, "min_notional": 5.0, "max_leverage": 300},
+        }
+        wx_sent = []
+
+        def fake_wx_req(method, path, params=None, body=None, signed=False):
+            lev_val = int(body.get("leverage") or body.get("crossLeverage") or 0)
+            sym = body.get("symbol")
+            wx_sent.append((sym, lev_val))
+            if sym == "SOLUSDT" and lev_val > 200:
+                raise RuntimeError("WEEX API error: max leverage limit 200 exceeded")
+            return {"code": "0", "msg": "success"}
+
+        monkeypatch.setattr(wx, "_request", fake_wx_req)
+        r_doge = wx.set_leverage("DOGEUSDT", 500)
+        assert r_doge["success"] is True
+        assert r_doge["leverage"] == 200
+        assert r_doge["adjusted"] is True
+        assert r_doge["original"] == 500
+        assert wx_sent[0] == ("DOGEUSDT", 200)
+
+        r_sol = wx.set_leverage("SOLUSDT", 500)
+        assert r_sol["success"] is True
+        assert r_sol["leverage"] == 200
+        assert r_sol["adjusted"] is True
+        assert wx._symbol_leverage["SOLUSDT"] == 200
+
+        # 3. PrimeXBT: 1000x on Gold allowed; 500x on crypto rejected by tier drops to 200x
+        px = PrimeXBTTrader({"exchange": "primexbt", "api_key": "pxk_123", "api_secret": "hmac_sec", "testnet": False})
+        px.private_key = "hmac_sec"
+        monkeypatch.setattr(
+            px,
+            "get_symbol_filters",
+            lambda sym: {"min_qty": 0.01, "max_qty": 1000.0, "qty_step": 0.01, "step_size": 0.01,
+                         "max_leverage": 1000 if "XAU" in sym else 500},
+        )
+        px_sent = []
+
+        def fake_px_req(method, path, params=None, body=None):
+            px_sent.append((body.get("symbol"), body.get("leverage")))
+            if body.get("symbol") == "SOL/USD" and int(body.get("leverage", 0)) > 200:
+                return {"error": "Maximum leverage limit exceeded"}
+            return {"ok": True}
+
+        monkeypatch.setattr(px, "_request", fake_px_req)
+        r_gold = px.set_leverage("XAU/USD", 1000)
+        assert r_gold["success"] is True and r_gold["leverage"] == 1000
+
+        r_px_sol = px.set_leverage("SOL/USD", 500)
+        assert r_px_sol["success"] is True
+        assert r_px_sol["leverage"] == 200
+        assert r_px_sol["adjusted"] is True
+        assert px._symbol_leverage["SOL/USD"] == 200
+

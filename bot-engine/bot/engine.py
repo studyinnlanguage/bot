@@ -1061,10 +1061,11 @@ class SymbolWorker(threading.Thread):
         tp_pct = 1.0
         tp_mode = "fixed"
 
-        # Determine effective leverage for ROE / logging (sync exchange if changed)
+        # Determine effective leverage for ROE / logging (skip duplicate API call if already confirmed above)
         lev = max(1, int(effective_lev or self._get_effective_leverage(symbol)))
         try:
-            if hasattr(self.engine.trader, "set_leverage"):
+            cached_sym_lev = getattr(self.engine.trader, "_symbol_leverage", {}).get(symbol)
+            if cached_sym_lev != lev and hasattr(self.engine.trader, "set_leverage"):
                 lev_sync = self.engine.trader.set_leverage(symbol, lev)
                 if isinstance(lev_sync, dict) and lev_sync.get("leverage"):
                     lev = max(1, int(lev_sync["leverage"]))
@@ -1530,9 +1531,11 @@ class SymbolWorker(threading.Thread):
                 qty = eff_min_qty
             else:
                 needed_lev = math.ceil(req_notional / margin) if margin > 0 else 0
+                ex_name = str(cfg.get("exchange") or "binance").lower()
+                ex_max_lev = 1000 if ex_name == "primexbt" else (500 if ex_name == "weex" else 125)
                 alt_coins = "/".join([c for c in ("SOL", "XRP", "DOGE", "ADA", "SUI", "BNB") if not self.symbol.startswith(c)][:5])
                 if not bal_ok and balance is not None and balance > 0:
-                    hint_lev = f" Leverage {needed_lev}x+ karein ya" if (0 < needed_lev <= 125 and needed_lev > lev) else ""
+                    hint_lev = f" Leverage {needed_lev}x+ karein ya" if (0 < needed_lev <= ex_max_lev and needed_lev > lev) else ""
                     self._last_size_reason = (
                         f"[{self.symbol}] Free balance ${balance:.2f} kam hai — exchange min ${req_notional:.2f} "
                         f"(qty {eff_min_qty}, ${req_margin:.2f} margin @ {lev}x) ke liye enough margin nahi."
@@ -1540,7 +1543,7 @@ class SymbolWorker(threading.Thread):
                     )
                 else:
                     bal_txt = f" | Bal=${balance:.2f}" if (balance is not None and balance > 0) else ""
-                    hint_lev = f"Leverage {needed_lev}x+ karein, " if (0 < needed_lev <= 125 and needed_lev > lev) else ""
+                    hint_lev = f"Leverage {needed_lev}x+ karein, " if (0 < needed_lev <= ex_max_lev and needed_lev > lev) else ""
                     self._last_size_reason = (
                         f"[{self.symbol}] Exchange min ${req_notional:.2f} (qty {eff_min_qty}, ${req_margin:.2f} margin @ {lev}x) "
                         f"> aapka order ${margin:.2f} (${notional:.2f} notional{bal_txt}). "
@@ -2304,6 +2307,19 @@ class BotEngine:
         lev = config.get("leverage", 10)
         if not symbols:
             return {"success": False, "error": "No symbols added. Please add coins."}
+
+        try:
+            _lev_cfg = int(lev or 10)
+            _sl_cfg = float(config.get("stop_loss_pct", 0.2) or 0.2)
+            if _lev_cfg >= 100 and (_sl_cfg * _lev_cfg) >= 95.0:
+                _safe_sl = max(0.05, round(80.0 / _lev_cfg, 2))
+                self._emit("log", {
+                    "level": "warn",
+                    "msg": (f"⚠️ HIGH LEVERAGE RISK ({_lev_cfg}x): Stop Loss {_sl_cfg:.2f}% = -{_sl_cfg * _lev_cfg:.0f}% ROE — "
+                            f"exchange liquidation SL se pehle hit ho sakti hai! {_lev_cfg}x pe SL <= {_safe_sl:.2f}% ya lower leverage rakhein.")
+                })
+        except Exception:
+            pass
 
         # ===== LEVERAGE RACE CONDITION FIX =====
         # Create a leverage-ready event that workers will wait on BEFORE trading.

@@ -422,9 +422,10 @@ class BinanceFuturesTrader:
 
     def set_leverage(self, symbol: str, leverage: int) -> dict:
         """Set leverage for a symbol (1-125). Auto-adjusts if leverage
-        exceeds the symbol's max allowed leverage (error -4028)."""
+        exceeds Binance's symbol or platform cap (error -4028)."""
         symbol = str(symbol).strip().upper()
-        leverage = max(1, min(125, int(leverage)))
+        orig_lev = max(1, int(leverage))
+        leverage = max(1, min(125, orig_lev))
         try:
             resp = self._call_change_leverage(symbol, leverage)
             actual_lev = leverage
@@ -444,13 +445,17 @@ class BinanceFuturesTrader:
             if max_notional > 0:
                 self._symbol_max_notional[symbol] = max_notional
             logger.info("Leverage set to %dx for %s (maxNotional: %s, resp: %s)", actual_lev, symbol, max_notional, resp)
-            return {"success": True, "leverage": actual_lev, "maxNotionalValue": max_notional, "raw": resp}
+            out = {"success": True, "leverage": actual_lev, "maxNotionalValue": max_notional, "raw": resp}
+            if actual_lev != orig_lev:
+                out["adjusted"] = True
+                out["original"] = orig_lev
+            return out
         except Exception as e:
             msg = str(e)
             # Auto-fix: Leverage too high for this coin → reduce and retry
             if "-4028" in msg or "not valid" in msg.lower():
                 # Try progressively lower leverage
-                for try_lev in [75, 50, 25, 20, 10, 5, 3, 1]:
+                for try_lev in [100, 75, 50, 25, 20, 10, 5, 3, 1]:
                     if try_lev >= leverage:
                         continue
                     try:
@@ -472,13 +477,13 @@ class BinanceFuturesTrader:
                         if max_notional > 0:
                             self._symbol_max_notional[symbol] = max_notional
                         logger.info("Leverage auto-adjusted to %dx for %s (requested %dx, maxNotional: %s)",
-                                    actual_lev, symbol, leverage, max_notional)
+                                    actual_lev, symbol, orig_lev, max_notional)
                         return {"success": True, "leverage": actual_lev, "maxNotionalValue": max_notional, "raw": resp,
-                                "adjusted": True, "original": leverage}
+                                "adjusted": True, "original": orig_lev}
                     except Exception:
                         continue
                 logger.error("Could not set any leverage for %s", symbol)
-                return {"success": False, "error": f"Could not set leverage (tried 1x-{leverage}x): {msg}"}
+                return {"success": False, "error": f"Could not set leverage (tried 1x-{orig_lev}x): {msg}"}
             # Symbol closed/delisted
             if "-4141" in msg or "Symbol is closed" in msg:
                 return {"success": False, "error": f"Symbol {symbol} is delisted/closed. Remove this coin from your list."}
@@ -486,7 +491,11 @@ class BinanceFuturesTrader:
             if "No need to change leverage" in msg or "leverage not changed" in msg.lower() \
                or "-4046" in msg:
                 self._symbol_leverage[symbol] = leverage
-                return {"success": True, "leverage": leverage, "raw": msg}
+                out = {"success": True, "leverage": leverage, "raw": msg}
+                if leverage != orig_lev:
+                    out["adjusted"] = True
+                    out["original"] = orig_lev
+                return out
             logger.error("Failed to set leverage for %s: %s", symbol, e)
             return {"success": False, "error": msg}
 
