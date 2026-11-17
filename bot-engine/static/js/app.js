@@ -1118,13 +1118,15 @@ function updatePositionUI(data) {
     const lev = (hasOpenTrade && rawLev > 1) ? rawLev : (rawLev > 1 && !$('leverage')?.value ? rawLev : cfgLev);
     if ($('posLeverage')) $('posLeverage').textContent = `${lev}x`;
 
-    // Take Profit (+1.0% Target) & Stop Loss (-0.2% SL)
+    // Dynamic Take Profit & Stop Loss readout (supports both Custom Fixed % and Stepped ROE Trailing)
     const trailingEl = $('posTrailingTp');
     const targetRoe = Number(data.target_roe) || 100;
+    const isTrailPos = (data.tp_mode === 'trailing');
 
     if (trailingEl) {
         if (data.side && data.side !== 'NONE' && data.tp_price) {
-            trailingEl.textContent = `$${fmt(data.tp_price)} (+1.0% TP)`;
+            const tpTag = isTrailPos ? `+${targetRoe.toFixed(0)}% ROE (Step ${data.tp_stage || 0})` : `+${targetRoe.toFixed(0)}% ROE TP`;
+            trailingEl.textContent = `$${fmt(data.tp_price)} (${tpTag})`;
             trailingEl.style.color = '#2ecf8a';
         } else {
             trailingEl.textContent = '--';
@@ -1134,8 +1136,13 @@ function updatePositionUI(data) {
     const slEl = $('posCurrentSl');
     if (slEl) {
         if (data.side && data.side !== 'NONE' && data.sl_price) {
-            slEl.textContent = `$${fmt(data.sl_price)} (SL)`;
-            slEl.style.color = '#f6465d';
+            const slNum = Number(data.sl_price);
+            const entNum = Number(data.entry_price || 0);
+            const inProfitLock = entNum > 0 && (
+                (data.side === 'LONG' && slNum > entNum) || (data.side === 'SHORT' && slNum < entNum)
+            );
+            slEl.textContent = `$${fmt(data.sl_price)} (${inProfitLock ? 'PROFIT LOCK' : 'SL'})`;
+            slEl.style.color = inProfitLock ? '#2ecf8a' : '#f6465d';
         } else {
             slEl.textContent = '--';
             slEl.style.color = '#a3a3a3';
@@ -1254,7 +1261,7 @@ function updatePositionUI(data) {
     // Extra engine position fields: TP mode / Target ROE / TP stage
     if ($('posFocusTpMode')) {
         const tm = data.tp_mode || 'fixed';
-        $('posFocusTpMode').textContent = tm === 'fixed' ? 'TP 1.0% / SL 0.2%' : tm.toUpperCase();
+        $('posFocusTpMode').textContent = tm === 'trailing' ? 'STEPPED ROE TRAIL' : 'FIXED + BREAKEVEN';
     }
     if ($('posFocusTargetRoe')) {
         const troe = Number(data.target_roe);
@@ -1275,7 +1282,7 @@ function updatePositionUI(data) {
                     lineStyle: dashed ? 2 : 0, axisLabelVisible: true, title: title,
                 });
                 _posPriceLines.push(mkLine(Number(data.entry_price), '#f0b90b', 'ENTRY', false));
-                if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#2ecf8a', 'TP +1.0%', true));
+                if (data.tp_price) _posPriceLines.push(mkLine(Number(data.tp_price), '#2ecf8a', `TP +${targetRoe.toFixed(0)}% ROE`, true));
                 if (data.sl_price) _posPriceLines.push(mkLine(Number(data.sl_price), '#f6465d', 'SL', true));
             }
         }
@@ -1775,9 +1782,9 @@ async function loadSettings() {
         // Exchange
         const exchange = cfg.exchange || 'binance';
         setExchange(exchange);
-        if ($('timeframe')) $('timeframe').value = cfg.timeframe || '1d';
+        if ($('timeframe')) $('timeframe').value = cfg.timeframe || '15m';
         if ($('leverage')) {
-            const savedLev = cfg.leverage || 10;
+            const savedLev = cfg.leverage || 20;
             $('leverage').value = savedLev;
             if ($('posLeverage') && (!$('posLeverage').textContent || $('posLeverage').textContent === '1x')) {
                 $('posLeverage').textContent = `${savedLev}x`;
@@ -1785,10 +1792,11 @@ async function loadSettings() {
         }
         if ($('amount')) $('amount').value = cfg.amount || 100;
         if ($('amountPct')) $('amountPct').value = cfg.amount_pct || 10;
-        const slVal = cfg.stop_loss_pct ?? 0.2;
+        const slVal = cfg.stop_loss_pct ?? 0.5;
         if ($('stopLossPct')) $('stopLossPct').value = slVal;
-        if ($('takeProfitPct')) $('takeProfitPct').value = cfg.take_profit_pct ?? 1.0;
-        if ($('tpMode')) $('tpMode').value = 'fixed';
+        if ($('takeProfitPct')) $('takeProfitPct').value = cfg.take_profit_pct ?? 1.5;
+        if ($('tpMode')) $('tpMode').value = (cfg.tp_mode === 'trailing') ? 'trailing' : 'fixed';
+        if ($('breakevenLock')) $('breakevenLock').checked = (cfg.breakeven_lock !== false);
         if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
         if ($('reentryCooldownSec')) $('reentryCooldownSec').value = String(cfg.reentry_cooldown_sec ?? 180);
@@ -2066,6 +2074,7 @@ async function saveSettings() {
     }
     const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
     const slParsed = parseFloat($('stopLossPct')?.value);
+    const tpParsed = parseFloat($('takeProfitPct')?.value);
     const spreadParsed = parseFloat($('minEmaSpread')?.value);
     const fwParsed = parseInt($('freshWindow')?.value, 10);
     const cfg = {
@@ -2080,10 +2089,11 @@ async function saveSettings() {
         amount_mode: document.querySelector('.toggle-btn.active')?.dataset.mode || 'fixed',
         amount: parseFloat($('amount').value),
         amount_pct: parseFloat($('amountPct').value),
-        stop_loss_pct: (!isNaN(slParsed) && slParsed >= 0.05) ? slParsed : 0.2,
-        take_profit_pct: 1.0,
+        stop_loss_pct: (!isNaN(slParsed) && slParsed >= 0.05) ? slParsed : 0.5,
+        take_profit_pct: isNaN(tpParsed) ? 1.5 : Math.min(50, Math.max(0.3, tpParsed)),
         trailing_roe_pct: 100,
-        tp_mode: 'fixed',
+        tp_mode: ($('tpMode')?.value === 'trailing') ? 'trailing' : 'fixed',
+        breakeven_lock: $('breakevenLock') ? !!$('breakevenLock').checked : true,
         max_concurrent_trades: parseInt($('maxConcurrentTrades')?.value || 3),
         reentry_cooldown_sec: parseInt($('reentryCooldownSec')?.value || 180),
         mode: $('mode').value,
@@ -2634,8 +2644,11 @@ function attachListeners() {
         }
     }
 
-    // Auto-calculate 1:1 TP from SL + sync automated execution badges
+    // Sync custom SL / TP / Leverage ROE & Risk:Reward previews dynamically
     const slInput = $('stopLossPct');
+    const tpInputEl = $('takeProfitPct');
+    const tpModeEl = $('tpMode');
+    const levInputEl = $('leverage');
     const tfSelect = $('timeframe');
     if (tfSelect) {
         tfSelect.addEventListener('change', () => {
@@ -2645,31 +2658,67 @@ function attachListeners() {
 
     function updateTPModeUI() {
         const rawSl = parseFloat(slInput?.value);
-        const sl = (!isNaN(rawSl) && rawSl >= 0.05) ? rawSl : 0.2;
+        const sl = (!isNaN(rawSl) && rawSl >= 0.05) ? rawSl : 0.5;
+        const rawTp = parseFloat(tpInputEl?.value);
+        const tp = isNaN(rawTp) ? 1.5 : Math.min(50, Math.max(0.3, rawTp));
         const slFmt = Number(sl.toFixed(2)).toString();
-        const lev = parseInt($('leverage')?.value) || 50;
+        const tpFmt = Number(tp.toFixed(2)).toString();
+        const lev = Math.max(1, parseInt(levInputEl?.value) || 20);
         const roeLoss = (sl * lev).toFixed(0);
-        const tpInput = $('takeProfitPct');
-        if (tpInput) {
-            tpInput.value = '1';
-        }
-        if ($('autoTpDisplay')) $('autoTpDisplay').textContent = '1.0';
+        const roeGain = (tp * lev).toFixed(0);
+        const rrRatio = (sl > 0) ? (tp / sl).toFixed(1) : '3.0';
+        const modeVal = (tpModeEl?.value === 'trailing') ? 'trailing' : 'fixed';
+        const modeTag = modeVal === 'trailing' ? 'TRAIL' : 'FIXED';
+
+        if ($('autoTpDisplay')) $('autoTpDisplay').textContent = modeVal === 'trailing' ? 'Trailing: 50%→SL+15%, 100%→SL+50% & TP+150% ROE' : `${tp.toFixed(2)}% (+${roeGain}% ROE, FIXED)`;
         if ($('autoSlDisplay')) $('autoSlDisplay').textContent = `${sl.toFixed(2)}% (-${roeLoss}% ROE @ ${lev}x)`;
-        if ($('badgeSlVal')) $('badgeSlVal').textContent = `SL: ${slFmt}% (-${roeLoss}% ROE)`;
+        if ($('badgeSlVal')) $('badgeSlVal').textContent = modeVal === 'trailing'
+            ? `SL: ${slFmt}% (-${roeLoss}%) | Trail: 50%→+15% SL · 100%→+50% SL / +150% TP`
+            : `SL: ${slFmt}% (-${roeLoss}%) | TP: ${tpFmt}% (+${roeGain}%) | RR 1:${rrRatio}`;
+        if ($('cardTpDisplay')) $('cardTpDisplay').textContent = modeVal === 'trailing' ? '50%→+15% SL · 100%→+50% SL / TP+150% ROE' : `+${tp.toFixed(2)}% FIXED`;
         if ($('cardSlDisplay')) $('cardSlDisplay').textContent = `${sl.toFixed(2)}% (-${roeLoss}% ROE)`;
+        if ($('posTpLabel')) $('posTpLabel').textContent = modeVal === 'trailing' ? 'Take Profit (+150% ROE Ladder)' : `Take Profit (+${tpFmt}% Target)`;
         if ($('posSlLabel')) $('posSlLabel').textContent = `Stop Loss (-${slFmt}% SL / -${roeLoss}% ROE)`;
+        if ($('posFocusTpLabel')) $('posFocusTpLabel').textContent = modeVal === 'trailing' ? 'Take Profit (+150% ROE Ladder)' : `Take Profit (+${tpFmt}% Target)`;
         if ($('posFocusSlLabel')) $('posFocusSlLabel').textContent = `Stop Loss (-${slFmt}% SL / -${roeLoss}% ROE)`;
+        if ($('tableTpHeader')) $('tableTpHeader').textContent = modeVal === 'trailing' ? 'Take Profit (ROE Trail)' : `Take Profit (+${tpFmt}%)`;
         if ($('tableSlHeader')) $('tableSlHeader').textContent = `Stop Loss (-${slFmt}%)`;
-        const tpModeInput = $('tpMode');
-        if (tpModeInput) tpModeInput.value = 'fixed';
+        if ($('posTabTargetLabel')) $('posTabTargetLabel').textContent = modeVal === 'trailing' ? 'Stepped Trailing ROE' : `Target (TP ${tpFmt}% / SL ${slFmt}%)`;
+        if ($('posTabStage')) $('posTabStage').textContent = modeVal === 'trailing' ? '50%→15% / 100%→50%·150%' : `TP ${tpFmt}% / SL ${slFmt}%`;
+
+        const warnEl = $('liqGuardWarning');
+        if (warnEl) {
+            if (lev >= 10 && (sl * lev) >= 85) {
+                const maxSafe = Math.max(0.05, 80 / lev).toFixed(2);
+                warnEl.style.display = 'block';
+                warnEl.textContent = `⚠️ Liquidation Risk: ${lev}x leverage par ${slFmt}% SL = -${roeLoss}% ROE! Save par SL auto-guard hoke max ${maxSafe}% (-80% ROE) par set hoga taake poora margin wipe na ho.`;
+            } else {
+                warnEl.style.display = 'none';
+            }
+        }
     }
 
-    if (slInput) {
-        slInput.addEventListener('input', updateTPModeUI);
-        slInput.dispatchEvent(new Event('input'));
+    function applyRecommendedPreset() {
+        if ($('timeframe')) $('timeframe').value = '15m';
+        if ($('leverage')) $('leverage').value = 20;
+        if ($('stopLossPct')) $('stopLossPct').value = 0.5;
+        if ($('takeProfitPct')) $('takeProfitPct').value = 1.5;
+        if ($('tpMode')) $('tpMode').value = 'trailing';
+        if ($('breakevenLock')) $('breakevenLock').checked = true;
+        if ($('minEmaSpread')) $('minEmaSpread').value = 0.15;
+        if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = '2';
+        updateTPModeUI();
+        if (typeof loadDrawingsForActiveSymbol === 'function') loadDrawingsForActiveSymbol();
+        if (typeof log === 'function') log('info', '⭐ Safe Stepped Trailing Preset applied (20x · 15m · SL 0.5% · 50%→+15% SL · 100%→+50% SL & +150% TP) — SAVE CONFIG dabayein!');
     }
-    // Expose for the config loader to call
+
+    [slInput, tpInputEl, levInputEl].forEach(el => {
+        if (el) el.addEventListener('input', updateTPModeUI);
+    });
+    if (tpModeEl) tpModeEl.addEventListener('change', updateTPModeUI);
+    updateTPModeUI();
     window.updateTPModeUI = updateTPModeUI;
+    window.applyRecommendedPreset = applyRecommendedPreset;
 
     // Exchange toggle
     document.querySelectorAll('.exchange-btn').forEach(btn => {

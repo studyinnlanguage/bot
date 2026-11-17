@@ -21,6 +21,14 @@ from .strategy import EMAQuadStrategy, Signal, StrategyResult
 from .trader import BinanceFuturesTrader
 from .notifier import Notifier
 from .history import TradeHistoryManager
+from .risk_config import (
+    clamp_stop_loss,
+    clamp_take_profit,
+    normalize_breakeven_lock,
+    normalize_timeframe,
+    normalize_tp_mode,
+    price_for_roe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +89,19 @@ class SymbolWorker(threading.Thread):
         #                     (LONG opened at EMA55 BOTTOM -> TP when EMA55 TOP)
         #   'both'         -> whichever triggers FIRST (fixed price OR EMA flip)
         # `entry_signal` remembers the signal that opened the current position
-        self.tp_mode = "fixed"            # strict 1:1 TP & SL with auto-reversal
+        self.tp_mode = normalize_tp_mode(self.config.get("tp_mode", "fixed"))
+        self.tp_pct = clamp_take_profit(self.config.get("take_profit_pct", 1.5))
+        self.breakeven_lock = normalize_breakeven_lock(self.config.get("breakeven_lock"), default=True)
         self.entry_signal = None          # Signal.BUY / Signal.SELL / None
         self.ema_reversal_tp_fired = False  # one-shot guard per position
-        # Trailing TP / Breakeven SL state (True 1:1 margin-scaled target)
-        self.tp_stage = 1                 # 1 = +100% ROE, 2 = +200% ROE, ...
-        self.r_distance = 0.0             # Price distance for target_roe_pct
-        self.target_roe_pct = 100.0       # Default: 100% ROE profit before trailing (1:1 with margin)
+        # Trailing TP / Breakeven SL state
+        self.tp_stage = 1                 # 1 = primary target, 2+ = trailing active
+        self.r_distance = 0.0
+        self.target_roe_pct = 100.0
         self.initial_sl_price = None
+        self.peak_price = None
+        self.trail_active = False
+        self._last_exchange_sl_sync = 0.0
         self._exchange_tp_cleaned = False # Guard to purge rogue fixed TP orders on startup
         # After an EMA-reversal TP, we must re-enter the OPPOSITE side
         # immediately — even if the exchange hasn't cleared the old position
@@ -113,10 +126,11 @@ class SymbolWorker(threading.Thread):
             fresh_window = max(2, min(8, int(self.config.get("fresh_window", 2) or 2)))
         except (TypeError, ValueError):
             fresh_window = 2
-        try:
-            self._last_sl_pct = max(0.05, float(self.config.get("stop_loss_pct", 0.2) or 0.2))
-        except (TypeError, ValueError):
-            self._last_sl_pct = 0.2
+        _sl_init, _, _ = clamp_stop_loss(
+            self.config.get("stop_loss_pct", 0.5),
+            int(self.config.get("leverage", 20) or 20),
+        )
+        self._last_sl_pct = _sl_init
         self.strategy = EMAQuadStrategy(min_spread_pct=min_spread, fresh_window=fresh_window)
         self._startup_seeded = False
         self._reversal_armed_ts = 0.0
@@ -130,7 +144,7 @@ class SymbolWorker(threading.Thread):
         self.state = "starting"
 
     def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
-        """Live-update fresh_window (2–8 candles), min_ema_spread, and stop_loss_pct on running worker."""
+        """Live-update strategy, SL/TP, TP mode, breakeven lock & timeframe on running worker."""
         self.config = cfg
         default_spread = 0.12 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.08
         try:
@@ -142,19 +156,27 @@ class SymbolWorker(threading.Thread):
             new_fw = max(2, min(8, int(cfg.get("fresh_window", 2) or 2)))
         except (TypeError, ValueError):
             new_fw = 2
-        try:
-            new_sl = max(0.05, float(cfg.get("stop_loss_pct", 0.2) or 0.2))
-        except (TypeError, ValueError):
-            new_sl = 0.2
-        prev_sl = getattr(self, "_last_sl_pct", 0.2)
+        new_lev = max(1, int(cfg.get("leverage", 20) or 20))
+        new_sl, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), new_lev)
+        new_tp = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
+        new_mode = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
+        new_be = normalize_breakeven_lock(cfg.get("breakeven_lock"), default=True)
+        prev_sl = getattr(self, "_last_sl_pct", new_sl)
+        prev_tp = getattr(self, "tp_pct", new_tp)
         changed = (
             (self.strategy.fresh_window != new_fw)
             or (abs(self.strategy.min_spread_pct - new_spread) > 1e-6)
             or (abs(prev_sl - new_sl) > 1e-6)
+            or (abs(prev_tp - new_tp) > 1e-6)
+            or (self.tp_mode != new_mode)
+            or (self.breakeven_lock != new_be)
         )
         self.strategy.min_spread_pct = new_spread
         self.strategy.fresh_window = new_fw
         self._last_sl_pct = new_sl
+        self.tp_pct = new_tp
+        self.tp_mode = new_mode
+        self.breakeven_lock = new_be
         return changed, new_fw, new_spread
 
     def _get_effective_leverage(self, symbol: str) -> int:
@@ -172,13 +194,25 @@ class SymbolWorker(threading.Thread):
         return cfg_lev
 
     def _update_exchange_sl(self, side: str, new_sl: float, qty: float):
-        """Update exchange stop loss order to lock in profit or break-even, and cancel any rogue TP orders."""
+        """Update exchange stop loss order (and re-attach fixed TP if active so cancel_open_orders never drops TP)."""
         try:
             trader = self.engine.trader or self.engine.monitor_trader
             if trader and hasattr(trader, "cancel_open_orders") and hasattr(trader, "place_stop_loss"):
                 trader.cancel_open_orders(self.symbol)
                 close_side = "SELL" if side == "LONG" else "BUY"
                 resp = trader.place_stop_loss(self.symbol, close_side, new_sl, qty)
+                should_place_tp = bool(
+                    self.tp_price and self.tp_price > 0 and (
+                        self.tp_mode == "fixed"
+                        or (self.tp_mode == "trailing" and int(getattr(self, "tp_stage", 0) or 0) >= 2)
+                    )
+                )
+                if should_place_tp and hasattr(trader, "place_take_profit"):
+                    try:
+                        trader.place_take_profit(self.symbol, close_side, self.tp_price, qty)
+                    except Exception:
+                        pass
+                self._last_exchange_sl_sync = time.time()
                 logger.info(f"[{self.symbol}] Exchange SL updated to {new_sl} ({close_side} {qty}): {resp}")
         except Exception as e:
             logger.warning(f"[{self.symbol}] Exchange SL sync notice: {e} (software watchdog remains active)")
@@ -285,7 +319,8 @@ class SymbolWorker(threading.Thread):
                     "level": "error",
                     "msg": f"[{self.symbol}] tick error: {str(e)[:100]}"
                 })
-            for _ in range(poll_seconds):
+            cur_poll = BotEngine._poll_seconds(self.config.get("timeframe", "15m"))
+            for _ in range(cur_poll):
                 if self.stop_event.is_set() or not self.engine.is_running:
                     break
                 time.sleep(1)
@@ -454,6 +489,9 @@ class SymbolWorker(threading.Thread):
                 sl_fmt = f"{self.sl_price:.4f}" if self.sl_price else "0.0"
                 tp_fmt = f"{self.tp_price:.4f}" if self.tp_price else "0.0"
                 entry_val = self.entry_price or pos.entry_price or 0.0
+                _sl_m, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), int(cfg.get("leverage", 20) or 20))
+                _tp_m = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
+                _mode_m = normalize_tp_mode(cfg.get("tp_mode", "fixed")).upper()
                 self.engine._emit("log", {
                     "level": "info",
                     "msg": (f"[{symbol}] 📊 Position monitor | "
@@ -461,7 +499,7 @@ class SymbolWorker(threading.Thread):
                             f"Current signal={cur_sig_str} | "
                             f"Mark={pos.mark_price:.4f} Entry={entry_val:.4f} | "
                             f"SL={sl_fmt} TP={tp_fmt} | "
-                            f"TP 1.0% / SL 0.2% & Auto-Reversal Active")
+                            f"TP {_tp_m:.2f}% ({_mode_m}) / SL {_sl_m:.2f}% & Auto-Reversal Active")
                 })
 
             sl_hit, tp_hit, reason = self._check_software_sl_tp(pos, result)
@@ -539,6 +577,8 @@ class SymbolWorker(threading.Thread):
                     self.expected_pos_side = None
                     self.be_sl_set = False
                     self.partial_tp_done = False
+                    self.trail_active = False
+                    self.peak_price = None
                     self.tp_stage = 1
                     self.r_distance = 0.0
                     self.initial_sl_price = None
@@ -745,14 +785,16 @@ class SymbolWorker(threading.Thread):
             needs_init = (self.sl_price is None or self.tp_price is None)
 
             if entry > 0 and needs_init:
-                sl_pct_val = float(cfg.get("stop_loss_pct", 0.2))
-                tp_pct_val = 1.0
+                _pos_lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
+                sl_pct_val, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), int(_pos_lev or 20))
+                tp_pct_val = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
+                tp_mode_val = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
                 inferred_entry_signal = Signal.BUY if actual_side == "LONG" else Signal.SELL
                 self._set_software_sl_tp(
                     symbol, actual_side, entry, sl_pct_val, tp_pct_val,
-                    tp_mode="fixed",
+                    tp_mode=tp_mode_val,
                     entry_signal=inferred_entry_signal,
-                    actual_leverage=pos.leverage,
+                    actual_leverage=_pos_lev,
                 )
                 # Auto-register in trade history if not already open
                 if not self.engine.history.has_open_trade(symbol) and abs(pos.size) > 0:
@@ -765,23 +807,16 @@ class SymbolWorker(threading.Thread):
                             qty=abs(pos.size),
                             leverage=lev,
                             initial_sl=self.sl_price,
-                            initial_tp=self.tp_price,
+                            initial_tp=self.tp_price if tp_mode_val == "fixed" else None,
                         )
                     except Exception as he:
                         logger.error("Failed to auto-register restored trade in history: %s", he)
 
-                # Purge any legacy/stale TP orders on exchange & sync SL + 1.0% TP
+                # Sync SL (+ fixed TP automatically via _update_exchange_sl when tp_mode=='fixed')
                 if self.sl_price and self.sl_price > 0:
                     self._update_exchange_sl(actual_side, self.sl_price, abs(pos.size))
-                    try:
-                        trader = self.engine.trader or self.engine.monitor_trader
-                        if trader and hasattr(trader, "place_take_profit") and self.tp_price and self.tp_price > 0:
-                            close_side = "SELL" if actual_side == "LONG" else "BUY"
-                            trader.place_take_profit(symbol, close_side, self.tp_price, abs(pos.size))
-                    except Exception:
-                        pass
                 self._exchange_tp_cleaned = True
-                tp_log = f"TP=+1.0% (+{self.target_roe_pct:.0f}% ROE target=${self.tp_price:.4f})"
+                tp_log = f"TP=+{tp_pct_val:.2f}% ({tp_mode_val.upper()} / +{self.target_roe_pct:.0f}% ROE target=${self.tp_price:.4f})"
                 self.engine._emit("log", {
                     "level": "warn",
                     "msg": (f"[{symbol}] ⚠️ AUTO-RESTORED SL/TP for {actual_side} position | "
@@ -1048,20 +1083,10 @@ class SymbolWorker(threading.Thread):
         #                      (software-only — no exchange TP order)
         #   - 'both'         : both active, whichever triggers first
         # ===================================================================
-        STRICT_SL_MIN = 0.05
-        # SL default 0.2%, TP strictly locked at 1.0% (5:1 RR — never 0.2% 1:1)
-        sl_pct = cfg.get("stop_loss_pct", 0.2)
-        try:
-            sl_pct = float(sl_pct)
-        except (TypeError, ValueError):
-            sl_pct = 0.2
-        if sl_pct < STRICT_SL_MIN:
-            sl_pct = 0.2
-
-        tp_pct = 1.0
-        tp_mode = "fixed"
-
-        # Determine effective leverage for ROE / logging (skip duplicate API call if already confirmed above)
+        # ===================================================================
+        # Configurable SL & TP (fee-safe minimum TP 0.30%, liquidation SL guard)
+        # ===================================================================
+        # Determine effective leverage BEFORE clamping SL so high-leverage liquidation guard has true lev
         lev = max(1, int(effective_lev or self._get_effective_leverage(symbol)))
         try:
             cached_sym_lev = getattr(self.engine.trader, "_symbol_leverage", {}).get(symbol)
@@ -1072,7 +1097,15 @@ class SymbolWorker(threading.Thread):
         except Exception:
             pass
 
-        # SL 0.2% and TP 1.0%
+        sl_pct, sl_clamped, max_safe_sl = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), lev)
+        if sl_clamped:
+            self.engine._emit("log", {
+                "level": "warn",
+                "msg": f"[{symbol}] 🛡️ Liquidation SL guard: SL @ {lev}x clamped to {sl_pct:.2f}% (-{sl_pct * lev:.0f}% ROE)"
+            })
+        tp_pct = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
+        tp_mode = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
+
         sl_dist = mark_price * (sl_pct / 100.0)
         tp_dist = mark_price * (tp_pct / 100.0)
         r_dist = tp_dist
@@ -1080,7 +1113,7 @@ class SymbolWorker(threading.Thread):
 
         # Helper: build a short label string for log messages
         def _tp_log_label():
-            return f"TP={tp_pct:.1f}% (+{target_roe_val:.0f}% ROE) | SL={sl_pct:.2f}% (-{sl_pct * lev:.1f}% ROE)"
+            return f"TP={tp_pct:.2f}% ({tp_mode.upper()} +{target_roe_val:.0f}% ROE) | SL={sl_pct:.2f}% (-{sl_pct * lev:.1f}% ROE)"
 
         # Fee safety check: TP distance must be >= MIN_FEE_BUFFER_PCT (0.15% price move)
         # to ensure profit is greater than 2x taker fees + slippage (~0.15%)
@@ -1281,23 +1314,11 @@ class SymbolWorker(threading.Thread):
         return fallback
 
     def _set_software_sl_tp(self, symbol: str, side: str, entry_price: float,
-                            sl_pct: float = 0.2, tp_pct: float = 1.0,
+                            sl_pct: float = 0.5, tp_pct: float = 1.5,
                             tp_mode: str = "fixed",
                             entry_signal: Optional[Signal] = None,
                             actual_leverage: Optional[int] = None):
-        """Set SL/TP prices in memory (software watchdog).
-
-        Parameters
-        ----------
-        sl_pct, tp_pct : float
-            Percentages for SL (0.2%) and fixed-TP (1.0%).
-        tp_mode : str
-            'trailing' | 'fixed' | 'ema_reversal' | 'both'.
-        entry_signal : Signal | None
-            The strategy signal (BUY/SELL) that opened this position.
-        actual_leverage : int | None
-            Explicit leverage override if known.
-        """
+        """Set SL/TP prices in memory (software watchdog)."""
         if entry_price <= 0:
             self.engine._emit("log", {
                 "level": "error",
@@ -1305,42 +1326,49 @@ class SymbolWorker(threading.Thread):
             })
             return
 
-        # Normalize + persist tp_mode for this position
-        tp_mode = (tp_mode or "fixed").lower()
-        if tp_mode not in ("fixed", "trailing", "ema_reversal"):
-            tp_mode = "fixed"
+        # Effective leverage from position/exchange or override or config
+        lev = actual_leverage if (actual_leverage and actual_leverage > 1) else self._get_effective_leverage(symbol)
+        lev = max(1, int(lev or 1))
+
+        sl_pct, _, _ = clamp_stop_loss(sl_pct, lev)
+        tp_pct = clamp_take_profit(tp_pct)
+        tp_mode = normalize_tp_mode(tp_mode)
         self.tp_mode = tp_mode
+        self.tp_pct = tp_pct
         self.entry_signal = entry_signal
         self.ema_reversal_tp_fired = False  # reset one-shot guard
         self.be_sl_set = False
         self.partial_tp_done = False
-        self.tp_stage = 1
+        self.trail_active = False
+        self.peak_price = entry_price
+        self._last_exchange_sl_sync = 0.0
 
-        # Effective leverage from position/exchange or override or config
-        lev = actual_leverage if (actual_leverage and actual_leverage > 1) else self._get_effective_leverage(symbol)
-        lev = max(1, lev)
-        
-        # Calculate SL (0.2%) and TP (1.0%) price distance
         sl_dist = entry_price * (sl_pct / 100.0)
         tp_dist = entry_price * (tp_pct / 100.0)
 
-        self.target_roe_pct = tp_pct * lev
-        self.r_distance = tp_dist
-
-        # Set SL and TP prices
         if side == "LONG":
             self.sl_price = entry_price - sl_dist
-            self.tp_price = entry_price + tp_dist
             self.initial_sl_price = self.sl_price
         else:  # SHORT
             self.sl_price = entry_price + sl_dist
-            self.tp_price = entry_price - tp_dist
             self.initial_sl_price = self.sl_price
+
+        if tp_mode == "trailing":
+            self.tp_stage = 0
+            self.target_roe_pct = 100.0
+            self.tp_price = price_for_roe(entry_price, side, lev, 100.0)
+            self.r_distance = abs(self.tp_price - entry_price)
+            tp_desc = f"Trailing Ladder (50%→SL+15%, 100%→SL+50% & TP+150%, Next={self.tp_price:.4f} 🎯)"
+        else:
+            self.tp_stage = 1
+            self.target_roe_pct = tp_pct * lev
+            self.r_distance = tp_dist
+            self.tp_price = (entry_price + tp_dist) if side == "LONG" else (entry_price - tp_dist)
+            tp_desc = f"TP={self.tp_price:.4f} (+{tp_pct:.2f}% Target / +{self.target_roe_pct:.0f}% ROE 🎯)"
 
         self.entry_price = entry_price
         self.position_side = side
 
-        tp_desc = f"TP={self.tp_price:.4f} (+{tp_pct:.1f}% Target / +{self.target_roe_pct:.0f}% ROE 🎯)"
         sl_info = f"SL={self.sl_price:.4f} (-{sl_pct:.2f}% Stop / -{sl_pct * lev:.1f}% ROE 🛡️)"
 
         self.engine._emit("log", {
@@ -1352,24 +1380,13 @@ class SymbolWorker(threading.Thread):
         })
 
     def _check_software_sl_tp(self, pos, result) -> tuple:
-        """Check if software SL or TP has been hit.
-
-        Parameters
-        ----------
-        pos : Position
-            Current exchange position (has .side, .mark_price, .entry_price).
-        result : StrategyResult
-            Latest strategy result.
-
-        Returns
-        -------
-        (sl_hit: bool, tp_hit: bool, reason: str)
-        """
+        """Check software SL, Stepped ROE Trailing (50%->+15% SL, 100%->+50% SL & +150% TP), Breakeven, Fixed TP, and EMA55 reversal."""
         if self.sl_price is None:
             return (False, False, "")
 
         mark = pos.mark_price
         side = pos.side
+        entry = self.entry_price or pos.entry_price or 0.0
 
         # CRITICAL: If mark_price is 0 or invalid, skip SL/TP check
         if mark is None or mark <= 0:
@@ -1377,48 +1394,122 @@ class SymbolWorker(threading.Thread):
 
         lev = pos.leverage if (pos and pos.leverage and pos.leverage > 1) else self._get_effective_leverage(self.symbol)
         if side == "LONG":
-            price_pnl_pct = (mark - self.entry_price) / self.entry_price * 100 if self.entry_price > 0 else 0
+            price_pnl_pct = (mark - entry) / entry * 100.0 if entry > 0 else 0.0
         else:
-            price_pnl_pct = (self.entry_price - mark) / self.entry_price * 100 if self.entry_price > 0 else 0
+            price_pnl_pct = (entry - mark) / entry * 100.0 if entry > 0 else 0.0
         cur_roe = price_pnl_pct * lev
 
-        # ---------- 1) STOP-LOSS CHECK (Capital Protection - ALWAYS FIRST) ----------
-        sl_hit = False
-        if side == "LONG" and mark <= self.sl_price:
-            sl_hit = True
-        elif side == "SHORT" and mark >= self.sl_price:
-            sl_hit = True
-
+        # ---------- 1) STOP-LOSS / LOCKED PROFIT CHECK (ALWAYS FIRST) ----------
+        sl_hit = (side == "LONG" and mark <= self.sl_price) or (side == "SHORT" and mark >= self.sl_price)
         if sl_hit:
-            reason = f"⚡ STOP LOSS HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)"
-            return (True, False, reason)
+            cur_stage = int(getattr(self, "tp_stage", 0) or 0)
+            if getattr(self, "trail_active", False) and price_pnl_pct > 0.05:
+                if cur_stage >= 2:
+                    return (
+                        False, True,
+                        f"🎯 TRAILING STEP 2 SL HIT (+50% ROE Locked, price {mark:.4f}, SL {self.sl_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)"
+                    )
+                return (
+                    False, True,
+                    f"🔒 TRAILING STEP 1 SL HIT (+15% ROE Fees-Saved Lock, price {mark:.4f}, SL {self.sl_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)"
+                )
+            if self.be_sl_set and entry > 0 and (
+                (side == "LONG" and self.sl_price >= entry) or (side == "SHORT" and self.sl_price <= entry)
+            ):
+                return (
+                    False, True,
+                    f"🔒 BREAKEVEN LOCK HIT (price {mark:.4f}, BE SL {self.sl_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)"
+                )
+            return (True, False,
+                    f"⚡ STOP LOSS HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)")
 
-        # ---------- 2) EMA-REVERSAL / FLIP CHECK (Auto-Reversal Active) ----------
-        # If position is open (e.g. LONG) and a confirmed OPPOSITE signal (SELL) occurs:
-        # Immediately exit trade and flip to the opposite side!
+        tp_pct_eff = clamp_take_profit(self.config.get("take_profit_pct", getattr(self, "tp_pct", 1.5)))
+        mode_eff = normalize_tp_mode(self.config.get("tp_mode", self.tp_mode))
+        be_enabled = normalize_breakeven_lock(self.config.get("breakeven_lock"), default=True)
+
+        # ---------- 2) FIXED MODE: BREAKEVEN LOCK + FIXED TAKE-PROFIT ----------
+        if mode_eff == "fixed":
+            if be_enabled and not self.be_sl_set and entry > 0:
+                be_trigger_pct = max(0.35, min(tp_pct_eff * 0.55, 1.5))
+                if price_pnl_pct >= be_trigger_pct:
+                    be_sl = entry * 1.0015 if side == "LONG" else entry * 0.9985
+                    should_tighten = (side == "LONG" and be_sl > self.sl_price) or (side == "SHORT" and be_sl < self.sl_price)
+                    if should_tighten:
+                        self.sl_price = be_sl
+                        self.be_sl_set = True
+                        self._update_exchange_sl(side, be_sl, abs(pos.size))
+                        self.engine._emit("log", {
+                            "level": "success",
+                            "msg": f"[{self.symbol}] 🔒 BREAKEVEN LOCK (+{price_pnl_pct:.2f}% / +{cur_roe:.0f}% ROE) -> SL moved to {be_sl:.4f} (fees covered)"
+                        })
+
+            if self.tp_price is not None:
+                if (side == "LONG" and mark >= self.tp_price) or (side == "SHORT" and mark <= self.tp_price):
+                    return (False, True,
+                            f"🎯 TAKE PROFIT HIT (price {mark:.4f} vs TP {self.tp_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+
+        # ---------- 3) STEPPED ROE TRAILING LADDER (50%->SL+15%, 100%->SL+50% & TP+150%) ----------
+        if mode_eff == "trailing" and entry > 0:
+            self.peak_price = max(float(self.peak_price or mark), mark) if side == "LONG" else min(float(self.peak_price or mark), mark)
+            cur_stage = int(getattr(self, "tp_stage", 0) or 0)
+            sync_exchange = False
+
+            # Step 1: +50% ROE -> SL locks at +15% ROE (or >=0.25% price on 100x+ so fees always stay covered)
+            if cur_stage < 1 and cur_roe >= 50.0:
+                lock1_roe = max(15.0, 0.25 * lev)
+                cand_sl1 = price_for_roe(entry, side, lev, lock1_roe)
+                if (side == "LONG" and cand_sl1 > self.sl_price) or (side == "SHORT" and (cand_sl1 < self.sl_price or self.sl_price <= 0)):
+                    self.sl_price = cand_sl1
+                self.tp_stage = 1
+                self.trail_active = True
+                self.be_sl_set = True
+                self.target_roe_pct = 100.0
+                self.tp_price = price_for_roe(entry, side, lev, 100.0)
+                cur_stage = 1
+                sync_exchange = True
+                self.engine._emit("log", {
+                    "level": "success",
+                    "msg": f"[{self.symbol}] 🔒 TRAILING STEP 1 (+{cur_roe:.1f}% >= +50% ROE) -> SL locked at +{lock1_roe:.1f}% ROE ({self.sl_price:.4f}) (fees saved!)"
+                })
+
+            # Step 2: +100% ROE -> SL locks at +50% ROE & TP sets to +150% ROE
+            if cur_stage < 2 and cur_roe >= 100.0:
+                lock2_roe = max(50.0, 0.40 * lev)
+                cand_sl2 = price_for_roe(entry, side, lev, lock2_roe)
+                if (side == "LONG" and cand_sl2 > self.sl_price) or (side == "SHORT" and (cand_sl2 < self.sl_price or self.sl_price <= 0)):
+                    self.sl_price = cand_sl2
+                self.tp_price = price_for_roe(entry, side, lev, 150.0)
+                self.tp_stage = 2
+                self.trail_active = True
+                self.be_sl_set = True
+                self.target_roe_pct = 150.0
+                cur_stage = 2
+                sync_exchange = True
+                self.engine._emit("log", {
+                    "level": "success",
+                    "msg": f"[{self.symbol}] 🚀 TRAILING STEP 2 (+{cur_roe:.1f}% >= +100% ROE) -> SL moved to +{lock2_roe:.1f}% ROE ({self.sl_price:.4f}) & TP set to +150% ROE ({self.tp_price:.4f})!"
+                })
+
+            if sync_exchange:
+                self._update_exchange_sl(side, self.sl_price, abs(pos.size))
+
+            # Take Profit hit at Stage 2 (+150% ROE target)
+            if cur_stage >= 2 and self.tp_price is not None:
+                if (side == "LONG" and mark >= self.tp_price) or (side == "SHORT" and mark <= self.tp_price):
+                    return (False, True,
+                            f"🎯 TRAILING TP HIT (+150% ROE Target, price {mark:.4f} vs TP {self.tp_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+
+        # ---------- 4) EMA-REVERSAL / FLIP CHECK (Auto-Reversal Active) ----------
         if not self.ema_reversal_tp_fired and result is not None and self.entry_signal is not None:
             cur_sig = result.signal
             if side == "LONG" and self.entry_signal == Signal.BUY and cur_sig == Signal.SELL:
-                pnl_pct = (mark - self.entry_price) / self.entry_price * 100 if self.entry_price > 0 else 0
                 self.ema_reversal_tp_fired = True  # one-shot
                 return (False, True,
-                        f"⚡ EMA55-REVERSAL (LONG->EMA55 now TOP, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+                        f"⚡ EMA55-REVERSAL (LONG->EMA55 now TOP, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
             if side == "SHORT" and self.entry_signal == Signal.SELL and cur_sig == Signal.BUY:
-                pnl_pct = (self.entry_price - mark) / self.entry_price * 100 if self.entry_price > 0 else 0
                 self.ema_reversal_tp_fired = True  # one-shot
                 return (False, True,
-                        f"⚡ EMA55-REVERSAL (SHORT->EMA55 now BOTTOM, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
-
-        # ---------- 3) TAKE-PROFIT CHECK (+1.0% Target) ----------
-        if self.tp_price is not None:
-            if side == "LONG" and mark >= self.tp_price:
-                pnl_pct = (mark - self.entry_price) / self.entry_price * 100 if self.entry_price > 0 else 0
-                return (False, True,
-                        f"🎯 TAKE PROFIT HIT (price {mark:.4f} >= TP {self.tp_price:.4f}, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
-            elif side == "SHORT" and mark <= self.tp_price:
-                pnl_pct = (self.entry_price - mark) / self.entry_price * 100 if self.entry_price > 0 else 0
-                return (False, True,
-                        f"🎯 TAKE PROFIT HIT (price {mark:.4f} <= TP {self.tp_price:.4f}, PnL={pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
+                        f"⚡ EMA55-REVERSAL (SHORT->EMA55 now BOTTOM, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
 
         return (False, False, "")
 
@@ -2442,10 +2533,11 @@ class BotEngine:
                     w.start()
 
         self._emit("status", {"running": True, "message": "Bot started"})
-        sl_pct_val = config.get("stop_loss_pct", 0.2)
-        tp_pct_val = 1.0
-        sl_info = f"SL={sl_pct_val}%"
-        tp_info = f"TP={tp_pct_val}% + AUTO-REVERSAL"
+        sl_pct_val, _, _ = clamp_stop_loss(config.get("stop_loss_pct", 0.5), int(lev or 20))
+        tp_pct_val = clamp_take_profit(config.get("take_profit_pct", 1.5))
+        tp_mode_val = normalize_tp_mode(config.get("tp_mode", "fixed")).upper()
+        sl_info = f"SL={sl_pct_val:.2f}%"
+        tp_info = f"TP={tp_pct_val:.2f}% ({tp_mode_val}) + AUTO-REVERSAL"
         exchange = (config.get("exchange") or "binance").upper()
         env_label = "DEMO" if exchange == "WEEX" and config.get("testnet") else \
                     ("TESTNET" if config.get("testnet") else "MAINNET")
@@ -2501,11 +2593,14 @@ class BotEngine:
                         any_tuning_changed = True
                         applied_fw = new_fw
             if any_tuning_changed and applied_fw is not None:
-                spread_lbl = f"{float(new_config.get('min_ema_spread', 0))}%" if float(new_config.get('min_ema_spread', 0) or 0) > 0 else "Auto (0.03%/0.05%)"
-                sl_lbl = float(new_config.get("stop_loss_pct", 0.2) or 0.2)
+                spread_lbl = f"{float(new_config.get('min_ema_spread', 0))}%" if float(new_config.get('min_ema_spread', 0) or 0) > 0 else "Auto (0.08%/0.12%)"
+                _lev_s = int(new_config.get("leverage", 20) or 20)
+                sl_lbl, _, _ = clamp_stop_loss(new_config.get("stop_loss_pct", 0.5), _lev_s)
+                tp_lbl = clamp_take_profit(new_config.get("take_profit_pct", 1.5))
+                mode_lbl = normalize_tp_mode(new_config.get("tp_mode", "fixed")).upper()
                 self._emit("log", {
                     "level": "success",
-                    "msg": f"⚙️ Settings live-updated on active workers: Candles = {applied_fw} (2–8), Stop Loss = {sl_lbl:.2f}%, Min EMA Spread = {spread_lbl} | Take Profit = 1.0%"
+                    "msg": f"⚙️ Settings live-updated on active workers: Candles = {applied_fw} (2–8), Stop Loss = {sl_lbl:.2f}%, Take Profit = {tp_lbl:.2f}% ({mode_lbl}), Min EMA Spread = {spread_lbl}"
                 })
 
         if new_symbols and self.active_symbol not in new_symbols:
@@ -2727,9 +2822,10 @@ class BotEngine:
             "amount_mode": self.config.get("amount_mode", "fixed"),
             "amount": self.config.get("amount"),
             "amount_pct": self.config.get("amount_pct", 10),
-            "stop_loss_pct": self.config.get("stop_loss_pct", 0.2),
-            "take_profit_pct": 1.0,
-            "tp_mode": self.config.get("tp_mode", "fixed"),
+            "stop_loss_pct": self.config.get("stop_loss_pct", 0.5),
+            "take_profit_pct": clamp_take_profit(self.config.get("take_profit_pct", 1.5)),
+            "tp_mode": normalize_tp_mode(self.config.get("tp_mode", "fixed")),
+            "breakeven_lock": normalize_breakeven_lock(self.config.get("breakeven_lock"), default=True),
             "mode": self.config.get("mode", "both"),
             "testnet": self.config.get("testnet", True),
             "live_confirmed": bool(self.config.get("live_confirmed", False)),

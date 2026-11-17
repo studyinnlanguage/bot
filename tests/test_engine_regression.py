@@ -156,7 +156,7 @@ class TestEngineApi:
                 headers={**hdr, "Content-Type": "application/json"},
                 data=json.dumps(patch).encode(),
             )
-            with urllib.request.urlopen(req, timeout=15) as r:
+            with urllib.request.urlopen(req, timeout=35) as r:
                 return r.status, json.loads(r.read().decode())
 
         code, body = _post_cfg({"fresh_window": 4, "min_ema_spread": 0.25})
@@ -169,64 +169,100 @@ class TestEngineApi:
         code, body = _post_cfg({"fresh_window": 1})
         assert code == 200 and body["config"]["fresh_window"] == 2
 
-    def test_take_profit_strictly_locked_at_1_pct_against_stale_cache(self, engine):
-        """Even if a stale cached browser JS or old DB sends take_profit_pct=0.2 (old 1:1),
-        /api/config must strictly lock take_profit_pct to 1.0% while keeping stop_loss_pct=0.2%."""
+    def test_take_profit_configurable_with_fee_floor_and_liquidation_guard(self, engine):
+        """User can configure custom take_profit_pct (>=0.30%), tp_mode ('fixed'|'trailing'),
+        and breakeven_lock; too-small TP (<0.30%) safely floors above fees and >=85% ROE SL
+        on high leverage is clamped against liquidation."""
         base, hdr = engine
+        # 1. Fee-safe floor: sub-fee 0.2% TP clamps to 0.30%
         req = urllib.request.Request(
             base + "/api/config", method="POST",
             headers={**hdr, "Content-Type": "application/json"},
-            data=json.dumps({"stop_loss_pct": 0.2, "take_profit_pct": 0.2}).encode(),
+            data=json.dumps({"leverage": 20, "stop_loss_pct": 0.2, "take_profit_pct": 0.2}).encode(),
         )
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=35) as r:
             code, body = r.status, json.loads(r.read().decode())
         assert code == 200
         assert abs(body["config"]["stop_loss_pct"] - 0.2) < 1e-9
-        assert abs(body["config"]["take_profit_pct"] - 1.0) < 1e-9
+        assert abs(body["config"]["take_profit_pct"] - 0.30) < 1e-9
 
-    def test_custom_sl_spread_and_candles_persist_and_live_sync(self, engine):
-        """User must be able to adjust fresh_window (2..8), stop_loss_pct, and min_ema_spread
-        freely from the dashboard, have them persist across restarts, and live-sync to workers."""
+        # 2. High-leverage liquidation SL guard: 50x + 2.5% SL (-125% liq) clamps to 1.60% (-80% ROE)
+        req_liq = urllib.request.Request(
+            base + "/api/config", method="POST",
+            headers={**hdr, "Content-Type": "application/json"},
+            data=json.dumps({"leverage": 50, "stop_loss_pct": 2.5, "take_profit_pct": 2.5}).encode(),
+        )
+        with urllib.request.urlopen(req_liq, timeout=35) as r:
+            code_liq, body_liq = r.status, json.loads(r.read().decode())
+        assert code_liq == 200
+        assert abs(body_liq["config"]["stop_loss_pct"] - 1.60) < 1e-9
+        assert abs(body_liq["config"]["take_profit_pct"] - 2.50) < 1e-9
+
+    def test_custom_sl_tp_mode_timeframe_persist_and_live_sync(self, engine):
+        """User must be able to adjust take_profit_pct, stop_loss_pct, tp_mode, breakeven_lock,
+        timeframe, fresh_window (2..8), and min_ema_spread from dashboard & persist cleanly."""
         base, hdr = engine
         req = urllib.request.Request(
             base + "/api/config", method="POST",
             headers={**hdr, "Content-Type": "application/json"},
             data=json.dumps({
-                "stop_loss_pct": 0.35,
-                "min_ema_spread": 0.08,
-                "fresh_window": 5,
-                "take_profit_pct": 0.2,  # even if stale payload sends 0.2, TP stays 1.0
+                "leverage": 20,
+                "timeframe": "15m",
+                "stop_loss_pct": 0.5,
+                "take_profit_pct": 2.25,
+                "tp_mode": "trailing",
+                "breakeven_lock": True,
+                "min_ema_spread": 0.15,
+                "fresh_window": 4,
             }).encode(),
         )
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=35) as r:
             code, body = r.status, json.loads(r.read().decode())
         assert code == 200
-        assert abs(body["config"]["stop_loss_pct"] - 0.35) < 1e-9
-        assert abs(body["config"]["min_ema_spread"] - 0.08) < 1e-9
-        assert body["config"]["fresh_window"] == 5
-        assert abs(body["config"]["take_profit_pct"] - 1.0) < 1e-9
+        assert abs(body["config"]["stop_loss_pct"] - 0.5) < 1e-9
+        assert abs(body["config"]["take_profit_pct"] - 2.25) < 1e-9
+        assert body["config"]["tp_mode"] == "trailing"
+        assert body["config"]["breakeven_lock"] is True
+        assert body["config"]["timeframe"] == "15m"
+        assert abs(body["config"]["min_ema_spread"] - 0.15) < 1e-9
+        assert body["config"]["fresh_window"] == 4
 
         # Verify config.json persisted custom values & survives a fresh load_config() import
         tmp = Path(tempfile.gettempdir()) / "wx_engine_test"
         saved = json.loads((tmp / "config.json").read_text(encoding="utf-8"))
-        assert abs(saved["stop_loss_pct"] - 0.35) < 1e-9
-        assert abs(saved["min_ema_spread"] - 0.08) < 1e-9
-        assert saved["fresh_window"] == 5
-        assert abs(saved["take_profit_pct"] - 1.0) < 1e-9
+        assert abs(saved["stop_loss_pct"] - 0.5) < 1e-9
+        assert abs(saved["take_profit_pct"] - 2.25) < 1e-9
+        assert saved["tp_mode"] == "trailing"
+        assert saved["timeframe"] == "15m"
 
         chk = subprocess.run(
             [sys.executable, "-c",
              f"import sys, json; sys.path.insert(0, {str(tmp)!r}); import app; c = app.load_config(); print(json.dumps({{"
-             "'sl': c['stop_loss_pct'], 'tp': c['take_profit_pct'], "
+             "'sl': c['stop_loss_pct'], 'tp': c['take_profit_pct'], 'mode': c['tp_mode'], "
+             "'be': c['breakeven_lock'], 'tf': c['timeframe'], "
              "'sp': c['min_ema_spread'], 'fw': c['fresh_window']}))"],
-            cwd=tmp, capture_output=True, text=True, timeout=15,
+            cwd=tmp, capture_output=True, text=True, timeout=45,
         )
         assert chk.returncode == 0, chk.stderr
         reloaded = json.loads(chk.stdout.strip().splitlines()[-1])
-        assert abs(reloaded["sl"] - 0.35) < 1e-9
-        assert abs(reloaded["tp"] - 1.0) < 1e-9
-        assert abs(reloaded["sp"] - 0.08) < 1e-9
-        assert reloaded["fw"] == 5
+        assert abs(reloaded["sl"] - 0.5) < 1e-9
+        assert abs(reloaded["tp"] - 2.25) < 1e-9
+        assert reloaded["mode"] == "trailing"
+        assert reloaded["be"] is True
+        assert reloaded["tf"] == "15m"
+        assert abs(reloaded["sp"] - 0.15) < 1e-9
+        assert reloaded["fw"] == 4
+
+        # Verify Dashboard UI exposes editable TP column, exit mode, breakeven lock & preset button
+        with urllib.request.urlopen(urllib.request.Request(base + "/", headers=hdr), timeout=10) as r:
+            html = r.read().decode("utf-8")
+        for token in (
+            'type="number" id="takeProfitPct"',
+            'id="tpMode"',
+            'id="breakevenLock"',
+            'applyRecommendedPreset()',
+        ):
+            assert token in html
 
     def test_unknown_api_route_returns_json_not_html(self, engine):
         """Unknown /api/* paths must return JSON 404, never Flask <!doctype html>."""

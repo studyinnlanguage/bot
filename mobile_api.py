@@ -24,8 +24,22 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
+from pathlib import Path as _Path
+import importlib.util as _ilu
 
 from flask import Blueprint, jsonify, request, current_app
+
+_rc_spec = _ilu.spec_from_file_location(
+    "_bot_risk_config_mobile",
+    str(_Path(__file__).resolve().parent / "bot-engine" / "bot" / "risk_config.py"),
+)
+_rc_mod = _ilu.module_from_spec(_rc_spec)
+_rc_spec.loader.exec_module(_rc_mod)
+clamp_stop_loss = _rc_mod.clamp_stop_loss
+clamp_take_profit = _rc_mod.clamp_take_profit
+normalize_breakeven_lock = _rc_mod.normalize_breakeven_lock
+normalize_timeframe = _rc_mod.normalize_timeframe
+normalize_tp_mode = _rc_mod.normalize_tp_mode
 
 logger = logging.getLogger("mobile_api")
 
@@ -287,10 +301,11 @@ def m_register():
         "google_id": None,
         "bot_config": {
             "exchange": "binance", "testnet": True, "symbols_list": [],
-            "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
-            "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.2,
-            "take_profit_pct": 1.0, "tp_mode": "fixed", "mode": "both",
-            "max_concurrent_trades": 3,
+            "timeframe": "15m", "leverage": 20, "amount_mode": "fixed",
+            "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.5,
+            "take_profit_pct": 1.5, "tp_mode": "fixed", "breakeven_lock": True,
+            "mode": "both",
+            "max_concurrent_trades": 2,
             "reentry_cooldown_sec": 180,
             "min_ema_spread": 0,
             "fresh_window": 2,
@@ -418,10 +433,11 @@ def m_google():
             "google_id": info.get("sub", ""),
             "bot_config": {
                 "exchange": "binance", "testnet": True, "symbols_list": [],
-                "timeframe": "5m", "leverage": 10, "amount_mode": "fixed",
-                "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.2,
-                "take_profit_pct": 1.0, "tp_mode": "fixed", "mode": "both",
-                "max_concurrent_trades": 3,
+                "timeframe": "15m", "leverage": 20, "amount_mode": "fixed",
+                "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.5,
+                "take_profit_pct": 1.5, "tp_mode": "fixed", "breakeven_lock": True,
+                "mode": "both",
+                "max_concurrent_trades": 2,
                 "reentry_cooldown_sec": 180,
                 "min_ema_spread": 0,
                 "fresh_window": 2,
@@ -712,8 +728,9 @@ def _build_engine_config_payload(user: dict) -> dict:
         payload[dst_f] = val
     api_keys_plain[ex_now] = act_slot
     payload["api_keys"] = api_keys_plain
-    payload["take_profit_pct"] = 1.0
-    payload["tp_mode"] = "fixed"
+    payload["take_profit_pct"] = clamp_take_profit(config.get("take_profit_pct", 1.5))
+    payload["tp_mode"] = normalize_tp_mode(config.get("tp_mode", "fixed"))
+    payload["breakeven_lock"] = normalize_breakeven_lock(config.get("breakeven_lock"), default=True)
     payload["live_confirmed"] = (
         False
         if bool(payload.get("testnet", True))
@@ -875,14 +892,14 @@ def m_bot_config():
             symbols = []
         config["symbols_list"] = [str(s).upper().strip() for s in symbols if str(s).strip()]
     if "timeframe" in data:
-        config["timeframe"] = str(data["timeframe"])
+        config["timeframe"] = normalize_timeframe(data["timeframe"], default=config.get("timeframe", "15m"))
     if "leverage" in data:
         try:
             lev = int(data["leverage"])
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid leverage"}), 400
         max_lev = 1000 if config.get("exchange") == "primexbt" else (500 if config.get("exchange") == "weex" else 125)
-        config["leverage"] = max(1, min(max_lev, lev or 10))
+        config["leverage"] = max(1, min(max_lev, lev or 20))
     if "amount_mode" in data:
         config["amount_mode"] = "percent" if data["amount_mode"] == "percent" else "fixed"
     if "amount" in data:
@@ -895,14 +912,31 @@ def m_bot_config():
             config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid amount percent"}), 400
+    _lev_mob = int(config.get("leverage") or 20)
     if "stop_loss_pct" in data:
         try:
-            sl = max(0.05, min(50, float(data["stop_loss_pct"]) or 0.2))
+            float(data["stop_loss_pct"])
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid stop loss"}), 400
-        config["stop_loss_pct"] = sl
-    config["take_profit_pct"] = 1.0  # TP strictly locked at 1.0%
-    config["tp_mode"] = "fixed"
+        config["stop_loss_pct"], _, _ = clamp_stop_loss(data["stop_loss_pct"], _lev_mob)
+    elif "leverage" in data and "stop_loss_pct" in config:
+        config["stop_loss_pct"], _, _ = clamp_stop_loss(config.get("stop_loss_pct"), _lev_mob)
+    if "take_profit_pct" in data:
+        try:
+            float(data["take_profit_pct"])
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "Invalid take profit"}), 400
+        config["take_profit_pct"] = clamp_take_profit(data["take_profit_pct"])
+    elif "take_profit_pct" not in config:
+        config["take_profit_pct"] = clamp_take_profit(1.5)
+    if "tp_mode" in data:
+        config["tp_mode"] = normalize_tp_mode(data["tp_mode"])
+    elif "tp_mode" not in config:
+        config["tp_mode"] = "fixed"
+    if "breakeven_lock" in data:
+        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=True)
+    elif "breakeven_lock" not in config:
+        config["breakeven_lock"] = True
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:

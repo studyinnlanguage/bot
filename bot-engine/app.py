@@ -26,6 +26,13 @@ from flask import Flask, jsonify, render_template, request, Response, session
 from flask_socketio import SocketIO
 
 from bot.engine import BotEngine, get_trader
+from bot.risk_config import (
+    clamp_stop_loss,
+    clamp_take_profit,
+    normalize_breakeven_lock,
+    normalize_timeframe,
+    normalize_tp_mode,
+)
 from bot.cred_slots import (
     EXCHANGES, clean_cred, normalize_cred_slots, slot_has_creds,
     store_creds_in_slot, archive_flat_into_slot, hydrate_flat_from_slot,
@@ -146,15 +153,16 @@ DEFAULT_CONFIG = {
     "testnet": True,
     "symbol": "BTCUSDT",
     "symbols_list": ["BTCUSDT"],
-    "timeframe": "5m",
-    "leverage": 125,
+    "timeframe": "15m",
+    "leverage": 20,
     "amount_mode": "fixed",
     "amount": 100,
     "amount_pct": 10,
-    "stop_loss_pct": 0.2,
-    "take_profit_pct": 1.0,
+    "stop_loss_pct": 0.5,
+    "take_profit_pct": 1.5,
     "trailing_roe_pct": 100.0,
     "tp_mode": "fixed",
+    "breakeven_lock": True,
     "mode": "both",
     "auto_start": False,
     "telegram_enabled": False,
@@ -188,16 +196,18 @@ def load_config() -> dict:
             with open(path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             merged = {**DEFAULT_CONFIG, **cfg}
-            # Fixed TP 1.0% & user-adjustable SL (default 0.2%) with auto-reversal
-            merged["tp_mode"] = "fixed"
             if cfg.get("tp_mode") == "both" and cfg.get("take_profit_pct") == 6 and cfg.get("stop_loss_pct") == 2:
-                merged["stop_loss_pct"] = 0.2
+                merged["stop_loss_pct"] = 0.5
+                merged["take_profit_pct"] = 1.5
+                merged["tp_mode"] = "fixed"
             else:
-                try:
-                    merged["stop_loss_pct"] = max(0.05, min(50.0, float(merged.get("stop_loss_pct", 0.2) or 0.2)))
-                except (ValueError, TypeError):
-                    merged["stop_loss_pct"] = 0.2
-            merged["take_profit_pct"] = 1.0
+                _lev_m = int(merged.get("leverage", 20) or 20)
+                _sl_m, _, _ = clamp_stop_loss(merged.get("stop_loss_pct", 0.5), _lev_m)
+                merged["stop_loss_pct"] = _sl_m
+                merged["take_profit_pct"] = clamp_take_profit(merged.get("take_profit_pct", 1.5))
+                merged["tp_mode"] = normalize_tp_mode(merged.get("tp_mode", "fixed"))
+            merged["breakeven_lock"] = normalize_breakeven_lock(merged.get("breakeven_lock"), default=True)
+            merged["timeframe"] = normalize_timeframe(merged.get("timeframe", "15m"), default="15m")
             merged["trailing_roe_pct"] = 100.0
             try:
                 merged["min_ema_spread"] = max(0.0, min(5.0, float(merged.get("min_ema_spread", 0) or 0)))
@@ -392,7 +402,8 @@ def update_config():
 
     for k in ["exchange", "symbol", "symbols_list", "timeframe",
               "leverage", "amount", "amount_mode", "amount_pct",
-              "stop_loss_pct", "take_profit_pct", "trailing_roe_pct", "tp_mode", "mode", "testnet", "auto_start",
+              "stop_loss_pct", "take_profit_pct", "trailing_roe_pct", "tp_mode", "breakeven_lock",
+              "mode", "testnet", "auto_start",
               "telegram_enabled", "telegram_bot_token", "telegram_chat_id",
               "email_enabled", "email_smtp_server", "email_smtp_port",
               "email_sender", "email_password", "email_receiver",
@@ -459,11 +470,21 @@ def update_config():
     CONFIG["leverage"] = max(1, min(max_lev, int(CONFIG["leverage"])))
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
-    CONFIG["stop_loss_pct"] = max(0.05, min(50, float(CONFIG.get("stop_loss_pct", 0.2))))
-    # Take Profit is strictly fixed at 1.0% (never let stale cached JS or old DB overwrite to 0.2% 1:1)
-    CONFIG["take_profit_pct"] = 1.0
+    _sl_val, _sl_clamped, _max_safe = clamp_stop_loss(CONFIG.get("stop_loss_pct", 0.5), CONFIG["leverage"])
+    CONFIG["stop_loss_pct"] = _sl_val
+    CONFIG["take_profit_pct"] = clamp_take_profit(CONFIG.get("take_profit_pct", 1.5))
     CONFIG["trailing_roe_pct"] = 100.0
-    CONFIG["tp_mode"] = "fixed"
+    CONFIG["tp_mode"] = normalize_tp_mode(CONFIG.get("tp_mode", "fixed"))
+    CONFIG["breakeven_lock"] = normalize_breakeven_lock(CONFIG.get("breakeven_lock"), default=True)
+    CONFIG["timeframe"] = normalize_timeframe(CONFIG.get("timeframe", "15m"), default="15m")
+    if _sl_clamped:
+        try:
+            socketio.emit("log", {
+                "level": "warn",
+                "msg": f"🛡️ Liquidation SL Guard: {CONFIG['leverage']}x leverage par SL max {_max_safe:.2f}% (-80% ROE) par clamp kiya gaya taake 100% liquidation na ho."
+            })
+        except Exception:
+            pass
     CONFIG["testnet"] = bool(CONFIG["testnet"])
     CONFIG["telegram_enabled"] = bool(CONFIG.get("telegram_enabled"))
     CONFIG["email_enabled"] = bool(CONFIG.get("email_enabled"))
@@ -503,8 +524,10 @@ def update_config():
         ENGINE.config["min_ema_spread"] = CONFIG["min_ema_spread"]
         ENGINE.config["fresh_window"] = CONFIG["fresh_window"]
         ENGINE.config["stop_loss_pct"] = CONFIG["stop_loss_pct"]
-        ENGINE.config["take_profit_pct"] = 1.0
-        ENGINE.config["tp_mode"] = "fixed"
+        ENGINE.config["take_profit_pct"] = CONFIG["take_profit_pct"]
+        ENGINE.config["tp_mode"] = CONFIG["tp_mode"]
+        ENGINE.config["breakeven_lock"] = CONFIG["breakeven_lock"]
+        ENGINE.config["timeframe"] = CONFIG["timeframe"]
 
     save_config(CONFIG)
 
@@ -698,12 +721,12 @@ def get_positions():
             if pos.side != "NONE" and pos.entry_price and float(pos.entry_price) > 0:
                 ep = float(pos.entry_price)
                 if not tp_price:
-                    tp_pct = float(CONFIG.get("take_profit_pct", 1.0) or 1.0)
+                    tp_pct = clamp_take_profit(CONFIG.get("take_profit_pct", 1.5))
                     tp_price = round(ep * (1.0 + tp_pct / 100.0) if pos.side == "LONG" else ep * (1.0 - tp_pct / 100.0), 6)
                 if not sl_price:
-                    sl_pct = float(CONFIG.get("stop_loss_pct", 0.2) or 0.2)
+                    sl_pct = float(CONFIG.get("stop_loss_pct", 0.5) or 0.5)
                     sl_price = round(ep * (1.0 - sl_pct / 100.0) if pos.side == "LONG" else ep * (1.0 + sl_pct / 100.0), 6)
-            tp_mode = worker.tp_mode if worker else (CONFIG.get("tp_mode") or "trailing")
+            tp_mode = worker.tp_mode if worker else normalize_tp_mode(CONFIG.get("tp_mode", "fixed"))
             target_roe = getattr(worker, "target_roe_pct", 80.0) if worker else float(CONFIG.get("trailing_roe_pct", 80.0))
             positions.append({
                 "symbol": sym,
@@ -830,7 +853,7 @@ def close_position():
             "tp_price": 0.0,
             "sl_price": 0.0,
             "target_roe": 100.0,
-            "tp_mode": "fixed",
+            "tp_mode": normalize_tp_mode(CONFIG.get("tp_mode", "fixed")),
         })
 
     socketio.emit("log", {"level": "info", "msg": f"Manual close requested for {symbol}: {result}"})
@@ -934,7 +957,7 @@ def close_all_positions():
                         "tp_price": 0.0,
                         "sl_price": 0.0,
                         "target_roe": 100.0,
-                        "tp_mode": "fixed",
+                        "tp_mode": normalize_tp_mode(CONFIG.get("tp_mode", "fixed")),
                     })
         except Exception as e:
             results[sym] = {"success": False, "error": str(e)}

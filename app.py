@@ -69,6 +69,16 @@ except Exception:
     pass
 BOT_ENGINE_DIR = BASE_DIR / "bot-engine"
 
+import importlib.util as _ilu
+_rc_spec = _ilu.spec_from_file_location("_bot_risk_config", str(BOT_ENGINE_DIR / "bot" / "risk_config.py"))
+_rc_mod = _ilu.module_from_spec(_rc_spec)
+_rc_spec.loader.exec_module(_rc_mod)
+clamp_stop_loss = _rc_mod.clamp_stop_loss
+clamp_take_profit = _rc_mod.clamp_take_profit
+normalize_breakeven_lock = _rc_mod.normalize_breakeven_lock
+normalize_timeframe = _rc_mod.normalize_timeframe
+normalize_tp_mode = _rc_mod.normalize_tp_mode
+
 
 def _resolve_data_dir() -> Path:
     """Resolve persistent data directory (DATA_DIR env -> mounted /data -> BASE_DIR)."""
@@ -1170,16 +1180,17 @@ def _default_bot_config(symbols_list: Optional[list] = None) -> dict:
         "exchange": "binance",
         "testnet": True,
         "symbols_list": list(symbols_list) if symbols_list is not None else [],
-        "timeframe": "5m",
-        "leverage": 10,
+        "timeframe": "15m",
+        "leverage": 20,
         "amount_mode": "fixed",
         "amount": 100,
         "amount_pct": 10,
-        "stop_loss_pct": 0.2,
-        "take_profit_pct": 1.0,
+        "stop_loss_pct": 0.5,
+        "take_profit_pct": 1.5,
         "tp_mode": "fixed",
+        "breakeven_lock": True,
         "mode": "both",
-        "max_concurrent_trades": 3,
+        "max_concurrent_trades": 2,
         "api_key_enc": "",
         "api_secret_enc": "",
         "api_passphrase_enc": "",
@@ -1815,6 +1826,13 @@ def write_user_bot_config(user_id: str) -> str:
         _file_exchange = str(bot_config.get("exchange") or "").lower()
         if _db_exchange:
             bot_config["exchange"] = _db_exchange
+        if "timeframe" in config and config["timeframe"]:
+            bot_config["timeframe"] = normalize_timeframe(config["timeframe"], default=bot_config.get("timeframe", "15m"))
+        if "leverage" in config and config["leverage"] is not None:
+            try:
+                bot_config["leverage"] = max(1, int(config["leverage"]))
+            except (TypeError, ValueError):
+                pass
         if "testnet" in config:
             bot_config["testnet"] = bool(config["testnet"])
         bot_config["live_confirmed"] = _resolve_live_confirmed(bool(bot_config.get("testnet", True)), config)
@@ -1826,15 +1844,25 @@ def write_user_bot_config(user_id: str) -> str:
             bot_config["reentry_cooldown_sec"] = int(config["reentry_cooldown_sec"])
         if "max_concurrent_trades" in config and config["max_concurrent_trades"] is not None:
             bot_config["max_concurrent_trades"] = max(1, min(3, int(config["max_concurrent_trades"])))
+        _eff_lev = int(bot_config.get("leverage") or config.get("leverage") or 20)
         if config.get("tp_mode") == "both" and config.get("take_profit_pct") == 6 and config.get("stop_loss_pct") == 2:
-            bot_config["stop_loss_pct"] = 0.2
-        elif "stop_loss_pct" in config and config["stop_loss_pct"] is not None:
-            try:
-                bot_config["stop_loss_pct"] = max(0.05, min(50, float(config["stop_loss_pct"]) or 0.2))
-            except (TypeError, ValueError):
-                bot_config["stop_loss_pct"] = 0.2
-        bot_config["take_profit_pct"] = 1.0
-        bot_config["tp_mode"] = "fixed"
+            bot_config["stop_loss_pct"] = 0.5
+            bot_config["take_profit_pct"] = 1.5
+            bot_config["tp_mode"] = "fixed"
+        else:
+            if "stop_loss_pct" in config and config["stop_loss_pct"] is not None:
+                bot_config["stop_loss_pct"], _, _ = clamp_stop_loss(config["stop_loss_pct"], _eff_lev)
+            else:
+                bot_config["stop_loss_pct"], _, _ = clamp_stop_loss(bot_config.get("stop_loss_pct", 0.5), _eff_lev)
+            if "take_profit_pct" in config and config["take_profit_pct"] is not None:
+                bot_config["take_profit_pct"] = clamp_take_profit(config["take_profit_pct"])
+            else:
+                bot_config["take_profit_pct"] = clamp_take_profit(bot_config.get("take_profit_pct", 1.5))
+            bot_config["tp_mode"] = normalize_tp_mode(config.get("tp_mode") or bot_config.get("tp_mode") or "fixed")
+        if "breakeven_lock" in config:
+            bot_config["breakeven_lock"] = normalize_breakeven_lock(config.get("breakeven_lock"), default=True)
+        else:
+            bot_config["breakeven_lock"] = normalize_breakeven_lock(bot_config.get("breakeven_lock"), default=True)
         _db_symbols = [str(s).upper().strip() for s in (config.get("symbols_list") or []) if str(s).strip()]
         _exchange_changed = bool(_db_exchange and _file_exchange and _db_exchange != _file_exchange)
         if _db_symbols and (not bot_config.get("symbols_list") or _exchange_changed):
@@ -1954,14 +1982,15 @@ def write_user_bot_config(user_id: str) -> str:
             "live_confirmed": _resolve_live_confirmed(bool(config.get("testnet", True)), config),
             "symbol": (config.get("symbols_list") or ["BTCUSDT"])[0],
             "symbols_list": (config.get("symbols_list") or ["BTCUSDT"]),
-            "timeframe": config.get("timeframe", "5m"),
-            "leverage": config.get("leverage", 10),
+            "timeframe": normalize_timeframe(config.get("timeframe", "15m"), default="15m"),
+            "leverage": config.get("leverage", 20),
             "amount_mode": config.get("amount_mode", "fixed"),
             "amount": config.get("amount", 100),
             "amount_pct": config.get("amount_pct", 10),
-            "stop_loss_pct": config.get("stop_loss_pct", 0.2),
-            "take_profit_pct": 1.0,
-            "tp_mode": "fixed",
+            "stop_loss_pct": clamp_stop_loss(config.get("stop_loss_pct", 0.5), int(config.get("leverage", 20) or 20))[0],
+            "take_profit_pct": clamp_take_profit(config.get("take_profit_pct", 1.5)),
+            "tp_mode": normalize_tp_mode(config.get("tp_mode", "fixed")),
+            "breakeven_lock": normalize_breakeven_lock(config.get("breakeven_lock"), default=True),
             "mode": config.get("mode", "both"),
             "max_concurrent_trades": config.get("max_concurrent_trades", 3),
             "reentry_cooldown_sec": config.get("reentry_cooldown_sec", 180),
@@ -2163,7 +2192,7 @@ def _sync_engine_config_to_db(user: dict, data: dict):
         config["symbols_list"] = [str(s).upper().strip() for s in data["symbols_list"] if str(s).strip()]
 
     for k in ("timeframe", "amount_mode", "amount", "amount_pct",
-              "stop_loss_pct", "tp_mode", "mode",
+              "stop_loss_pct", "take_profit_pct", "tp_mode", "breakeven_lock", "mode",
               "telegram_enabled", "telegram_chat_id",
               "email_enabled", "email_sender", "email_receiver",
               "whatsapp_enabled", "whatsapp_phone"):
@@ -2174,19 +2203,30 @@ def _sync_engine_config_to_db(user: dict, data: dict):
     try:
         _ex_now = str(config.get("exchange") or "binance").lower()
         max_lev = 1000 if _ex_now == "primexbt" else (500 if _ex_now == "weex" else 125)
-        config["leverage"] = max(1, min(max_lev, int(data.get("leverage") or config.get("leverage", 10))))
+        config["leverage"] = max(1, min(max_lev, int(data.get("leverage") or config.get("leverage", 20))))
     except (TypeError, ValueError):
         pass
     try:
+        if "timeframe" in config:
+            config["timeframe"] = normalize_timeframe(config.get("timeframe"), default="15m")
         if "amount" in data and data["amount"] is not None:
             config["amount"] = max(1, float(data["amount"]) or 100)
         if "amount_pct" in data and data["amount_pct"] is not None:
             config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
+        _lev_sync = int(config.get("leverage") or 20)
         if "stop_loss_pct" in data and data["stop_loss_pct"] is not None:
-            sl = max(0.05, min(50, float(data["stop_loss_pct"]) or 0.2))
-            config["stop_loss_pct"] = sl
-        config["take_profit_pct"] = 1.0
-        config["tp_mode"] = "fixed"
+            config["stop_loss_pct"], _, _ = clamp_stop_loss(data["stop_loss_pct"], _lev_sync)
+        elif "leverage" in data and "stop_loss_pct" in config:
+            config["stop_loss_pct"], _, _ = clamp_stop_loss(config.get("stop_loss_pct"), _lev_sync)
+        if "take_profit_pct" in data and data["take_profit_pct"] is not None:
+            config["take_profit_pct"] = clamp_take_profit(data["take_profit_pct"])
+        elif "take_profit_pct" not in config:
+            config["take_profit_pct"] = clamp_take_profit(1.5)
+        config["tp_mode"] = normalize_tp_mode(data.get("tp_mode") if "tp_mode" in data else config.get("tp_mode", "fixed"))
+        config["breakeven_lock"] = normalize_breakeven_lock(
+            data.get("breakeven_lock") if "breakeven_lock" in data else config.get("breakeven_lock"),
+            default=True,
+        )
     except (TypeError, ValueError):
         pass
     try:
@@ -3266,22 +3306,34 @@ def api_bot_config():
         symbols = data["symbols_list"] if isinstance(data["symbols_list"], list) else []
         config["symbols_list"] = [str(s).upper().strip() for s in symbols if str(s).strip()]
     if "timeframe" in data:
-        config["timeframe"] = data["timeframe"]
+        config["timeframe"] = normalize_timeframe(data["timeframe"], default="15m")
     if "leverage" in data:
         _ex_now = str(config.get("exchange") or "binance").lower()
         max_lev = 1000 if _ex_now == "primexbt" else (500 if _ex_now == "weex" else 125)
-        config["leverage"] = max(1, min(max_lev, int(data["leverage"]) or 10))
+        config["leverage"] = max(1, min(max_lev, int(data["leverage"]) or 20))
     if "amount_mode" in data:
         config["amount_mode"] = "percent" if data["amount_mode"] == "percent" else "fixed"
     if "amount" in data:
         config["amount"] = max(1, float(data["amount"]) or 100)
     if "amount_pct" in data:
         config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
+    _lev_cfg = int(config.get("leverage") or 20)
     if "stop_loss_pct" in data:
-        sl = max(0.05, min(50, float(data["stop_loss_pct"]) or 0.2))
-        config["stop_loss_pct"] = sl
-    config["take_profit_pct"] = 1.0
-    config["tp_mode"] = "fixed"
+        config["stop_loss_pct"], _, _ = clamp_stop_loss(data["stop_loss_pct"], _lev_cfg)
+    elif "leverage" in data and "stop_loss_pct" in config:
+        config["stop_loss_pct"], _, _ = clamp_stop_loss(config.get("stop_loss_pct"), _lev_cfg)
+    if "take_profit_pct" in data:
+        config["take_profit_pct"] = clamp_take_profit(data["take_profit_pct"])
+    elif "take_profit_pct" not in config:
+        config["take_profit_pct"] = clamp_take_profit(1.5)
+    if "tp_mode" in data:
+        config["tp_mode"] = normalize_tp_mode(data["tp_mode"])
+    elif "tp_mode" not in config:
+        config["tp_mode"] = "fixed"
+    if "breakeven_lock" in data:
+        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=True)
+    elif "breakeven_lock" not in config:
+        config["breakeven_lock"] = True
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:

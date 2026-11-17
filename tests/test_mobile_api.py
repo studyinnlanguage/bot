@@ -26,20 +26,28 @@ def client():
         backup = _DB_FILE.read_text()
         _DB_FILE.unlink()
     os.environ.setdefault("ADMIN_SECRET", "test-admin-secret-pytest")
+    # Other test modules prepend bot-engine/ during collection; keep REPO at index 0.
+    sys.path.insert(0, str(REPO))
     import app as saas
     import mobile_api
     saas.app.config["TESTING"] = True
     # Rate limiting is correct production behavior but makes test batches trip
-    # 429 (all tests share one remote_addr) — disable for this suite.
+    # 429 (all tests share one remote_addr) — disable ONLY for this suite and restore after.
+    orig_saas_rl = saas._check_rate_limit
+    orig_mob_rl = mobile_api._cfg.get("rate_limit")
     permissive = lambda *a, **k: True
     saas._check_rate_limit = permissive
     mobile_api._cfg["rate_limit"] = permissive
-    with saas.app.test_client() as c:
-        yield c, saas
-    if backup is not None:
-        _DB_FILE.write_text(backup)
-    elif _DB_FILE.exists():
-        _DB_FILE.unlink()
+    try:
+        with saas.app.test_client() as c:
+            yield c, saas
+    finally:
+        saas._check_rate_limit = orig_saas_rl
+        mobile_api._cfg["rate_limit"] = orig_mob_rl
+        if backup is not None:
+            _DB_FILE.write_text(backup)
+        elif _DB_FILE.exists():
+            _DB_FILE.unlink()
 
 
 def _register(client, email, password="testpass123"):
@@ -187,12 +195,16 @@ class TestConfigValidation:
         data = _register(c, "cfg1@test.com")
         r = c.post("/api/mobile/bot/config", headers=_auth(data["access_token"]),
                    json={"symbols_list": ["btcusdt", "ethusdt"], "leverage": 20,
-                         "stop_loss_pct": 1.5, "timeframe": "5m", "mode": "long"})
+                         "stop_loss_pct": 1.5, "take_profit_pct": 2.5,
+                         "tp_mode": "trailing", "breakeven_lock": True,
+                         "timeframe": "15m", "mode": "long"})
         body = r.get_json()
         assert body["success"] is True
         assert body["config"]["symbols_list"] == ["BTCUSDT", "ETHUSDT"]
         assert body["config"]["leverage"] == 20
-        assert body["config"]["take_profit_pct"] == 1.0  # Fixed TP 1.0
+        assert body["config"]["take_profit_pct"] == 2.5
+        assert body["config"]["tp_mode"] == "trailing"
+        assert body["config"]["breakeven_lock"] is True
         assert "api_key" not in body["config"]  # never echoed
 
     def test_leverage_clamped_by_exchange(self, client):

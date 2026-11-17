@@ -363,3 +363,150 @@ class TestSmallBalanceAndExchangeFilters:
         assert r_px_sol["adjusted"] is True
         assert px._symbol_leverage["SOL/USD"] == 200
 
+
+class TestConfigurableTPRiskAndTrailingProtection:
+    def test_breakeven_lock_moves_sl_above_entry_and_preserves_fixed_tp(self):
+        from bot.engine import SymbolWorker, BotEngine
+        from bot.strategy import Signal
+        from types import SimpleNamespace
+
+        cfg = {
+            "exchange": "binance", "testnet": False, "live_confirmed": True,
+            "symbols_list": ["XRPUSDT"], "timeframe": "15m", "leverage": 20,
+            "stop_loss_pct": 0.5, "take_profit_pct": 1.5,
+            "tp_mode": "fixed", "breakeven_lock": True,
+        }
+        eng = BotEngine(MagicMock(), cfg)
+        trader = MagicMock()
+        eng.trader = trader
+        w = SymbolWorker(eng, "XRPUSDT", cfg)
+        w._set_software_sl_tp(
+            "XRPUSDT", "LONG", entry_price=1.0000,
+            sl_pct=0.5, tp_pct=1.5, tp_mode="fixed",
+            entry_signal=Signal.BUY, actual_leverage=20,
+        )
+        assert abs(w.sl_price - 0.9950) < 1e-6
+        assert abs(w.tp_price - 1.0150) < 1e-6
+
+        # Price moves up +0.90% (>= 55% of 1.5% TP -> 0.825%) -> Breakeven lock triggers!
+        pos_up = SimpleNamespace(side="LONG", size=100.0, entry_price=1.0, mark_price=1.0090, leverage=20)
+        sl_hit, tp_hit, _ = w._check_software_sl_tp(pos_up, None)
+        assert not sl_hit and not tp_hit
+        assert w.be_sl_set is True
+        assert abs(w.sl_price - 1.0015) < 1e-6
+        # _update_exchange_sl must re-attach BOTH new SL and fixed TP after cancel_open_orders!
+        trader.cancel_open_orders.assert_called_once_with("XRPUSDT")
+        trader.place_stop_loss.assert_called_once()
+        trader.place_take_profit.assert_called_once()
+
+        # Price pulls back to breakeven SL -> exits cleanly as profit/breakeven win, NOT SL loss
+        pos_be = SimpleNamespace(side="LONG", size=100.0, entry_price=1.0, mark_price=1.0014, leverage=20)
+        sl_hit2, tp_hit2, reason2 = w._check_software_sl_tp(pos_be, None)
+        assert sl_hit2 is False
+        assert tp_hit2 is True
+        assert "BREAKEVEN LOCK HIT" in reason2
+
+    def test_stepped_roe_trailing_50_15_100_50_150_ladder(self):
+        from bot.engine import SymbolWorker, BotEngine
+        from bot.strategy import Signal
+        from types import SimpleNamespace
+
+        cfg = {
+            "exchange": "binance", "testnet": False, "live_confirmed": True,
+            "symbols_list": ["SOLUSDT"], "timeframe": "15m", "leverage": 20,
+            "stop_loss_pct": 0.5, "take_profit_pct": 1.5,
+            "tp_mode": "trailing", "breakeven_lock": True,
+        }
+        eng = BotEngine(MagicMock(), cfg)
+        trader = MagicMock()
+        eng.trader = trader
+        w = SymbolWorker(eng, "SOLUSDT", cfg)
+        w._set_software_sl_tp(
+            "SOLUSDT", "LONG", entry_price=100.0,
+            sl_pct=0.5, tp_pct=1.5, tp_mode="trailing",
+            entry_signal=Signal.BUY, actual_leverage=20,
+        )
+        assert w.tp_stage == 0
+        assert abs(w.sl_price - 99.50) < 1e-6
+
+        # Step 1: +50% ROE ($102.50 at 20x -> +2.5% * 20 = +50% ROE) -> SL jumps to +15% ROE ($100.75)
+        pos_s1 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=102.50, leverage=20)
+        sl_hit, tp_hit, _ = w._check_software_sl_tp(pos_s1, None)
+        assert not sl_hit and not tp_hit
+        assert w.tp_stage == 1
+        assert abs(w.sl_price - 100.75) < 1e-6
+        assert trader.place_stop_loss.call_count == 1
+        assert trader.place_take_profit.call_count == 0  # don't cap at 100% yet
+
+        # If price pulls back below +15% ROE lock ($100.74) -> closes cleanly as fees-saved WIN
+        pos_pull1 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=100.74, leverage=20)
+        sl_h_p1, tp_h_p1, r_p1 = w._check_software_sl_tp(pos_pull1, None)
+        assert sl_h_p1 is False and tp_h_p1 is True
+        assert "TRAILING STEP 1 SL HIT" in r_p1
+
+        # Step 2: Re-test forward to +100% ROE ($105.00 at 20x) -> SL moves to +50% ROE ($102.50) & TP set to +150% ROE ($107.50)
+        pos_s2 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=105.00, leverage=20)
+        sl_hit2, tp_hit2, _ = w._check_software_sl_tp(pos_s2, None)
+        assert not sl_hit2 and not tp_hit2
+        assert w.tp_stage == 2
+        assert abs(w.sl_price - 102.50) < 1e-6
+        assert abs(w.tp_price - 107.50) < 1e-6
+        assert trader.place_stop_loss.call_count == 2
+        assert trader.place_take_profit.call_count == 1  # exchange TP now attached at +150% ROE!
+
+        # Pullback to locked +50% SL ($102.49) -> closes as +50% ROE profit win
+        pos_pull2 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=102.49, leverage=20)
+        sl_h_p2, tp_h_p2, r_p2 = w._check_software_sl_tp(pos_pull2, None)
+        assert sl_h_p2 is False and tp_h_p2 is True
+        assert "TRAILING STEP 2 SL HIT" in r_p2
+
+        # Reaching +150% ROE ($107.50) hits full TP target!
+        pos_tp150 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=107.50, leverage=20)
+        sl_h3, tp_h3, r3 = w._check_software_sl_tp(pos_tp150, None)
+        assert sl_h3 is False and tp_h3 is True
+        assert "TRAILING TP HIT (+150% ROE" in r3
+
+    def test_existing_user_config_preserved_without_data_loss(self, tmp_path):
+        import json as _json
+        import subprocess as _sp
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        bot_dir = _Path(r"d:\bot\bot-engine")
+        cfg_path = tmp_path / "config.json"
+        existing = {
+            "exchange": "weex",
+            "testnet": False,
+            "live_confirmed": True,
+            "api_key": "SAVED_KEY_123",
+            "api_secret": "SAVED_SEC_456",
+            "api_passphrase": "PASS",
+            "api_keys": {"weex": {"api_key": "SAVED_KEY_123", "api_secret": "SAVED_SEC_456", "api_passphrase": "PASS"}},
+            "symbols_list": ["BTCUSDT", "XRPUSDT"],
+            "timeframe": "5m",
+            "leverage": 35,
+            "amount_mode": "percent",
+            "amount_pct": 10,
+            "stop_loss_pct": 0.25,
+            "take_profit_pct": 1.0,
+        }
+        cfg_path.write_text(_json.dumps(existing), encoding="utf-8")
+        # Run in an isolated subprocess so bot-engine/app.py's sys.path[0] never shadows SaaS app.py in pytest
+        script = (
+            f"import sys, json; from pathlib import Path; "
+            f"sys.path.insert(0, {str(bot_dir)!r}); "
+            f"import app; app.CONFIG_FILE = Path({str(cfg_path)!r}); "
+            f"loaded = app.load_config(); print(json.dumps(loaded))"
+        )
+        res = _sp.run([_sys.executable, "-c", script], cwd=str(bot_dir), capture_output=True, text=True, timeout=15)
+        assert res.returncode == 0, res.stderr
+        loaded = _json.loads(res.stdout.strip().splitlines()[-1])
+        assert loaded["exchange"] == "weex"
+        assert loaded["api_key"] == "SAVED_KEY_123"
+        assert loaded["symbols_list"] == ["BTCUSDT", "XRPUSDT"]
+        assert loaded["timeframe"] == "5m"
+        assert loaded["leverage"] == 35
+        assert abs(loaded["stop_loss_pct"] - 0.25) < 1e-9
+        assert abs(loaded["take_profit_pct"] - 1.0) < 1e-9
+
+
