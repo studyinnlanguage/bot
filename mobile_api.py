@@ -35,11 +35,7 @@ _rc_spec = _ilu.spec_from_file_location(
 )
 _rc_mod = _ilu.module_from_spec(_rc_spec)
 _rc_spec.loader.exec_module(_rc_mod)
-clamp_stop_loss = _rc_mod.clamp_stop_loss
-clamp_take_profit = _rc_mod.clamp_take_profit
-normalize_breakeven_lock = _rc_mod.normalize_breakeven_lock
 normalize_timeframe = _rc_mod.normalize_timeframe
-normalize_tp_mode = _rc_mod.normalize_tp_mode
 
 logger = logging.getLogger("mobile_api")
 
@@ -302,13 +298,9 @@ def m_register():
         "bot_config": {
             "exchange": "binance", "testnet": True, "symbols_list": [],
             "timeframe": "15m", "leverage": 20, "amount_mode": "fixed",
-            "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.5,
-            "take_profit_pct": 1.5, "tp_mode": "fixed", "breakeven_lock": True,
+            "amount": 100, "amount_pct": 10,
             "mode": "both",
-            "max_concurrent_trades": 2,
-            "reentry_cooldown_sec": 180,
-            "min_ema_spread": 0,
-            "fresh_window": 2,
+            "max_concurrent_trades": 3,
             "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
         },
     }
@@ -434,13 +426,9 @@ def m_google():
             "bot_config": {
                 "exchange": "binance", "testnet": True, "symbols_list": [],
                 "timeframe": "15m", "leverage": 20, "amount_mode": "fixed",
-                "amount": 100, "amount_pct": 10, "stop_loss_pct": 0.5,
-                "take_profit_pct": 1.5, "tp_mode": "fixed", "breakeven_lock": True,
+                "amount": 100, "amount_pct": 10,
                 "mode": "both",
-                "max_concurrent_trades": 2,
-                "reentry_cooldown_sec": 180,
-                "min_ema_spread": 0,
-                "fresh_window": 2,
+                "max_concurrent_trades": 3,
                 "api_key_enc": "", "api_secret_enc": "", "api_passphrase_enc": "",
             },
         }
@@ -728,9 +716,10 @@ def _build_engine_config_payload(user: dict) -> dict:
         payload[dst_f] = val
     api_keys_plain[ex_now] = act_slot
     payload["api_keys"] = api_keys_plain
-    payload["take_profit_pct"] = clamp_take_profit(config.get("take_profit_pct", 1.5))
-    payload["tp_mode"] = normalize_tp_mode(config.get("tp_mode", "fixed"))
-    payload["breakeven_lock"] = normalize_breakeven_lock(config.get("breakeven_lock"), default=True)
+    for _obsolete in ("stop_loss_pct", "take_profit_pct", "trailing_roe_pct",
+                      "tp_mode", "breakeven_lock", "reentry_cooldown_sec",
+                      "min_ema_spread", "fresh_window"):
+        payload.pop(_obsolete, None)
     payload["live_confirmed"] = (
         False
         if bool(payload.get("testnet", True))
@@ -912,31 +901,6 @@ def m_bot_config():
             config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
         except (TypeError, ValueError):
             return jsonify({"success": False, "error": "Invalid amount percent"}), 400
-    _lev_mob = int(config.get("leverage") or 20)
-    if "stop_loss_pct" in data:
-        try:
-            float(data["stop_loss_pct"])
-        except (TypeError, ValueError):
-            return jsonify({"success": False, "error": "Invalid stop loss"}), 400
-        config["stop_loss_pct"], _, _ = clamp_stop_loss(data["stop_loss_pct"], _lev_mob)
-    elif "leverage" in data and "stop_loss_pct" in config:
-        config["stop_loss_pct"], _, _ = clamp_stop_loss(config.get("stop_loss_pct"), _lev_mob)
-    if "take_profit_pct" in data:
-        try:
-            float(data["take_profit_pct"])
-        except (TypeError, ValueError):
-            return jsonify({"success": False, "error": "Invalid take profit"}), 400
-        config["take_profit_pct"] = clamp_take_profit(data["take_profit_pct"])
-    elif "take_profit_pct" not in config:
-        config["take_profit_pct"] = clamp_take_profit(1.5)
-    if "tp_mode" in data:
-        config["tp_mode"] = normalize_tp_mode(data["tp_mode"])
-    elif "tp_mode" not in config:
-        config["tp_mode"] = "fixed"
-    if "breakeven_lock" in data:
-        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=True)
-    elif "breakeven_lock" not in config:
-        config["breakeven_lock"] = True
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:
@@ -944,21 +908,10 @@ def m_bot_config():
             config["max_concurrent_trades"] = max(1, min(3, int(data["max_concurrent_trades"])))
         except (TypeError, ValueError):
             config["max_concurrent_trades"] = 3
-    if "reentry_cooldown_sec" in data:
-        try:
-            config["reentry_cooldown_sec"] = max(0, min(7200, int(float(data["reentry_cooldown_sec"]))))
-        except (TypeError, ValueError):
-            config["reentry_cooldown_sec"] = 180
-    if "min_ema_spread" in data:
-        try:
-            config["min_ema_spread"] = max(0, min(5, float(data["min_ema_spread"]) or 0))
-        except (TypeError, ValueError):
-            config["min_ema_spread"] = 0
-    if "fresh_window" in data:
-        try:
-            config["fresh_window"] = max(2, min(8, int(data["fresh_window"]) or 2))
-        except (TypeError, ValueError):
-            config["fresh_window"] = 2
+    for _obsolete in ("stop_loss_pct", "take_profit_pct", "trailing_roe_pct",
+                      "tp_mode", "breakeven_lock", "reentry_cooldown_sec",
+                      "min_ema_spread", "fresh_window"):
+        config.pop(_obsolete, None)
     # Notifications (Radar tab)
     for key in ("telegram_enabled", "email_enabled", "whatsapp_enabled"):
         if key in data:

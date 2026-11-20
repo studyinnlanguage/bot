@@ -288,53 +288,17 @@ class Notifier:
         return self.send(title, msg)
 
     def notify_tp(self, symbol: str, side: str, entry_price: float, close_price: float,
-                  pnl_pct: float, emas: dict, tp_type: str = "fixed"):
-        """Send TP hit notification.
-
-        Args:
-            tp_type: "fixed" for fixed percentage TP, "ema_reversal" for EMA reversal TP.
-        """
-        if tp_type == "ema_reversal":
-            reason_line = "EMA55 reversal triggered (EMA55 flipped to opposite extreme)"
-        else:
-            reason_line = "Take Profit target reached"
-
-        title = f"TP Hit: {symbol} closed"
+                  pnl_pct: float, emas: dict, tp_type: str = "ema_reversal"):
+        """Send EMA55 reversal exit notification."""
+        title = f"EMA55 Reversal: {symbol} {side} closed"
         msg = (
-            f"✅ Take Profit hit!\n\n"
+            f"🔄 EMA55 Reversal Exit!\n\n"
             f"Symbol: {symbol}\n"
             f"Closed: {side}\n"
             f"Entry: ${entry_price:.4f}\n"
             f"Exit:  ${close_price:.4f}\n"
             f"PnL: {pnl_pct:+.2f}%\n\n"
-            f"{reason_line}"
-        )
-        return self.send(title, msg)
-
-    def notify_sl(self, symbol: str, side: str, entry_price: float, close_price: float,
-                  pnl_pct: float):
-        """Send SL hit notification."""
-        title = f"SL Hit: {symbol} closed"
-        msg = (
-            f"🛑 Stop Loss hit!\n\n"
-            f"Symbol: {symbol}\n"
-            f"Closed: {side}\n"
-            f"Entry: ${entry_price:.4f}\n"
-            f"Exit:  ${close_price:.4f}\n"
-            f"PnL: {pnl_pct:+.2f}%"
-        )
-        return self.send(title, msg)
-
-    def notify_trailing_step(self, symbol: str, side: str, reached_stage: int, next_stage: int,
-                             mark_price: float, next_tp: float, new_sl: float, sl_info: str):
-        """Send Trailing TP stage advancement notification."""
-        title = f"🎯 Trailing TP Stage {reached_stage} Reached - {symbol}"
-        msg = (
-            f"🎯 Trailing TP Step {reached_stage} Hit!\n\n"
-            f"Symbol: {symbol} ({side})\n"
-            f"Trigger Price: ${mark_price:.4f}\n"
-            f"Next Target (TP{next_stage}): 1:{next_stage} (${next_tp:.4f})\n"
-            f"New SL: {sl_info}\n"
+            f"EMA55 flipped to opposite side — reversing position."
         )
         return self.send(title, msg)
 
@@ -343,8 +307,6 @@ class Notifier:
         title = "Bot Started"
         exchange = config.get("exchange", "binance").upper()
         symbols = ",".join(config.get("symbols_list", []))
-        sl_val = config.get("stop_loss_pct", 2)
-        tp_desc = f"Strict 1:1 TP ({sl_val}%) + Auto-Reversal"
 
         msg = (
             f"Exchange: {exchange}\n"
@@ -352,9 +314,8 @@ class Notifier:
             f"Timeframe: {config.get('timeframe')}\n"
             f"Leverage: {config.get('leverage')}x\n"
             f"Mode: {config.get('mode')}\n"
-            f"SL: {config.get('stop_loss_pct', 0)}%\n"
-            f"TP: {tp_desc}\n"
-            f"Environment: {'TESTNET' if config.get('testnet') else 'MAINNET'}"
+            f"Strategy: Pure EMA 8/13/21/55 + EMA55 Reversal (No SL/TP)\n"
+            f"Environment: {'DEMO/TESTNET' if config.get('testnet') else 'MAINNET'}"
         )
         return self.send(title, msg)
 

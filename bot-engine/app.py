@@ -26,13 +26,7 @@ from flask import Flask, jsonify, render_template, request, Response, session
 from flask_socketio import SocketIO
 
 from bot.engine import BotEngine, get_trader
-from bot.risk_config import (
-    clamp_stop_loss,
-    clamp_take_profit,
-    normalize_breakeven_lock,
-    normalize_timeframe,
-    normalize_tp_mode,
-)
+from bot.risk_config import normalize_timeframe
 from bot.cred_slots import (
     EXCHANGES, clean_cred, normalize_cred_slots, slot_has_creds,
     store_creds_in_slot, archive_flat_into_slot, hydrate_flat_from_slot,
@@ -158,11 +152,6 @@ DEFAULT_CONFIG = {
     "amount_mode": "fixed",
     "amount": 100,
     "amount_pct": 10,
-    "stop_loss_pct": 0.5,
-    "take_profit_pct": 1.5,
-    "trailing_roe_pct": 100.0,
-    "tp_mode": "fixed",
-    "breakeven_lock": True,
     "mode": "both",
     "auto_start": False,
     "telegram_enabled": False,
@@ -178,16 +167,13 @@ DEFAULT_CONFIG = {
     "whatsapp_phone": "",
     "whatsapp_apikey": "",
     "max_concurrent_trades": 3,
-    "reentry_cooldown_sec": 180,
-    "min_ema_spread": 0,
-    "fresh_window": 2,
 }
 
 
 def load_config() -> dict:
     # Try the live config first, then the last-good backup. A crash or power
     # cut mid-write used to leave a truncated config.json behind, which made
-    # the bot silently reset ALL dashboard settings (coins, leverage, SL,
+    # the bot silently reset ALL dashboard settings (coins, leverage,
     # exchange...) to defaults on the next start — the backup fixes that.
     for path in (CONFIG_FILE, CONFIG_FILE.with_suffix(".json.bak")):
         if not path.exists():
@@ -196,27 +182,11 @@ def load_config() -> dict:
             with open(path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             merged = {**DEFAULT_CONFIG, **cfg}
-            if cfg.get("tp_mode") == "both" and cfg.get("take_profit_pct") == 6 and cfg.get("stop_loss_pct") == 2:
-                merged["stop_loss_pct"] = 0.5
-                merged["take_profit_pct"] = 1.5
-                merged["tp_mode"] = "fixed"
-            else:
-                _lev_m = int(merged.get("leverage", 20) or 20)
-                _sl_m, _, _ = clamp_stop_loss(merged.get("stop_loss_pct", 0.5), _lev_m)
-                merged["stop_loss_pct"] = _sl_m
-                merged["take_profit_pct"] = clamp_take_profit(merged.get("take_profit_pct", 1.5))
-                merged["tp_mode"] = normalize_tp_mode(merged.get("tp_mode", "fixed"))
-            merged["breakeven_lock"] = normalize_breakeven_lock(merged.get("breakeven_lock"), default=True)
+            for _obsolete in ("stop_loss_pct", "take_profit_pct", "trailing_roe_pct",
+                              "tp_mode", "breakeven_lock", "reentry_cooldown_sec",
+                              "min_ema_spread", "fresh_window"):
+                merged.pop(_obsolete, None)
             merged["timeframe"] = normalize_timeframe(merged.get("timeframe", "15m"), default="15m")
-            merged["trailing_roe_pct"] = 100.0
-            try:
-                merged["min_ema_spread"] = max(0.0, min(5.0, float(merged.get("min_ema_spread", 0) or 0)))
-            except (ValueError, TypeError):
-                merged["min_ema_spread"] = 0.0
-            try:
-                merged["fresh_window"] = max(2, min(8, int(merged.get("fresh_window", 2) or 2)))
-            except (ValueError, TypeError):
-                merged["fresh_window"] = 2
             if bool(merged.get("testnet", True)):
                 merged["live_confirmed"] = False
             elif "live_confirmed" not in cfg:
@@ -402,14 +372,12 @@ def update_config():
 
     for k in ["exchange", "symbol", "symbols_list", "timeframe",
               "leverage", "amount", "amount_mode", "amount_pct",
-              "stop_loss_pct", "take_profit_pct", "trailing_roe_pct", "tp_mode", "breakeven_lock",
               "mode", "testnet", "auto_start",
               "telegram_enabled", "telegram_bot_token", "telegram_chat_id",
               "email_enabled", "email_smtp_server", "email_smtp_port",
               "email_sender", "email_password", "email_receiver",
               "whatsapp_enabled", "whatsapp_phone", "whatsapp_apikey", "max_concurrent_trades",
-              "reentry_cooldown_sec",
-              "min_ema_spread", "fresh_window", "live_confirmed"]:
+              "live_confirmed"]:
         if k in data:
             CONFIG[k] = data[k]
     if bool(CONFIG.get("testnet", True)):
@@ -470,21 +438,11 @@ def update_config():
     CONFIG["leverage"] = max(1, min(max_lev, int(CONFIG["leverage"])))
     CONFIG["amount"] = max(1, float(CONFIG["amount"]))
     CONFIG["amount_pct"] = max(1, min(100, float(CONFIG["amount_pct"])))
-    _sl_val, _sl_clamped, _max_safe = clamp_stop_loss(CONFIG.get("stop_loss_pct", 0.5), CONFIG["leverage"])
-    CONFIG["stop_loss_pct"] = _sl_val
-    CONFIG["take_profit_pct"] = clamp_take_profit(CONFIG.get("take_profit_pct", 1.5))
-    CONFIG["trailing_roe_pct"] = 100.0
-    CONFIG["tp_mode"] = normalize_tp_mode(CONFIG.get("tp_mode", "fixed"))
-    CONFIG["breakeven_lock"] = normalize_breakeven_lock(CONFIG.get("breakeven_lock"), default=True)
     CONFIG["timeframe"] = normalize_timeframe(CONFIG.get("timeframe", "15m"), default="15m")
-    if _sl_clamped:
-        try:
-            socketio.emit("log", {
-                "level": "warn",
-                "msg": f"🛡️ Liquidation SL Guard: {CONFIG['leverage']}x leverage par SL max {_max_safe:.2f}% (-80% ROE) par clamp kiya gaya taake 100% liquidation na ho."
-            })
-        except Exception:
-            pass
+    for _obsolete in ("stop_loss_pct", "take_profit_pct", "trailing_roe_pct",
+                      "tp_mode", "breakeven_lock", "reentry_cooldown_sec",
+                      "min_ema_spread", "fresh_window"):
+        CONFIG.pop(_obsolete, None)
     CONFIG["testnet"] = bool(CONFIG["testnet"])
     CONFIG["telegram_enabled"] = bool(CONFIG.get("telegram_enabled"))
     CONFIG["email_enabled"] = bool(CONFIG.get("email_enabled"))
@@ -502,31 +460,8 @@ def update_config():
         CONFIG["max_concurrent_trades"] = max(1, min(3, int(CONFIG.get("max_concurrent_trades", 3))))
     except (ValueError, TypeError):
         CONFIG["max_concurrent_trades"] = 3
-    # Same-coin re-entry cooldown (seconds) — blocks instant re-open after a close
-    try:
-        CONFIG["reentry_cooldown_sec"] = max(0, min(7200, int(float(CONFIG.get("reentry_cooldown_sec", 180)))))
-    except (ValueError, TypeError):
-        CONFIG["reentry_cooldown_sec"] = 180
     if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
         ENGINE.config["max_concurrent_trades"] = CONFIG["max_concurrent_trades"]
-        ENGINE.config["reentry_cooldown_sec"] = CONFIG["reentry_cooldown_sec"]
-
-    # Strategy tuning keys: 0 = auto per-symbol default (majors 0.15%, memes 0.20%)
-    try:
-        CONFIG["min_ema_spread"] = max(0.0, min(5.0, float(CONFIG.get("min_ema_spread", 0) or 0)))
-    except (ValueError, TypeError):
-        CONFIG["min_ema_spread"] = 0
-    try:
-        CONFIG["fresh_window"] = max(2, min(8, int(CONFIG.get("fresh_window", 2) or 2)))
-    except (ValueError, TypeError):
-        CONFIG["fresh_window"] = 2
-    if 'ENGINE' in globals() and hasattr(ENGINE, 'config'):
-        ENGINE.config["min_ema_spread"] = CONFIG["min_ema_spread"]
-        ENGINE.config["fresh_window"] = CONFIG["fresh_window"]
-        ENGINE.config["stop_loss_pct"] = CONFIG["stop_loss_pct"]
-        ENGINE.config["take_profit_pct"] = CONFIG["take_profit_pct"]
-        ENGINE.config["tp_mode"] = CONFIG["tp_mode"]
-        ENGINE.config["breakeven_lock"] = CONFIG["breakeven_lock"]
         ENGINE.config["timeframe"] = CONFIG["timeframe"]
 
     save_config(CONFIG)
@@ -713,21 +648,6 @@ def get_positions():
     for sym in symbols:
         try:
             pos = trader.get_position(sym)
-            worker = ENGINE.workers.get(sym)
-            tp_stage = worker.tp_stage if (worker and pos.side != "NONE") else 0
-            tp_price = worker.tp_price if (worker and pos.side != "NONE" and worker.tp_price) else 0.0
-            sl_price = worker.sl_price if (worker and pos.side != "NONE" and worker.sl_price) else 0.0
-            # Fallback calculation if position is open but software TP/SL was not yet cached
-            if pos.side != "NONE" and pos.entry_price and float(pos.entry_price) > 0:
-                ep = float(pos.entry_price)
-                if not tp_price:
-                    tp_pct = clamp_take_profit(CONFIG.get("take_profit_pct", 1.5))
-                    tp_price = round(ep * (1.0 + tp_pct / 100.0) if pos.side == "LONG" else ep * (1.0 - tp_pct / 100.0), 6)
-                if not sl_price:
-                    sl_pct = float(CONFIG.get("stop_loss_pct", 0.5) or 0.5)
-                    sl_price = round(ep * (1.0 - sl_pct / 100.0) if pos.side == "LONG" else ep * (1.0 + sl_pct / 100.0), 6)
-            tp_mode = worker.tp_mode if worker else normalize_tp_mode(CONFIG.get("tp_mode", "fixed"))
-            target_roe = getattr(worker, "target_roe_pct", 80.0) if worker else float(CONFIG.get("trailing_roe_pct", 80.0))
             positions.append({
                 "symbol": sym,
                 "side": pos.side,
@@ -736,11 +656,6 @@ def get_positions():
                 "mark_price": pos.mark_price,
                 "unrealized_pnl": pos.unrealized_pnl,
                 "leverage": pos.leverage,
-                "tp_stage": tp_stage,
-                "tp_price": tp_price,
-                "sl_price": sl_price,
-                "target_roe": target_roe,
-                "tp_mode": tp_mode,
             })
         except Exception as e:
             logger.warning("Failed to fetch position for %s: %s", sym, e)
@@ -821,24 +736,6 @@ def close_position():
             worker.expected_pos_side = None
             worker.position_side = None
             worker.entry_price = None
-            worker.entry_signal = None
-            worker.ema_reversal_tp_fired = False
-            worker.reversal_pending_side = None
-            worker.waiting_for_new_cross = True
-            worker.strategy.reset_cross_state()
-            worker.sl_price = None
-            worker.tp_price = None
-            worker.tp_stage = 0
-            worker.be_sl_set = False
-            worker.partial_tp_done = False
-
-        # Same-coin re-entry cooldown: manual close ke foran baad bot is coin
-        # pe dobara trade NAHI kholta (user complaint: "close karo to usi time
-        # ne khol deta hai same coin pe").
-        try:
-            ENGINE.set_reentry_cooldown(symbol, reason="manual close")
-        except Exception as ce:
-            logger.warning("Manual close cooldown set failed: %s", ce)
 
         # Emit position cleared event immediately to update UI
         socketio.emit("position", {
@@ -849,11 +746,6 @@ def close_position():
             "mark_price": pos.mark_price if pos else 0.0,
             "unrealized_pnl": 0.0,
             "leverage": 1,
-            "tp_stage": 0,
-            "tp_price": 0.0,
-            "sl_price": 0.0,
-            "target_roe": 100.0,
-            "tp_mode": normalize_tp_mode(CONFIG.get("tp_mode", "fixed")),
         })
 
     socketio.emit("log", {"level": "info", "msg": f"Manual close requested for {symbol}: {result}"})
@@ -928,22 +820,6 @@ def close_all_positions():
                         worker.expected_pos_side = None
                         worker.position_side = None
                         worker.entry_price = None
-                        worker.entry_signal = None
-                        worker.ema_reversal_tp_fired = False
-                        worker.reversal_pending_side = None
-                        worker.waiting_for_new_cross = True
-                        worker.strategy.reset_cross_state()
-                        worker.sl_price = None
-                        worker.tp_price = None
-                        worker.tp_stage = 0
-                        worker.be_sl_set = False
-                        worker.partial_tp_done = False
-
-                    # Same-coin re-entry cooldown after Close All too.
-                    try:
-                        ENGINE.set_reentry_cooldown(sym, reason="close all")
-                    except Exception as ce:
-                        logger.warning("Close-all cooldown set failed for %s: %s", sym, ce)
 
                     socketio.emit("position", {
                         "symbol": sym,
@@ -953,11 +829,6 @@ def close_all_positions():
                         "mark_price": pos.mark_price if pos else 0.0,
                         "unrealized_pnl": 0.0,
                         "leverage": 1,
-                        "tp_stage": 0,
-                        "tp_price": 0.0,
-                        "sl_price": 0.0,
-                        "target_roe": 100.0,
-                        "tp_mode": normalize_tp_mode(CONFIG.get("tp_mode", "fixed")),
                     })
         except Exception as e:
             results[sym] = {"success": False, "error": str(e)}

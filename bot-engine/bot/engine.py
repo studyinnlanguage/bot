@@ -1,34 +1,34 @@
 """
-Bot Engine - The brain that ties strategy + trader together.
+Bot Engine — Pure EMA (8, 13, 21, 55) + Pure EMA55 Reversal Execution.
 
-Runs in a background thread per symbol, polls klines on the configured interval,
-runs the strategy, and executes trades based on the signal.
+Runs one background worker thread per symbol across Binance (Mainnet/Testnet),
+WEEX (Mainnet/Demo), and PrimeXBT (Live/Demo).
 
-Supports:
-- Multi-symbol trading (parallel threads, one per coin)
-- Amount mode: 'fixed' USDT  OR  'percent' of wallet balance
-- Emits events via Flask-SocketIO for the UI to consume.
+Rules:
+- NO spread filter, NO 2-candle waiting, NO startup waiting, NO re-entry cooldown.
+- NO Stop Loss, NO Take Profit, NO Trailing, NO Breakeven Lock.
+- Entry:
+    * EMA55 at BOTTOM (< EMA 8, 13, 21) -> LONG
+    * EMA55 at TOP    (> EMA 8, 13, 21) -> SHORT
+- Exit & Reversal:
+    * LONG open & EMA55 flips to TOP    -> Close LONG & immediately open SHORT
+    * SHORT open & EMA55 flips to BOTTOM -> Close SHORT & immediately open LONG
+- Leverage & Wallet position sizing (Fixed USDT or % of Wallet Balance) preserved.
 """
 from __future__ import annotations
 
 import logging
+import math
+import re
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from .strategy import EMAQuadStrategy, Signal, StrategyResult
+from .strategy import EMAQuadStrategy, Signal
 from .trader import BinanceFuturesTrader
 from .notifier import Notifier
 from .history import TradeHistoryManager
-from .risk_config import (
-    clamp_stop_loss,
-    clamp_take_profit,
-    normalize_breakeven_lock,
-    normalize_timeframe,
-    normalize_tp_mode,
-    price_for_roe,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,6 @@ def get_trader(config: dict):
             passphrase=config.get("api_passphrase", ""),
             testnet=config.get("testnet", True),
         )
-    # Default: Binance
     return BinanceFuturesTrader(
         api_key=config["api_key"],
         api_secret=config["api_secret"],
@@ -56,7 +55,7 @@ def get_trader(config: dict):
 
 
 class SymbolWorker(threading.Thread):
-    """One worker per symbol. Runs strategy loop independently."""
+    """One worker per symbol. Runs pure EMA + pure EMA55 reversal loop."""
 
     def __init__(self, engine, symbol: str, config: dict, leverage_ready: threading.Event = None):
         super().__init__(daemon=True, name=f"worker-{symbol}")
@@ -67,244 +66,86 @@ class SymbolWorker(threading.Thread):
         self.last_signal = Signal.HOLD
         self.candles_processed = 0
         self.trades_today = 0
-        self.last_check = None  # set after first successful klines fetch (status() must never 500)
+        self.last_check = None
         self._last_trade_date = datetime.now(timezone.utc).date()
-        # STRICT RULE: On startup, must wait for a genuine FRESH crossover before trading
-        self.waiting_for_new_cross = True
-        self.partial_tp_done = False      # Partial 50% TP closed
-        # Track what position we THINK is open (for sync detection).
-        self.expected_pos_side = None
-        # ===== SOFTWARE SL/TP WATCHDOG STATE =====
-        # When a position is open, these store the SL/TP prices.
-        # Bot polls mark_price every tick and closes position if hit.
-        # This works on ALL exchanges (no exchange-specific order types needed).
-        self.sl_price = None       # Stop Loss price (None = no SL active)
-        self.tp_price = None       # Take Profit price (None = no fixed-TP active)
-        self.entry_price = None    # Entry price of current position
-        self.position_side = None  # "LONG" / "SHORT" / None
-        # ===== TP MODE STATE =====
-        # tp_mode controls how Take Profit triggers:
-        #   'fixed'        -> TP = entry +/- (SL% x 3)  [classic 1:3 RR]
-        #   'ema_reversal' -> TP when EMA55 flips to OPPOSITE extreme
-        #                     (LONG opened at EMA55 BOTTOM -> TP when EMA55 TOP)
-        #   'both'         -> whichever triggers FIRST (fixed price OR EMA flip)
-        # `entry_signal` remembers the signal that opened the current position
-        self.tp_mode = normalize_tp_mode(self.config.get("tp_mode", "fixed"))
-        self.tp_pct = clamp_take_profit(self.config.get("take_profit_pct", 1.5))
-        self.breakeven_lock = normalize_breakeven_lock(self.config.get("breakeven_lock"), default=True)
-        self.entry_signal = None          # Signal.BUY / Signal.SELL / None
-        self.ema_reversal_tp_fired = False  # one-shot guard per position
-        # Trailing TP / Breakeven SL state
-        self.tp_stage = 1                 # 1 = primary target, 2+ = trailing active
-        self.r_distance = 0.0
-        self.target_roe_pct = 100.0
-        self.initial_sl_price = None
-        self.peak_price = None
-        self.trail_active = False
-        self._last_exchange_sl_sync = 0.0
-        self._exchange_tp_cleaned = False # Guard to purge rogue fixed TP orders on startup
-        # After an EMA-reversal TP, we must re-enter the OPPOSITE side
-        # immediately — even if the exchange hasn't cleared the old position
-        # yet (API lag). This flag forces that re-entry on the next tick.
-        self.reversal_pending_side = None  # "LONG" / "SHORT" / None
-        self._last_df = None  # Cache last klines DataFrame for instant chart update
-        self._last_mark_price = None  # Cache last mark price
-        self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
-        # Adaptive spread filter (FAST ENTRY): 0.05% for high-beta meme coins, 0.03% for
-        # majors/alts. Old 0.15%/0.20% values delayed entries by 3-6 candles (entering at the
-        # top of pumps like $10.88 instead of $10.83) and caused 80%+ of crosses to expire
-        # past fresh_window=2 before spread opened!
-        # min_ema_spread <= 0 (or absent) = FAST AUTO per-symbol default below.
-        default_spread = 0.12 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.08
-        try:
-            cfg_spread = float(self.config.get("min_ema_spread", 0) or 0)
-        except (TypeError, ValueError):
-            cfg_spread = 0.0
-        min_spread = cfg_spread if cfg_spread > 0 else default_spread
-        # Fresh-cross lookback (closed candles, 2–8 configurable in Engine UI, default 2).
-        try:
-            fresh_window = max(2, min(8, int(self.config.get("fresh_window", 2) or 2)))
-        except (TypeError, ValueError):
-            fresh_window = 2
-        _sl_init, _, _ = clamp_stop_loss(
-            self.config.get("stop_loss_pct", 0.5),
-            int(self.config.get("leverage", 20) or 20),
-        )
-        self._last_sl_pct = _sl_init
-        self.strategy = EMAQuadStrategy(min_spread_pct=min_spread, fresh_window=fresh_window)
-        self._startup_seeded = False
-        self._reversal_armed_ts = 0.0
-        # Leverage readiness event — workers wait on this before trading
+
+        # Position tracking (pure EMA reversal — no SL/TP/trailing state)
+        self.expected_pos_side = None   # "LONG" / "SHORT" / None
+        self.position_side = None       # "LONG" / "SHORT" / None
+        self.entry_price = None
+        self.last_trade_side = None
+
+        self._last_df = None
+        self._last_mark_price = None
+        self.strategy = EMAQuadStrategy()
         self._leverage_ready = leverage_ready
-        # Settlement cooldown tracking to prevent race conditions on close & open
         self._last_close_timestamp = 0.0
         self._last_open_timestamp = 0.0
-        # Explicit lifecycle state for the dashboard:
-        # starting -> waiting_leverage -> running -> stopped | error:<msg>
         self.state = "starting"
 
-    def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
-        """Live-update strategy, SL/TP, TP mode, breakeven lock & timeframe on running worker."""
+    def update_config(self, cfg: dict):
+        """Live-update worker config (timeframe, leverage, sizing, mode)."""
         self.config = cfg
-        default_spread = 0.12 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.08
-        try:
-            cfg_spread = float(cfg.get("min_ema_spread", 0) or 0)
-        except (TypeError, ValueError):
-            cfg_spread = 0.0
-        new_spread = cfg_spread if cfg_spread > 0 else default_spread
-        try:
-            new_fw = max(2, min(8, int(cfg.get("fresh_window", 2) or 2)))
-        except (TypeError, ValueError):
-            new_fw = 2
-        new_lev = max(1, int(cfg.get("leverage", 20) or 20))
-        new_sl, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), new_lev)
-        new_tp = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
-        new_mode = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
-        new_be = normalize_breakeven_lock(cfg.get("breakeven_lock"), default=True)
-        prev_sl = getattr(self, "_last_sl_pct", new_sl)
-        prev_tp = getattr(self, "tp_pct", new_tp)
-        changed = (
-            (self.strategy.fresh_window != new_fw)
-            or (abs(self.strategy.min_spread_pct - new_spread) > 1e-6)
-            or (abs(prev_sl - new_sl) > 1e-6)
-            or (abs(prev_tp - new_tp) > 1e-6)
-            or (self.tp_mode != new_mode)
-            or (self.breakeven_lock != new_be)
-        )
-        self.strategy.min_spread_pct = new_spread
-        self.strategy.fresh_window = new_fw
-        self._last_sl_pct = new_sl
-        self.tp_pct = new_tp
-        self.tp_mode = new_mode
-        self.breakeven_lock = new_be
-        return changed, new_fw, new_spread
 
     def _get_effective_leverage(self, symbol: str) -> int:
-        """Get the true active leverage for this symbol from config (or active open position)."""
-        cfg_lev = max(1, int(self.config.get("leverage", 75)))
+        """Get active leverage for this symbol from open position or config."""
+        cfg_lev = max(1, int(self.config.get("leverage", 20) or 20))
         try:
             trader = self.engine.trader or self.engine.monitor_trader
             if trader:
                 pos = trader.get_position(symbol)
-                # Only use exchange position leverage if there is an ACTUAL OPEN POSITION!
                 if pos and pos.side != "NONE" and pos.size != 0 and pos.leverage and int(pos.leverage) > 1:
                     return int(pos.leverage)
         except Exception:
             pass
         return cfg_lev
 
-    def _update_exchange_sl(self, side: str, new_sl: float, qty: float):
-        """Update exchange stop loss order (and re-attach fixed TP if active so cancel_open_orders never drops TP)."""
-        try:
-            trader = self.engine.trader or self.engine.monitor_trader
-            if trader and hasattr(trader, "cancel_open_orders") and hasattr(trader, "place_stop_loss"):
-                trader.cancel_open_orders(self.symbol)
-                close_side = "SELL" if side == "LONG" else "BUY"
-                resp = trader.place_stop_loss(self.symbol, close_side, new_sl, qty)
-                should_place_tp = bool(
-                    self.tp_price and self.tp_price > 0 and (
-                        self.tp_mode == "fixed"
-                        or (self.tp_mode == "trailing" and int(getattr(self, "tp_stage", 0) or 0) >= 2)
-                    )
-                )
-                if should_place_tp and hasattr(trader, "place_take_profit"):
-                    try:
-                        trader.place_take_profit(self.symbol, close_side, self.tp_price, qty)
-                    except Exception:
-                        pass
-                self._last_exchange_sl_sync = time.time()
-                logger.info(f"[{self.symbol}] Exchange SL updated to {new_sl} ({close_side} {qty}): {resp}")
-        except Exception as e:
-            logger.warning(f"[{self.symbol}] Exchange SL sync notice: {e} (software watchdog remains active)")
-
     def run(self):
-        poll_seconds = BotEngine._poll_seconds(self.config["timeframe"])
+        poll_seconds = BotEngine._poll_seconds(self.config.get("timeframe", "15m"))
         self.engine._emit("log", {
             "level": "info",
-            "msg": f"[{self.symbol}] Worker started. Polling every {poll_seconds}s."
+            "msg": f"[{self.symbol}] Worker started (Pure EMA + Reversal). Polling every {poll_seconds}s."
         })
-        # Wait for leverage to be set before starting the main loop
         if self._leverage_ready is not None:
             self.state = "waiting_leverage"
-            self.engine._emit("log", {
-                "level": "info",
-                "msg": f"[{self.symbol}] Waiting for leverage to be configured..."
-            })
             self._leverage_ready.wait(timeout=30)
             if not self._leverage_ready.is_set():
                 self.engine._emit("log", {
                     "level": "warn",
-                    "msg": f"[{self.symbol}] Leverage setup timed out (30s). Proceeding with default leverage."
+                    "msg": f"[{self.symbol}] Leverage setup timed out (30s). Proceeding with configured leverage."
                 })
         self.state = "running"
+
+        # Pre-fetch chart data immediately for active symbol (NO startup waiting/blocking)
         try:
-            # Pre-seed: fetch klines once to set strategy state
             df = self.engine.trader.get_klines(self.symbol, interval=self.config["timeframe"], limit=200)
             self._last_df = df
             self.engine.set_connection_state("market_data", "ok")
-            if df is not None and len(df) >= 60:
-                seed_result = self.strategy.analyze(df)
-                if seed_result:
-                    # STRICT RULE: Seed startup state so bot NEVER enters on startup without a fresh crossover!
-                    self.strategy.seed_startup_state(seed_result.signal)
-                    self._startup_seeded = True
-                    self.waiting_for_new_cross = True
-                    self.last_signal = seed_result.signal
-                    self.engine._emit("signal", {
-                        "symbol": self.symbol,
-                        "signal": seed_result.signal.value,
-                        "reason": seed_result.reason,
-                        "emas": {"ema_8": seed_result.ema_8, "ema_13": seed_result.ema_13,
-                                 "ema_21": seed_result.ema_21, "ema_55": seed_result.ema_55},
-                        "just_crossed": False,
-                    })
-                    self.engine._emit("log", {
-                        "level": "info",
-                        "msg": (f"[{self.symbol}] Startup: signal={seed_result.signal.value} "
-                                f"({seed_result.reason}). Waiting for a genuine FRESH crossover before taking any trade.")
-                    })
-                    # Emit chart data immediately for active symbol
-                    if self.engine.active_symbol == self.symbol:
-                        self.engine._emit("chart_data", {
-                            "symbol": self.symbol,
-                            "candles": self._candles_to_list(df),
-                            "emas": self._emas_to_list(df),
-                        })
-                        indicators = self.strategy.latest_indicators(df)
-                        try:
-                            mp = self.engine.trader.get_mark_price(self.symbol)
-                        except Exception:
-                            mp = float(df.iloc[-1]["close"])
-                        self.engine._emit("indicators", {
-                            "symbol": self.symbol,
-                            **indicators,
-                            "mark_price": mp,
-                        })
-                        self.engine._emit("log", {
-                            "level": "success",
-                            "msg": f"[{self.symbol}] ✅ Chart data sent ({len(df)} candles)"
-                        })
-            else:
-                self.engine._emit("log", {
-                    "level": "warn",
-                    "msg": f"[{self.symbol}] Not enough candles ({len(df) if df is not None else 0}). Need 60+."
+            if df is not None and len(df) >= 60 and self.engine.active_symbol == self.symbol:
+                self.engine._emit("chart_data", {
+                    "symbol": self.symbol,
+                    "candles": self._candles_to_list(df),
+                    "emas": self._emas_to_list(df),
+                })
+                indicators = self.strategy.latest_indicators(df)
+                try:
+                    mp = self.engine.trader.get_mark_price(self.symbol)
+                except Exception:
+                    mp = float(df.iloc[-1]["close"])
+                self.engine._emit("indicators", {
+                    "symbol": self.symbol,
+                    **indicators,
+                    "mark_price": mp,
                 })
         except Exception as e:
             err_msg = str(e)
-            logger.error(f"[{self.symbol}] Pre-seed FAILED: {err_msg}")
-            is_network_err = any(x in err_msg.lower() for x in ["timeout", "timed out", "connection", "network", "ssl", "max retries"])
-            if is_network_err:
+            logger.error(f"[{self.symbol}] Initial klines fetch failed: {err_msg}")
+            if any(x in err_msg.lower() for x in ["timeout", "timed out", "connection", "network", "ssl", "max retries"]):
                 self.engine.set_connection_state("market_data", "failed")
-            is_invalid_sym = any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"])
-            if is_invalid_sym:
+            if any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"]):
                 self.engine._emit("log", {
                     "level": "warn",
                     "msg": f"[{self.symbol}] ⚠️ Symbol not supported on current exchange environment. Skipping."
-                })
-            else:
-                self.engine._emit("log", {
-                    "level": "error",
-                    "msg": f"[{self.symbol}] Pre-seed failed: {err_msg[:100]}"
                 })
 
         while not self.stop_event.is_set():
@@ -336,30 +177,23 @@ class SymbolWorker(threading.Thread):
         symbol = self.symbol
         timeframe = cfg["timeframe"]
 
-        # Safety: if trader is None (after force stop), skip tick
         if self.engine.trader is None:
             return
 
-        # ===== RESET trades_today AT MIDNIGHT UTC =====
+        # Reset trades_today at midnight UTC
         today = datetime.now(timezone.utc).date()
         if today != self._last_trade_date:
-            if self.trades_today > 0:
-                self.engine._emit("log", {
-                    "level": "info",
-                    "msg": f"[{symbol}] 📅 New UTC day — trades_today reset from {self.trades_today} to 0"
-                })
             self.trades_today = 0
             self._last_trade_date = today
 
-        # 1. Fetch klines (with auto-retry inside trader)
+        # 1. Fetch klines
         try:
             df = self.engine.trader.get_klines(symbol, interval=timeframe, limit=200)
-            self._last_df = df  # Cache for instant chart update
+            self._last_df = df
         except Exception as e:
             err_msg = str(e)
-            logger.error(f"[{symbol}] Failed to fetch klines after retries: {err_msg}")
-            is_invalid_sym = any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"])
-            if is_invalid_sym:
+            logger.error(f"[{symbol}] Failed to fetch klines: {err_msg}")
+            if any(x in err_msg.lower() for x in ["-1121", "invalid symbol", "symbol not supported", "unknown symbol"]):
                 if not hasattr(self, "_warned_invalid_sym"):
                     self._warned_invalid_sym = set()
                 if symbol not in self._warned_invalid_sym:
@@ -369,35 +203,31 @@ class SymbolWorker(threading.Thread):
                         "msg": f"[{symbol}] ⚠️ Symbol not supported on current exchange environment. Skipping."
                     })
                 return
-            is_rate_limit = any(x in err_msg.lower() for x in ["418", "429", "-1003", "too many requests", "banned"])
-            if is_rate_limit:
+            if any(x in err_msg.lower() for x in ["418", "429", "-1003", "too many requests", "banned"]):
                 self.engine._emit("log", {
                     "level": "warn",
-                    "msg": f"[{symbol}] ⚠️ Binance rate limit / IP temporary ban hit. Pausing requests for 60s to let limit clear..."
+                    "msg": f"[{symbol}] ⚠️ Exchange rate limit hit. Pausing requests for 60s..."
                 })
                 for _ in range(60):
                     if self.stop_event.is_set() or not self.engine.is_running:
                         break
                     time.sleep(1)
                 return
-            # Don't spam logs every tick - only log every 12th tick (~1 min)
             if self.candles_processed % 12 == 0:
                 self.engine._emit("log", {
                     "level": "error",
-                    "msg": f"[{symbol}] Klines fetch fail: {err_msg[:100]}. Chart empty - API error."
+                    "msg": f"[{symbol}] Klines fetch fail: {err_msg[:100]}"
                 })
-            # Try to use cached df if available
             if self._last_df is not None:
                 df = self._last_df
             else:
-                return  # No cached data, skip this tick
+                return
 
         self.candles_processed += 1
         self.last_check = datetime.now(timezone.utc).isoformat()
 
-        # 2. Compute indicators
+        # 2. Compute indicators & mark price
         indicators = self.strategy.latest_indicators(df)
-        # Get mark price - use close price as fallback (mark price API may fail)
         try:
             mark_price = self.engine.trader.get_mark_price(symbol)
             if mark_price is None or mark_price <= 0:
@@ -405,9 +235,9 @@ class SymbolWorker(threading.Thread):
             self._last_mark_price = mark_price
         except Exception as e:
             logger.warning(f"[{symbol}] mark_price fetch failed: {e}, using close price")
-            mark_price = self._last_mark_price or float(df.iloc[-1]["close"]) if df is not None and len(df) else 0.0
+            mark_price = self._last_mark_price or (float(df.iloc[-1]["close"]) if df is not None and len(df) else 0.0)
 
-        # 3. Push indicator update (ALWAYS for active symbol, even if bot just started)
+        # 3. Emit indicators & chart data for active symbol
         is_active = (self.engine.active_symbol == symbol or self.engine.active_symbol is None)
         if is_active:
             self.engine._emit("indicators", {
@@ -415,9 +245,6 @@ class SymbolWorker(threading.Thread):
                 **indicators,
                 "mark_price": mark_price,
             })
-
-        # 4. Push chart data for the active/selected coin (EVERY TICK = live update)
-        if is_active:
             candles = self._candles_to_list(df)
             emas = self._emas_to_list(df)
             if candles:
@@ -427,240 +254,68 @@ class SymbolWorker(threading.Thread):
                     "emas": emas,
                 })
 
-        # 5. Position update
+        # 4. Query exchange position
         try:
             pos = self.engine.trader.get_position(symbol)
         except Exception as e:
             logger.warning(f"[{symbol}] get_position failed: {e}")
+
             class DefaultPos:
-                side = "NONE"; size = 0; entry_price = 0; mark_price = mark_price if 'mark_price' in dir() else 0.0
-                unrealized_pnl = 0; leverage = 1
+                side = "NONE"
+                size = 0.0
+                entry_price = 0.0
+                mark_price = mark_price
+                unrealized_pnl = 0.0
+                leverage = 1
+
             pos = DefaultPos()
 
-        # 5.5 Strategy analysis — done EARLY (before SL/TP check) so we can
-        # detect EMA55 reversal-style TP triggers. `result` is reused below
-        # for entry logic too (no second analyze() call — strategy has state).
+        actual_side = pos.side if (pos.side in ("LONG", "SHORT") and abs(pos.size) > 0) else "NONE"
+        effective_lev = (
+            int(pos.leverage)
+            if (actual_side != "NONE" and pos.leverage and int(pos.leverage) > 1)
+            else self._get_effective_leverage(symbol)
+        )
+
+        # 5. Pure EMA analysis
         result = self.strategy.analyze(df)
         if result is None:
-            self.engine._emit("log", {
-                "level": "warn",
-                "msg": f"[{symbol}] Not enough data yet (need >= {self.strategy.ema_long + 5} candles)."
-            })
-            # Still emit position so UI stays in sync
-            effective_lev = pos.leverage if (pos.side != "NONE" and pos.size != 0 and pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
             self.engine._emit("position", {
                 "symbol": symbol,
-                "side": pos.side,
+                "side": actual_side,
                 "size": pos.size,
                 "entry_price": pos.entry_price,
-                "mark_price": pos.mark_price,
+                "mark_price": pos.mark_price if pos.mark_price > 0 else mark_price,
                 "unrealized_pnl": pos.unrealized_pnl,
                 "leverage": effective_lev,
-                "tp_stage": self.tp_stage if pos.side != "NONE" else 0,
-                "tp_price": self.tp_price if (pos.side != "NONE" and self.tp_price) else 0.0,
-                "sl_price": self.sl_price if (pos.side != "NONE" and self.sl_price) else 0.0,
-                "target_roe": getattr(self, "target_roe_pct", 100.0),
-                "tp_mode": self.tp_mode,
             })
             return
 
-        if not getattr(self, "_startup_seeded", False):
-            # Fallback startup guard if initial pre-seed timed out on boot:
-            # lock all pre-startup crosses before any trade logic runs.
-            self.strategy.seed_startup_state(result.signal)
-            self._startup_seeded = True
-            self.waiting_for_new_cross = True
-            self.last_signal = result.signal
-            result.just_crossed = False
-
         signal = result.signal
         e8, e13, e21, e55 = result.ema_8, result.ema_13, result.ema_21, result.ema_55
+        self.last_signal = signal
 
-        # ===== SOFTWARE SL/TP WATCHDOG CHECK =====
-        # Check if SL or TP has been hit BEFORE doing anything else.
-        # This runs on every tick (5s) - fast enough to catch price moves.
-        # Pass `result` so we can detect EMA55-reversal TP (signal flipped
-        # to the OPPOSITE of the entry signal).
-        if pos.side != "NONE" and pos.size != 0 and pos.mark_price > 0:
-            # ===== Position monitor log every ~30s =====
-            if self.candles_processed % 6 == 0:
-                entry_sig_str = self.entry_signal.value if self.entry_signal else "N/A"
-                cur_sig_str = result.signal.value
-                sl_fmt = f"{self.sl_price:.4f}" if self.sl_price else "0.0"
-                tp_fmt = f"{self.tp_price:.4f}" if self.tp_price else "0.0"
-                entry_val = self.entry_price or pos.entry_price or 0.0
-                _sl_m, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), int(cfg.get("leverage", 20) or 20))
-                _tp_m = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
-                _mode_m = normalize_tp_mode(cfg.get("tp_mode", "fixed")).upper()
-                self.engine._emit("log", {
-                    "level": "info",
-                    "msg": (f"[{symbol}] 📊 Position monitor | "
-                            f"Pos={pos.side} (entry_sig={entry_sig_str}) | "
-                            f"Current signal={cur_sig_str} | "
-                            f"Mark={pos.mark_price:.4f} Entry={entry_val:.4f} | "
-                            f"SL={sl_fmt} TP={tp_fmt} | "
-                            f"TP {_tp_m:.2f}% ({_mode_m}) / SL {_sl_m:.2f}% & Auto-Reversal Active")
-                })
+        self.engine._emit("signal", {
+            "symbol": symbol,
+            "signal": signal.value,
+            "reason": result.reason,
+            "emas": {"ema_8": e8, "ema_13": e13, "ema_21": e21, "ema_55": e55},
+        })
 
-            sl_hit, tp_hit, reason = self._check_software_sl_tp(pos, result)
-            if sl_hit or tp_hit:
-                # Detect EMA-reversal TP (reason contains "EMA55")
-                is_ema_reversal_tp = (tp_hit and "EMA55" in reason)
-                tp_kind = "EMA-REVERSAL" if is_ema_reversal_tp else "FIXED"
-                self.engine._emit("log", {
-                    "level": "warn",
-                    "msg": f"[{symbol}] ⚡ {reason} -> closing position @ {pos.mark_price:.4f}"
-                })
-                # Calculate PnL
-                entry = self.entry_price or pos.entry_price
-                if pos.side == "LONG":
-                    pnl_pct = (pos.mark_price - entry) / entry * 100 if entry > 0 else 0
-                else:
-                    pnl_pct = (entry - pos.mark_price) / entry * 100 if entry > 0 else 0
-                close_side_label = pos.side
-                # Close position
-                close = self.engine.trader.close_position(symbol)
-                # Verify if position is already flat on exchange before emitting log
-                if not close.get("success"):
-                    try:
-                        latest_p = self.engine.trader.get_position(symbol)
-                        if latest_p.side == "NONE" or abs(latest_p.size) <= 0:
-                            close = {"success": True, "message": "Position verified closed on exchange"}
-                    except Exception:
-                        pass
-                self._log_order(close, f"[{symbol}] {reason}")
-
-                if close.get("success"):
-                    self._last_close_timestamp = time.time()
-                    self.trades_today += 1
-                    # Record close in Trade History!
-                    try:
-                        trade_qty = abs(pos.size) if (pos and pos.size) else 0.0
-                        trade_lev = pos.leverage if (pos and pos.leverage and pos.leverage > 1) else self._get_effective_leverage(symbol)
-                        trade_margin = (entry * trade_qty) / trade_lev if (trade_lev > 0 and entry > 0 and trade_qty > 0) else 0.0
-                        if close_side_label == "LONG":
-                            calc_pnl = (pos.mark_price - entry) * trade_qty
-                        else:
-                            calc_pnl = (entry - pos.mark_price) * trade_qty
-                        calc_roe = (calc_pnl / trade_margin * 100.0) if trade_margin > 0 else 0.0
-                        calc_fees = (entry + pos.mark_price) * trade_qty * 0.0006
-                        self.engine.history.record_close(
-                            symbol=symbol,
-                            exit_price=pos.mark_price,
-                            reason=reason,
-                            pnl=calc_pnl,
-                            roe_pct=calc_roe,
-                            fee_est=calc_fees,
-                            leverage=trade_lev,
-                            qty=trade_qty,
-                        )
-                        self.engine._emit("trades_updated", {
-                            "trades": self.engine.history.get_trades(limit=50),
-                            "stats": self.engine.history.get_stats(),
-                        })
-                    except Exception as he:
-                        logger.error("Failed to record trade close in history: %s", he)
-
-                    # Cancel any open orders on exchange
-                    try:
-                        if hasattr(self.engine.trader, "cancel_open_orders"):
-                            self.engine.trader.cancel_open_orders(symbol)
-                    except Exception:
-                        pass
-                    # Reset SL/TP state
-                    self.sl_price = None
-                    self.tp_price = None
-                    self.entry_price = None
-                    self.position_side = None
-                    self.entry_signal = None
-                    self.ema_reversal_tp_fired = False
-                    self.expected_pos_side = None
-                    self.be_sl_set = False
-                    self.partial_tp_done = False
-                    self.trail_active = False
-                    self.peak_price = None
-                    self.tp_stage = 1
-                    self.r_distance = 0.0
-                    self.initial_sl_price = None
-                    # ===== REVERSAL / EXIT LOGIC =====
-                    # Position exit complete. For NORMAL exits always require a confirmed
-                    # fresh crossover before the next entry (anti-whipsaw protection).
-                    self.waiting_for_new_cross = True
-                    self.reversal_pending_side = None
-                    if is_ema_reversal_tp:
-                        self.strategy.reset_for_reversal()
-                        # Immediate opposite-side flip ONLY if slot is available on next tick
-                        # (expires within 60s; never sits queued waiting for other coins).
-                        self.reversal_pending_side = "SHORT" if close_side_label == "LONG" else "LONG"
-                        self._reversal_armed_ts = time.time()
-                        self.waiting_for_new_cross = False
-                        self.engine._emit("log", {
-                            "level": "info",
-                            "msg": (f"[{symbol}] 🔄 EMA55 REVERSAL exit processed. "
-                                    f"Position closed @ {pos.mark_price:.4f}. "
-                                    f"Re-entering {self.reversal_pending_side} on next tick if the "
-                                    f"opposite signal is still active.")
-                        })
-                    else:
-                        # ===== SAME-COIN RE-ENTRY COOLDOWN =====
-                        # Block an instant re-open of this coin after normal SL/TP exit.
-                        try:
-                            self.engine.set_reentry_cooldown(symbol, reason=f"exit: {reason}")
-                        except Exception as ce:
-                            logger.warning("Re-entry cooldown set failed: %s", ce)
-                        self.strategy.reset_cross_state()
-                    # Notification
-                    try:
-                        if sl_hit:
-                            self.engine.notifier.notify_sl(
-                                symbol, close_side_label, entry, pos.mark_price, pnl_pct
-                            )
-                        elif tp_hit:
-                            self.engine.notifier.notify_tp(
-                                symbol, close_side_label, entry, pos.mark_price, pnl_pct,
-                                {"ema_8": e8, "ema_13": e13,
-                                 "ema_21": e21, "ema_55": e55}
-                            )
-                    except Exception as e:
-                        logger.error("SL/TP notification failed: %s", e)
-                else:
-                    logger.warning("[%s] Close order did not succeed: %s. Resetting one-shot flags to allow retry.", symbol, close)
-                    if is_ema_reversal_tp:
-                        self.ema_reversal_tp_fired = False
-
-                # Position closed or exit attempted - emit signal for UI and return
-                self.engine._emit("signal", {
-                    "symbol": symbol,
-                    "signal": result.signal.value,
-                    "reason": result.reason,
-                    "emas": {"ema_8": e8, "ema_13": e13,
-                             "ema_21": e21, "ema_55": e55},
-                })
-                return
-
-        # ===== POSITION SYNC CHECK =====
-        actual_side = pos.side if (pos.side in ("LONG", "SHORT") and pos.size != 0) else "NONE"
-        is_settling = (time.time() - getattr(self, "_last_close_timestamp", 0.0) < 20.0) or \
-                      (time.time() - getattr(self, "_last_open_timestamp", 0.0) < 25.0)
+        # 6. Sync external opens/closes cleanly (no SL/TP, no cooldown)
+        is_settling = (
+            (time.time() - getattr(self, "_last_close_timestamp", 0.0) < 12.0)
+            or (time.time() - getattr(self, "_last_open_timestamp", 0.0) < 15.0)
+        )
         if not is_settling and actual_side != self.expected_pos_side:
             if self.expected_pos_side is not None and actual_side == "NONE":
-                # Bot expected a position but it's gone on exchange (TP hit, SL hit, or cancelled)
-                mp = 0.0
-                try:
-                    mp = float(self.engine.trader.get_mark_price(symbol) or 0.0)
-                except Exception:
-                    pass
-                if mp <= 0:
-                    mp = float(self.entry_price or 0.0)
-
-                # Fetch active open trade if exists in history to compute real PnL & leverage
+                mp = mark_price if mark_price > 0 else float(self.entry_price or 0.0)
                 open_trade = None
                 for t in self.engine.history.trades:
                     if t.get("symbol") == symbol.upper() and t.get("status") == "OPEN":
                         open_trade = t
                         break
-
-                trade_lev = self._get_effective_leverage(symbol)
+                trade_lev = effective_lev
                 trade_qty = 0.0
                 calc_pnl = 0.0
                 calc_roe = 0.0
@@ -673,24 +328,11 @@ class SymbolWorker(threading.Thread):
                     t_margin = float(open_trade.get("margin") or 0.0)
                     if t_margin <= 0 and t_entry > 0 and trade_qty > 0:
                         t_margin = (t_entry * trade_qty) / trade_lev
-                    if t_side == "LONG":
-                        calc_pnl = (mp - t_entry) * trade_qty
-                    else:
-                        calc_pnl = (t_entry - mp) * trade_qty
+                    calc_pnl = (mp - t_entry) * trade_qty if t_side == "LONG" else (t_entry - mp) * trade_qty
                     calc_roe = (calc_pnl / t_margin * 100.0) if t_margin > 0 else 0.0
                     calc_fees = (t_entry + mp) * trade_qty * 0.0006
 
-                # Accurately classify external exit reason
-                open_duration = time.time() - getattr(self, "_last_open_timestamp", 0.0)
-                if abs(calc_pnl) < 0.01 and open_duration < 45.0:
-                    ext_reason = "⚠️ Unfilled Order Cancelled / Expired"
-                elif calc_pnl > 0:
-                    ext_reason = f"🎯 Exchange TP Hit (+${calc_pnl:.2f})"
-                elif calc_pnl < 0:
-                    ext_reason = f"🛡️ Exchange SL Hit (-${abs(calc_pnl):.2f})"
-                else:
-                    ext_reason = "👤 Manual Close (Exchange Exit)"
-
+                ext_reason = "👤 Manual / External Close (Exchange Exit)"
                 if self.engine.history.has_open_trade(symbol):
                     try:
                         self.engine.history.record_close(
@@ -712,348 +354,193 @@ class SymbolWorker(threading.Thread):
 
                 self.engine._emit("log", {
                     "level": "warn",
-                    "msg": (f"[{symbol}] ⚠️ External position close detected: {ext_reason}. "
-                            f"Bot expected {self.expected_pos_side} but found NONE. "
-                            f"Waiting for NEW cross before next trade.")
+                    "msg": f"[{symbol}] ⚠️ External position close detected ({ext_reason})."
                 })
                 self.expected_pos_side = None
                 self.position_side = None
                 self.entry_price = None
-                self.waiting_for_new_cross = True  # Strict mode: must wait for fresh cross
-                self.strategy.reset_cross_state()
-                self._exchange_tp_cleaned = False
-                self.sl_price = None
-                self.tp_price = None
-                self.tp_stage = 0
-                # Same-coin re-entry cooldown after an external/manual close.
-                try:
-                    self.engine.set_reentry_cooldown(symbol, reason="external close detected")
-                except Exception as ce:
-                    logger.warning("Re-entry cooldown set failed: %s", ce)
-                try:
-                    if hasattr(self.engine.trader, "cancel_open_orders"):
-                        self.engine.trader.cancel_open_orders(symbol)
-                except Exception:
-                    pass
-            elif actual_side != "NONE" and self.expected_pos_side != actual_side and self.reversal_pending_side is None:
-                # Genuine position opened externally or on startup
-                self.engine._emit("log", {
-                    "level": "warn",
-                    "msg": (f"[{symbol}] ⚠️ External trade detected! "
-                            f"Bot expected {self.expected_pos_side or 'NONE'} but found {actual_side}. "
-                            f"Syncing state to {actual_side}.")
-                })
+            elif actual_side != "NONE" and self.expected_pos_side != actual_side:
                 self.expected_pos_side = actual_side
+                self.position_side = actual_side
+                self.entry_price = pos.entry_price or mark_price
                 if not self.engine.history.has_open_trade(symbol):
                     try:
-                        lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
                         self.engine.history.record_open(
                             symbol=symbol,
                             side=actual_side,
-                            entry_price=pos.entry_price or pos.mark_price,
+                            entry_price=self.entry_price,
                             qty=abs(pos.size),
-                            leverage=lev,
-                            initial_sl=self.sl_price,
-                            initial_tp=self.tp_price,
+                            leverage=effective_lev,
+                            initial_sl=None,
+                            initial_tp=None,
                         )
                         self.engine._emit("trades_updated", {
                             "trades": self.engine.history.get_trades(limit=50),
                             "stats": self.engine.history.get_stats(),
                         })
                     except Exception as he:
-                        logger.error("Failed to auto-register existing position in history: %s", he)
-                try:
-                    self.engine.notifier.send(
-                        f"⚠️ External Trade Detected - {symbol}",
-                        f"Position changed externally!\n\n"
-                        f"Symbol: {symbol}\n"
-                        f"Bot expected: {self.expected_pos_side or 'NONE'}\n"
-                        f"Actual: {actual_side}\n"
-                        f"Size: {pos.size}\n\n"
-                        f"Bot state synced."
-                    )
-                except Exception as e:
-                    logger.error("External trade notification failed: %s", e)
+                        logger.error("Failed to register existing position in history: %s", he)
 
-        # ===== AUTO-RESTORE / MIGRATE SL/TP FOR ACTIVE POSITION =====
-        # If there's an open position:
-        # 1. Enforce pure 'trailing' mode (migrate any legacy 'both' / 'fixed' modes)
-        # 2. Purge any unscaled 6% / 750% ROI fixed TP orders from Binance
-        # 3. Establish true 1:1 symmetrical trailing SL/TP
-        if actual_side != "NONE" and self.reversal_pending_side is None:
-            entry = pos.entry_price
-            needs_init = (self.sl_price is None or self.tp_price is None)
+        # If an order was just submitted and exchange position hasn't propagated yet, wait briefly
+        if is_settling and self.expected_pos_side is not None and actual_side == "NONE":
+            return
 
-            if entry > 0 and needs_init:
-                _pos_lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
-                sl_pct_val, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), int(_pos_lev or 20))
-                tp_pct_val = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
-                tp_mode_val = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
-                inferred_entry_signal = Signal.BUY if actual_side == "LONG" else Signal.SELL
-                self._set_software_sl_tp(
-                    symbol, actual_side, entry, sl_pct_val, tp_pct_val,
-                    tp_mode=tp_mode_val,
-                    entry_signal=inferred_entry_signal,
-                    actual_leverage=_pos_lev,
-                )
-                # Auto-register in trade history if not already open
-                if not self.engine.history.has_open_trade(symbol) and abs(pos.size) > 0:
-                    try:
-                        lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
-                        self.engine.history.record_open(
-                            symbol=symbol,
-                            side=actual_side,
-                            entry_price=entry,
-                            qty=abs(pos.size),
-                            leverage=lev,
-                            initial_sl=self.sl_price,
-                            initial_tp=self.tp_price if tp_mode_val == "fixed" else None,
-                        )
-                    except Exception as he:
-                        logger.error("Failed to auto-register restored trade in history: %s", he)
+        # Keep local side synced with active exchange position
+        if actual_side != "NONE":
+            self.position_side = actual_side
+            self.expected_pos_side = actual_side
+            if pos.entry_price and pos.entry_price > 0:
+                self.entry_price = pos.entry_price
 
-                # Sync SL (+ fixed TP automatically via _update_exchange_sl when tp_mode=='fixed')
-                if self.sl_price and self.sl_price > 0:
-                    self._update_exchange_sl(actual_side, self.sl_price, abs(pos.size))
-                self._exchange_tp_cleaned = True
-                tp_log = f"TP=+{tp_pct_val:.2f}% ({tp_mode_val.upper()} / +{self.target_roe_pct:.0f}% ROE target=${self.tp_price:.4f})"
-                self.engine._emit("log", {
-                    "level": "warn",
-                    "msg": (f"[{symbol}] ⚠️ AUTO-RESTORED SL/TP for {actual_side} position | "
-                            f"Entry={entry:.4f} | SL={self.sl_price:.4f} | {tp_log} | "
-                            f"Lev={self._get_effective_leverage(symbol)}x")
-                })
-            elif not getattr(self, "_exchange_tp_cleaned", False) and self.tp_mode == "trailing":
-                # Ensure rogue exchange TP orders are purged once on active position
-                if self.sl_price and self.sl_price > 0:
-                    self._update_exchange_sl(actual_side, self.sl_price, abs(pos.size))
-                self._exchange_tp_cleaned = True
-
-        effective_lev = pos.leverage if (pos.side != "NONE" and pos.size != 0 and pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
         self.engine._emit("position", {
             "symbol": symbol,
-            "side": pos.side,
+            "side": actual_side,
             "size": pos.size,
             "entry_price": pos.entry_price,
-            "mark_price": pos.mark_price,
+            "mark_price": pos.mark_price if pos.mark_price > 0 else mark_price,
             "unrealized_pnl": pos.unrealized_pnl,
             "leverage": effective_lev,
-            "tp_stage": self.tp_stage if pos.side != "NONE" else 0,
-            "tp_price": self.tp_price if (pos.side != "NONE" and self.tp_price) else 0.0,
-            "sl_price": self.sl_price if (pos.side != "NONE" and self.sl_price) else 0.0,
-            "target_roe": getattr(self, "target_roe_pct", 100.0),
-            "tp_mode": self.tp_mode,
         })
-
-        # (Strategy analysis was already done above — `result`, `signal`,
-        #  `e8/e13/e21/e55` are all available. No second analyze() call.)
 
         mode = cfg.get("mode", "both")
+        just_reversed = False
 
-        # Emit signal to UI (for indicator panel) - but DON'T spam logs
-        # Only emit if signal changed from last tick
-        signal_changed = (signal != self.last_signal)
-        self.last_signal = signal
-        self.engine._emit("signal", {
-            "symbol": symbol,
-            "signal": signal.value,
-            "reason": result.reason,
-            "emas": {"ema_8": e8, "ema_13": e13, "ema_21": e21, "ema_55": e55},
-            "just_crossed": result.just_crossed,
-        })
+        # ===================================================================
+        # 7. PURE EMA55 REVERSAL CHECK (ONLY EXIT MECHANISM — NO SL/TP/TRAIL)
+        # ===================================================================
+        if actual_side != "NONE":
+            should_reverse = (
+                (actual_side == "LONG" and signal == Signal.SELL)
+                or (actual_side == "SHORT" and signal == Signal.BUY)
+            )
+            if not should_reverse:
+                # Hold position until EMA55 reverses to the opposite side
+                if self.candles_processed % 10 == 0:
+                    entry_val = self.entry_price or pos.entry_price or 0.0
+                    cur_px = pos.mark_price if pos.mark_price > 0 else mark_price
+                    self.engine._emit("log", {
+                        "level": "info",
+                        "msg": (f"[{symbol}] 📊 Holding {actual_side} | Entry={entry_val:.4f} | "
+                                f"Mark={cur_px:.4f} | Signal={signal.value} (Pure EMA55 Reversal Active)")
+                    })
+                return
 
-        # Signal notification ONLY on FRESH cross (instant, no delay)
-        if result.just_crossed and signal in (Signal.BUY, Signal.SELL) and signal_changed:
+            # Opposite EMA55 signal! Close current position and immediately reverse.
+            cur_px = pos.mark_price if pos.mark_price > 0 else mark_price
+            entry = self.entry_price or pos.entry_price or cur_px
+            if actual_side == "LONG":
+                pnl_pct = (cur_px - entry) / entry * 100.0 if entry > 0 else 0.0
+                next_side_label = "SHORT"
+                reason = f"⚡ EMA55-REVERSAL (LONG→SHORT | EMA55 TOP, PnL={pnl_pct:+.2f}%)"
+            else:
+                pnl_pct = (entry - cur_px) / entry * 100.0 if entry > 0 else 0.0
+                next_side_label = "LONG"
+                reason = f"⚡ EMA55-REVERSAL (SHORT→LONG | EMA55 BOTTOM, PnL={pnl_pct:+.2f}%)"
+
             self.engine._emit("log", {
-                "level": "info",
-                "msg": (f"[{symbol}] 📊 FRESH {signal.value} CROSS detected! "
-                        f"EMA55 {'BOTTOM' if signal == Signal.BUY else 'TOP'} | "
-                        f"EMA8={e8:.4f} EMA13={e13:.4f} EMA21={e21:.4f} EMA55={e55:.4f}")
+                "level": "warn",
+                "msg": f"[{symbol}] 🔄 {reason} -> closing {actual_side} @ {cur_px:.4f} & flipping {next_side_label}"
             })
-            try:
-                self.engine.notifier.notify_signal(
-                    symbol, signal.value, result.reason,
-                    {"ema_8": e8, "ema_13": e13, "ema_21": e21, "ema_55": e55}
-                )
-            except Exception as e:
-                logger.error("Signal notification failed: %s", e)
 
-        # ===================================================================
-        # STRICT MODE ENTRY LOGIC (SILENT when waiting)
-        # ===================================================================
-        # Rules:
-        # 1. Bot ONLY trades on a FRESH cross (just_crossed = True)
-        # 2. If bot just started and line is already crossed → NO TRADE (wait silently)
-        # 3. After a trade closes (SL/TP hit), waiting_for_new_cross = True
-        # 4. Once a fresh cross happens, waiting_for_new_cross = False → trade allowed
-        # 5. SL and TP set immediately via software watchdog (1:3 RR)
-        # 6. Bot is SILENT while waiting - no spam logs
-        # ===================================================================
-
-        # === ENTRY ALLOWED? ===
-        # A position already open blocks a NEW entry UNLESS an immediate
-        # reversal is pending (EMA55 just flipped): in that case the old
-        # position is being closed and we must re-enter the opposite side
-        # right away, even if the exchange still shows the old side (API lag).
-        pending_reversal = self.reversal_pending_side is not None
-        if pos.side != "NONE" and pos.size != 0 and not pending_reversal:
-            return
-
-        trade_signal = signal
-        if pending_reversal:
-            target_side = self.reversal_pending_side
-            desired_sig = Signal.BUY if target_side == "LONG" else Signal.SELL
-            trade_signal = desired_sig
-            # Expire stale pending reversal (> 60s old) so it can never fire late
-            if time.time() - getattr(self, "_reversal_armed_ts", 0.0) > 60.0:
-                self.reversal_pending_side = None
-                self.waiting_for_new_cross = True
-                self.strategy.consume_current_cross()
-                self.engine._emit("log", {
-                    "level": "warn",
-                    "msg": f"[{symbol}] ⏭️ Pending reversal expired (>60s) — consumed stale flip, waiting for a new cross."
-                })
-                return
-            # If target position already open on exchange — just clear the pending flag.
-            if pos.side != "NONE" and pos.size != 0 and pos.side == target_side:
-                self.reversal_pending_side = None
-                return
-            # Close any lingering OLD (opposite) position before opening the new side.
-            if pos.side != "NONE" and pos.size != 0 and pos.side != target_side:
+            close = self.engine.trader.close_position(symbol)
+            if not close.get("success"):
                 try:
-                    self.engine.trader.close_position(symbol)
-                except Exception as e:
-                    logger.warning(f"[{symbol}] Reversal cleanup close failed: {e}")
+                    latest_p = self.engine.trader.get_position(symbol)
+                    if latest_p.side == "NONE" or abs(latest_p.size) <= 0:
+                        close = {"success": True, "message": "Position verified closed on exchange"}
+                except Exception:
+                    pass
+            self._log_order(close, f"[{symbol}] CLOSE {actual_side} (EMA55 REVERSAL)")
 
-            # Reversal flip is a slot swap (replaces its own coin) - pass is_reversal=True so cooldown
-            # and active_positions self-blocking never cancel the intended flip!
-            with self.engine._trade_entry_lock:
-                can_open, rv_reason = self.engine.can_open_new_trade(symbol, is_reversal=True)
-                if not can_open:
-                    if time.time() - getattr(self, "_reversal_armed_ts", 0.0) < 30.0:
-                        return  # Wait for position cleanup to finish on next poll
-                    self.reversal_pending_side = None
-                    self.waiting_for_new_cross = True
-                    self.strategy.consume_current_cross()
-                    self.engine._emit("log", {
-                        "level": "info",
-                        "msg": (f"[{symbol}] ⏭️ Reversal re-entry skipped & consumed ({rv_reason}) — "
-                                f"waiting for a brand-new cross.")
-                    })
-                    return
-                self.engine.register_entry_intent(symbol, desired_sig.value)
-                self.reversal_pending_side = None
-                self.waiting_for_new_cross = False
-                if hasattr(self, '_waiting_logged'):
-                    delattr(self, '_waiting_logged')
-                self.strategy.mark_trade_entered()
-        else:
-            # No position open for this symbol.
-            # If signal is HOLD -> wait for BUY or SELL
-            if signal == Signal.HOLD:
-                return
+            if not close.get("success"):
+                return  # Will retry on next tick
 
-            # STRICT REQUIREMENT: Bot MUST ONLY enter on a confirmed FRESH cross of Line 55 across ALL lines!
-            if not result.just_crossed:
-                return
+            self._last_close_timestamp = time.time()
+            self.trades_today += 1
 
-            # CONCURRENT ACTIVE TRADES CONTROL:
-            # If slots are full or same-coin cooldown is active when a fresh cross happens,
-            # CONSUME the cross immediately instead of holding it armed in queue!
-            # That way, when another coin later hits SL or is manually closed, this worker
-            # will NOT instantly jump into a 10–40 min old stale signal.
-            can_open, reason = self.engine.can_open_new_trade(symbol)
-            if not can_open:
-                self.strategy.consume_current_cross()
-                self.waiting_for_new_cross = True
-                self.engine._emit("log", {
-                    "level": "info",
-                    "msg": (f"[{symbol}] ⏭️ Fresh {signal.value} cross skipped & consumed ({reason}) — "
-                            f"purane signal pe trade nahi khulega, slot khali hone ke baad naye cross ka wait karega.")
+            try:
+                trade_qty = abs(pos.size) if pos.size else 0.0
+                trade_margin = (entry * trade_qty) / effective_lev if (effective_lev > 0 and entry > 0 and trade_qty > 0) else 0.0
+                calc_pnl = (cur_px - entry) * trade_qty if actual_side == "LONG" else (entry - cur_px) * trade_qty
+                calc_roe = (calc_pnl / trade_margin * 100.0) if trade_margin > 0 else 0.0
+                calc_fees = (entry + cur_px) * trade_qty * 0.0006
+                self.engine.history.record_close(
+                    symbol=symbol,
+                    exit_price=cur_px,
+                    reason=reason,
+                    pnl=calc_pnl,
+                    roe_pct=calc_roe,
+                    fee_est=calc_fees,
+                    leverage=effective_lev,
+                    qty=trade_qty,
+                )
+                self.engine._emit("trades_updated", {
+                    "trades": self.engine.history.get_trades(limit=50),
+                    "stats": self.engine.history.get_stats(),
                 })
-                return
+            except Exception as he:
+                logger.error("Failed to record reversal close in history: %s", he)
 
-            # Active signal & fresh cross! Guard against multiple entries on same closed candle
-            candle_id = str(df.index[-2]) if len(df) >= 2 else str(time.time())
-            if getattr(self, '_last_trade_candle_id', None) == candle_id:
-                self.strategy.consume_current_cross()
-                return
+            try:
+                self.engine.notifier.notify_tp(
+                    symbol, actual_side, entry, cur_px, pnl_pct,
+                    {"ema_8": e8, "ema_13": e13, "ema_21": e21, "ema_55": e55},
+                    tp_type="ema_reversal",
+                )
+            except Exception as ne:
+                logger.error("Reversal notification failed: %s", ne)
 
-            now = time.time()
-            if now - self._last_cross_time < 30:
-                # Too soon after last cross - consume & ignore (prevents rapid false crosses)
-                self.strategy.consume_current_cross()
-                return
+            # Clear closed position state
+            self.expected_pos_side = None
+            self.position_side = None
+            self.entry_price = None
+            actual_side = "NONE"
+            just_reversed = True
+            # Brief exchange settle pause before opening opposite side
+            time.sleep(0.25)
 
-            # Acquire thread-safe entry lock to prevent simultaneous entry collisions
-            with self.engine._trade_entry_lock:
-                can_open, lock_reason = self.engine.can_open_new_trade(symbol)
-                if not can_open:
-                    self.strategy.consume_current_cross()
-                    self.waiting_for_new_cross = True
-                    self.engine._emit("log", {
-                        "level": "info",
-                        "msg": (f"[{symbol}] ⏭️ Simultaneous {signal.value} cross skipped & consumed ({lock_reason}) — "
-                                f"waiting for a brand-new cross.")
-                    })
-                    return
-                # Atomic slot claim: other workers crossing on the same candle
-                # now see this entry as pending and can not exceed the limit.
-                self.engine.register_entry_intent(symbol, signal.value)
-                self._last_cross_time = now
-                self._last_trade_candle_id = candle_id
-                self.waiting_for_new_cross = False
-                if hasattr(self, '_waiting_logged'):
-                    delattr(self, '_waiting_logged')
-                self.strategy.mark_trade_entered()
-
-        # Check mode allows this trade
-        if trade_signal == Signal.BUY and mode not in ("long", "both"):
-            self.engine.release_entry_intent(symbol)
-            self.engine._emit("log", {
-                "level": "info",
-                "msg": f"[{symbol}] Fresh BUY cross but mode is '{mode}' - skipping LONG entry."
-            })
+        # ===================================================================
+        # 8. PURE EMA ENTRY (IMMEDIATE — ZERO SPREAD, ZERO WAITING, ZERO SL/TP)
+        # ===================================================================
+        if signal == Signal.HOLD:
             return
-        if trade_signal == Signal.SELL and mode not in ("short", "both"):
-            self.engine.release_entry_intent(symbol)
-            self.engine._emit("log", {
-                "level": "info",
-                "msg": f"[{symbol}] Fresh SELL cross but mode is '{mode}' - skipping SHORT entry."
-            })
+        if signal == Signal.BUY and mode not in ("long", "both"):
+            return
+        if signal == Signal.SELL and mode not in ("short", "both"):
             return
 
-        # Ensure leverage is confirmed BEFORE sizing so exchange leverage caps
-        # (e.g., 125x -> 25x on altcoins) are reflected in margin/notional math.
-        cfg_lev = max(1, int(cfg.get("leverage", 10) or 10))
-        effective_lev = cfg_lev
+        with self.engine._trade_entry_lock:
+            can_open, lock_reason = self.engine.can_open_new_trade(symbol, is_reversal=just_reversed)
+            if not can_open:
+                return
+            self.engine.register_entry_intent(symbol, signal.value)
+
+        # Confirm leverage BEFORE sizing
+        cfg_lev = max(1, int(cfg.get("leverage", 20) or 20))
+        eff_lev = cfg_lev
         try:
             cached_sym_lev = getattr(self.engine.trader, "_symbol_leverage", {}).get(symbol)
             if cached_sym_lev and int(cached_sym_lev) == cfg_lev:
-                effective_lev = int(cached_sym_lev)
+                eff_lev = int(cached_sym_lev)
             elif hasattr(self.engine.trader, "set_leverage"):
                 lev_res = self.engine.trader.set_leverage(symbol, cfg_lev)
                 if isinstance(lev_res, dict) and lev_res.get("leverage"):
-                    effective_lev = int(lev_res["leverage"])
+                    eff_lev = max(1, int(lev_res["leverage"]))
         except Exception:
-            effective_lev = cfg_lev
+            eff_lev = cfg_lev
 
-        # Compute trade size (checks min_qty, MIN_NOTIONAL, and available margin)
+        # Compute trade size from wallet / investment amount & leverage
         self._last_size_reason = None
-        trade_size = self._compute_trade_size(mark_price, effective_lev)
+        trade_size = self._compute_trade_size(mark_price, eff_lev)
         if trade_size <= 0:
             self.engine.release_entry_intent(symbol)
             if self.candles_processed % 12 == 0:
                 reason_msg = getattr(self, "_last_size_reason", None) or (
-                    f"[{symbol}] Order size below exchange minimum at {effective_lev}x leverage."
+                    f"[{symbol}] Order size below exchange minimum at {eff_lev}x leverage."
                 )
-                self.engine._emit("log", {
-                    "level": "warn",
-                    "msg": reason_msg,
-                })
+                self.engine._emit("log", {"level": "warn", "msg": reason_msg})
             return
 
-        # Check minimum quantity for this symbol
         try:
             filters = self.engine.trader.get_symbol_filters(symbol)
             min_qty = filters.get("min_qty", 0.001)
@@ -1067,244 +554,79 @@ class SymbolWorker(threading.Thread):
                     self.engine._emit("log", {
                         "level": "warn",
                         "msg": (f"[{symbol}] Quantity {trade_size} below min_qty {min_qty} "
-                                f"(~${min_qty * mark_price:.2f} min order). Increase amount/leverage or pick lower-min coin.")
+                                f"(~${min_qty * mark_price:.2f} min order). Increase amount/leverage.")
                     })
                 return
         except Exception:
-            pass  # If we can't check filters, try anyway
-
-        # ===================================================================
-        # ENTER TRADE + PLACE SL/TP IMMEDIATELY
-        # ===================================================================
-        # SL is HARDCODED - user cannot disable it. Min 0.5%, default 2%.
-        # TP depends on `tp_mode` config:
-        #   - 'fixed'        : TP = SL x 3 (1:3 RR) — exchange + software
-        #   - 'ema_reversal' : TP = when EMA55 flips to opposite extreme
-        #                      (software-only — no exchange TP order)
-        #   - 'both'         : both active, whichever triggers first
-        # ===================================================================
-        # ===================================================================
-        # Configurable SL & TP (fee-safe minimum TP 0.30%, liquidation SL guard)
-        # ===================================================================
-        # Determine effective leverage BEFORE clamping SL so high-leverage liquidation guard has true lev
-        lev = max(1, int(effective_lev or self._get_effective_leverage(symbol)))
-        try:
-            cached_sym_lev = getattr(self.engine.trader, "_symbol_leverage", {}).get(symbol)
-            if cached_sym_lev != lev and hasattr(self.engine.trader, "set_leverage"):
-                lev_sync = self.engine.trader.set_leverage(symbol, lev)
-                if isinstance(lev_sync, dict) and lev_sync.get("leverage"):
-                    lev = max(1, int(lev_sync["leverage"]))
-        except Exception:
             pass
 
-        sl_pct, sl_clamped, max_safe_sl = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), lev)
-        if sl_clamped:
-            self.engine._emit("log", {
-                "level": "warn",
-                "msg": f"[{symbol}] 🛡️ Liquidation SL guard: SL @ {lev}x clamped to {sl_pct:.2f}% (-{sl_pct * lev:.0f}% ROE)"
-            })
-        tp_pct = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
-        tp_mode = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
-
-        sl_dist = mark_price * (sl_pct / 100.0)
-        tp_dist = mark_price * (tp_pct / 100.0)
-        r_dist = tp_dist
-        target_roe_val = tp_pct * lev
-
-        # Helper: build a short label string for log messages
-        def _tp_log_label():
-            return f"TP={tp_pct:.2f}% ({tp_mode.upper()} +{target_roe_val:.0f}% ROE) | SL={sl_pct:.2f}% (-{sl_pct * lev:.1f}% ROE)"
-
-        # Fee safety check: TP distance must be >= MIN_FEE_BUFFER_PCT (0.15% price move)
-        # to ensure profit is greater than 2x taker fees + slippage (~0.15%)
-        MIN_FEE_BUFFER_PCT = 0.15
-        tp_dist_pct = (r_dist / mark_price) * 100.0 if mark_price > 0 else 0.0
-        if tp_dist_pct < MIN_FEE_BUFFER_PCT:
-            self.engine.release_entry_intent(symbol)
-            self.engine._emit("log", {
-                "level": "warn",
-                "msg": (f"[{symbol}] ⚠️ Fee safety check: TP distance ({tp_dist_pct:.3f}%) < "
-                        f"{MIN_FEE_BUFFER_PCT}% (2x taker fees + slippage buffer). Trade skipped to protect net profit.")
-            })
-            return
-
         order_type_cfg = cfg.get("order_type", "market").lower()
+        target_side = "LONG" if signal == Signal.BUY else "SHORT"
+        icon = "🟢" if target_side == "LONG" else "🔴"
+        self.engine._emit("log", {
+            "level": "info",
+            "msg": (f"[{symbol}] {icon} EMA {signal.value} -> opening {target_side} "
+                    f"({order_type_cfg.upper()}) qty={trade_size:.6f} @ ~{mark_price:.4f} | "
+                    f"EMA8={e8:.4f} EMA13={e13:.4f} EMA21={e21:.4f} EMA55={e55:.4f} | "
+                    f"Lev={eff_lev}x | Pure EMA Reversal (No SL/TP)")
+        })
 
-        if trade_signal == Signal.BUY:
-            # Open LONG
-            # Calculate SL price (always sent to exchange — capital protection)
-            sl_price_long = mark_price - sl_dist
+        open_fn = self.engine.trader.open_long if target_side == "LONG" else self.engine.trader.open_short
+        try:
+            order = open_fn(symbol, trade_size, order_type=order_type_cfg, price=mark_price)
+        except TypeError:
+            order = open_fn(symbol, trade_size)
 
-            # In 'fixed' mode, attach exact 1:1 Take Profit. In trailing or ema_reversal mode, software manages it.
-            tp_price_long = mark_price + tp_dist if tp_mode == "fixed" else None
-            self.engine._emit("log", {
-                "level": "info",
-                "msg": (f"[{symbol}] 🟢 FRESH BUY cross -> opening LONG ({order_type_cfg.upper()}) qty={trade_size:.6f} @ ~{mark_price:.4f} | "
-                        f"SL={sl_price_long:.4f} | {_tp_log_label()} | "
-                        f"EMA8={e8:.4f} EMA13={e13:.4f} EMA21={e21:.4f} EMA55={e55:.4f} | Lev={lev}x")
-            })
-            # Pass SL price and order_type to open_long
+        actual_qty = order.get("quantity", trade_size)
+        self._log_order(order, f"[{symbol}] OPEN {target_side} ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
+        self.engine.release_entry_intent(symbol)
+
+        if order.get("success"):
+            self._last_open_timestamp = time.time()
+            self.expected_pos_side = target_side
+            self.position_side = target_side
+            self.last_trade_side = target_side
+            actual_entry = self._get_actual_entry_price(symbol, mark_price)
+            self.entry_price = actual_entry
+
             try:
-                order = self.engine.trader.open_long(symbol, trade_size,
-                                                     sl_price=sl_price_long,
-                                                     tp_price=tp_price_long,
-                                                     order_type=order_type_cfg,
-                                                     price=mark_price)
-            except TypeError:
-                try:
-                    order = self.engine.trader.open_long(symbol, trade_size,
-                                                         sl_price=sl_price_long,
-                                                         tp_price=tp_price_long)
-                except TypeError:
-                    order = self.engine.trader.open_long(symbol, trade_size)
-            actual_qty = order.get("quantity", trade_size)
-            self._log_order(order, f"[{symbol}] OPEN LONG ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
-            # Slot claim released — position (if opened) is now tracked via expected_pos_side.
-            self.engine.release_entry_intent(symbol)
-            if order.get("success"):
-                self._last_open_timestamp = time.time()
-                self.last_signal = Signal.BUY
-                self.expected_pos_side = "LONG"
-                self.reversal_pending_side = None
-                self.waiting_for_new_cross = False
-                self.be_sl_set = False
-                self.partial_tp_done = False
-                self.strategy.mark_trade_entered()
-                # Get ACTUAL entry price from position (not mark_price)
-                actual_entry = self._get_actual_entry_price(symbol, mark_price)
-                # Set software watchdog (always — this is the source of truth
-                # for SL/TP exits, including 1:1 TP & SL)
-                self._set_software_sl_tp(symbol, "LONG", actual_entry, sl_pct, tp_pct,
-                                         tp_mode=tp_mode, entry_signal=Signal.BUY,
-                                         actual_leverage=lev)
+                self.engine.history.record_open(
+                    symbol=symbol,
+                    side=target_side,
+                    entry_price=actual_entry,
+                    qty=actual_qty,
+                    leverage=eff_lev,
+                    initial_sl=None,
+                    initial_tp=None,
+                    order_type=order_type_cfg,
+                )
+                self.engine._emit("trades_updated", {
+                    "trades": self.engine.history.get_trades(limit=50),
+                    "stats": self.engine.history.get_stats(),
+                })
+            except Exception as he:
+                logger.error("Failed to record trade open in history: %s", he)
 
-                # Record in trade history!
-                try:
-                    target_tp = actual_entry + (self.target_roe_pct / lev / 100.0 * actual_entry) if (self.target_roe_pct and lev) else None
-                    self.engine.history.record_open(
-                        symbol=symbol,
-                        side="LONG",
-                        entry_price=actual_entry,
-                        qty=actual_qty,
-                        leverage=lev,
-                        initial_sl=sl_price_long,
-                        initial_tp=target_tp,
-                        order_type=order_type_cfg,
-                    )
-                    self.engine._emit("trades_updated", {
-                        "trades": self.engine.history.get_trades(limit=50),
-                        "stats": self.engine.history.get_stats(),
-                    })
-                except Exception as he:
-                    logger.error("Failed to record trade open in history: %s", he)
-
-                self._emit_sltp_order_status(symbol, order)
-                try:
-                    self.engine.notifier.notify_trade_open(
-                        symbol, "LONG", actual_qty, actual_entry,
-                        {"ema_8": e8, "ema_13": e13, "ema_21": e21, "ema_55": e55}
-                    )
-                except Exception as e:
-                    logger.error("Trade open notification failed: %s", e)
-
-        elif trade_signal == Signal.SELL:
-            # Open SHORT
-            # For SHORT: SL above entry, TP below entry
-            sl_price_short = mark_price + sl_dist
-
-            # In 'fixed' mode, attach exact 1:1 Take Profit. In trailing or ema_reversal mode, software manages it.
-            tp_price_short = mark_price - tp_dist if tp_mode == "fixed" else None
-            self.engine._emit("log", {
-                "level": "info",
-                "msg": (f"[{symbol}] 🔴 FRESH SELL cross -> opening SHORT ({order_type_cfg.upper()}) qty={trade_size:.6f} @ ~{mark_price:.4f} | "
-                        f"SL={sl_price_short:.4f} | {_tp_log_label()} | "
-                        f"EMA8={e8:.4f} EMA13={e13:.4f} EMA21={e21:.4f} EMA55={e55:.4f} | Lev={lev}x")
+            self.engine._emit("position", {
+                "symbol": symbol,
+                "side": target_side,
+                "size": actual_qty if target_side == "LONG" else -actual_qty,
+                "entry_price": actual_entry,
+                "mark_price": mark_price,
+                "unrealized_pnl": 0.0,
+                "leverage": eff_lev,
             })
+
             try:
-                order = self.engine.trader.open_short(symbol, trade_size,
-                                                      sl_price=sl_price_short,
-                                                      tp_price=tp_price_short,
-                                                      order_type=order_type_cfg,
-                                                      price=mark_price)
-            except TypeError:
-                try:
-                    order = self.engine.trader.open_short(symbol, trade_size,
-                                                          sl_price=sl_price_short,
-                                                          tp_price=tp_price_short)
-                except TypeError:
-                    order = self.engine.trader.open_short(symbol, trade_size)
-            actual_qty = order.get("quantity", trade_size)
-            self._log_order(order, f"[{symbol}] OPEN SHORT ({order_type_cfg.upper()}) qty={actual_qty:.6f}")
-            # Slot claim released — position (if opened) is now tracked via expected_pos_side.
-            self.engine.release_entry_intent(symbol)
-            if order.get("success"):
-                self._last_open_timestamp = time.time()
-                self.last_signal = Signal.SELL
-                self.expected_pos_side = "SHORT"
-                self.reversal_pending_side = None
-                self.waiting_for_new_cross = False
-                self.be_sl_set = False
-                self.partial_tp_done = False
-                self.strategy.mark_trade_entered()
-                # Get ACTUAL entry price from position (not mark_price)
-                actual_entry = self._get_actual_entry_price(symbol, mark_price)
-                # Set software watchdog
-                self._set_software_sl_tp(symbol, "SHORT", actual_entry, sl_pct, tp_pct,
-                                         tp_mode=tp_mode, entry_signal=Signal.SELL,
-                                         actual_leverage=lev)
-
-                # Record in trade history!
-                try:
-                    target_tp = actual_entry - (self.target_roe_pct / lev / 100.0 * actual_entry) if (self.target_roe_pct and lev) else None
-                    self.engine.history.record_open(
-                        symbol=symbol,
-                        side="SHORT",
-                        entry_price=actual_entry,
-                        qty=actual_qty,
-                        leverage=lev,
-                        initial_sl=sl_price_short,
-                        initial_tp=target_tp,
-                        order_type=order_type_cfg,
-                    )
-                    self.engine._emit("trades_updated", {
-                        "trades": self.engine.history.get_trades(limit=50),
-                        "stats": self.engine.history.get_stats(),
-                    })
-                except Exception as he:
-                    logger.error("Failed to record trade open in history: %s", he)
-
-                self._emit_sltp_order_status(symbol, order)
-                try:
-                    self.engine.notifier.notify_trade_open(
-                        symbol, "SHORT", actual_qty, actual_entry,
-                        {"ema_8": e8, "ema_13": e13, "ema_21": e21, "ema_55": e55}
-                    )
-                except Exception as e:
-                    logger.error("Trade open notification failed: %s", e)
-
-    def _emit_sltp_order_status(self, symbol: str, order: dict):
-        """Log exchange-side SL/TP confirmation or rejection while keeping watchdog active."""
-        if not isinstance(order, dict):
-            return
-        if order.get("sl_price"):
-            tp_part = f" | TP={order['tp_price']}" if order.get("tp_price") else ""
-            self.engine._emit("log", {
-                "level": "success",
-                "msg": f"[{symbol}] ✅ Exchange SL attached | SL={order.get('sl_price')}{tp_part} (Software Watchdog active)"
-            })
-        elif order.get("sl_error"):
-            self.engine._emit("log", {
-                "level": "warn",
-                "msg": f"[{symbol}] ⚠️ Exchange SL notice: {self._clean_err_msg(order.get('sl_error'))} (Software SL watchdog active)"
-            })
-        if order.get("tp_error") and not order.get("tp_price"):
-            self.engine._emit("log", {
-                "level": "warn",
-                "msg": f"[{symbol}] ⚠️ Exchange TP notice: {self._clean_err_msg(order.get('tp_error'))} (Software TP watchdog active)"
-            })
+                self.engine.notifier.notify_trade_open(
+                    symbol, target_side, actual_qty, actual_entry,
+                    {"ema_8": e8, "ema_13": e13, "ema_21": e21, "ema_55": e55},
+                )
+            except Exception as e:
+                logger.error("Trade open notification failed: %s", e)
 
     def _get_actual_entry_price(self, symbol: str, fallback: float) -> float:
-        """Get actual entry price from Binance position after order fill."""
+        """Get actual entry price from exchange position after order fill."""
         try:
             pos = self.engine.trader.get_position(symbol)
             if pos.entry_price > 0:
@@ -1313,222 +635,16 @@ class SymbolWorker(threading.Thread):
             logger.warning(f"[{symbol}] Could not fetch actual entry price: {e}")
         return fallback
 
-    def _set_software_sl_tp(self, symbol: str, side: str, entry_price: float,
-                            sl_pct: float = 0.5, tp_pct: float = 1.5,
-                            tp_mode: str = "fixed",
-                            entry_signal: Optional[Signal] = None,
-                            actual_leverage: Optional[int] = None):
-        """Set SL/TP prices in memory (software watchdog)."""
-        if entry_price <= 0:
-            self.engine._emit("log", {
-                "level": "error",
-                "msg": f"[{symbol}] ❌ Cannot set SL/TP - invalid entry price"
-            })
-            return
-
-        # Effective leverage from position/exchange or override or config
-        lev = actual_leverage if (actual_leverage and actual_leverage > 1) else self._get_effective_leverage(symbol)
-        lev = max(1, int(lev or 1))
-
-        sl_pct, _, _ = clamp_stop_loss(sl_pct, lev)
-        tp_pct = clamp_take_profit(tp_pct)
-        tp_mode = normalize_tp_mode(tp_mode)
-        self.tp_mode = tp_mode
-        self.tp_pct = tp_pct
-        self.entry_signal = entry_signal
-        self.ema_reversal_tp_fired = False  # reset one-shot guard
-        self.be_sl_set = False
-        self.partial_tp_done = False
-        self.trail_active = False
-        self.peak_price = entry_price
-        self._last_exchange_sl_sync = 0.0
-
-        sl_dist = entry_price * (sl_pct / 100.0)
-        tp_dist = entry_price * (tp_pct / 100.0)
-
-        if side == "LONG":
-            self.sl_price = entry_price - sl_dist
-            self.initial_sl_price = self.sl_price
-        else:  # SHORT
-            self.sl_price = entry_price + sl_dist
-            self.initial_sl_price = self.sl_price
-
-        if tp_mode == "trailing":
-            self.tp_stage = 0
-            self.target_roe_pct = 100.0
-            self.tp_price = price_for_roe(entry_price, side, lev, 100.0)
-            self.r_distance = abs(self.tp_price - entry_price)
-            tp_desc = f"Trailing Ladder (50%→SL+15%, 100%→SL+50% & TP+150%, Next={self.tp_price:.4f} 🎯)"
-        else:
-            self.tp_stage = 1
-            self.target_roe_pct = tp_pct * lev
-            self.r_distance = tp_dist
-            self.tp_price = (entry_price + tp_dist) if side == "LONG" else (entry_price - tp_dist)
-            tp_desc = f"TP={self.tp_price:.4f} (+{tp_pct:.2f}% Target / +{self.target_roe_pct:.0f}% ROE 🎯)"
-
-        self.entry_price = entry_price
-        self.position_side = side
-
-        sl_info = f"SL={self.sl_price:.4f} (-{sl_pct:.2f}% Stop / -{sl_pct * lev:.1f}% ROE 🛡️)"
-
-        self.engine._emit("log", {
-            "level": "success",
-            "msg": (f"[{symbol}] ✅ Software SL/TP set | "
-                    f"Entry={entry_price:.4f} | "
-                    f"{sl_info} | "
-                    f"{tp_desc} | Side={side} | Lev={lev}x")
-        })
-
-    def _check_software_sl_tp(self, pos, result) -> tuple:
-        """Check software SL, Stepped ROE Trailing (50%->+15% SL, 100%->+50% SL & +150% TP), Breakeven, Fixed TP, and EMA55 reversal."""
-        if self.sl_price is None:
-            return (False, False, "")
-
-        mark = pos.mark_price
-        side = pos.side
-        entry = self.entry_price or pos.entry_price or 0.0
-
-        # CRITICAL: If mark_price is 0 or invalid, skip SL/TP check
-        if mark is None or mark <= 0:
-            return (False, False, "")
-
-        lev = pos.leverage if (pos and pos.leverage and pos.leverage > 1) else self._get_effective_leverage(self.symbol)
-        if side == "LONG":
-            price_pnl_pct = (mark - entry) / entry * 100.0 if entry > 0 else 0.0
-        else:
-            price_pnl_pct = (entry - mark) / entry * 100.0 if entry > 0 else 0.0
-        cur_roe = price_pnl_pct * lev
-
-        # ---------- 1) STOP-LOSS / LOCKED PROFIT CHECK (ALWAYS FIRST) ----------
-        sl_hit = (side == "LONG" and mark <= self.sl_price) or (side == "SHORT" and mark >= self.sl_price)
-        if sl_hit:
-            cur_stage = int(getattr(self, "tp_stage", 0) or 0)
-            if getattr(self, "trail_active", False) and price_pnl_pct > 0.05:
-                if cur_stage >= 2:
-                    return (
-                        False, True,
-                        f"🎯 TRAILING STEP 2 SL HIT (+50% ROE Locked, price {mark:.4f}, SL {self.sl_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)"
-                    )
-                return (
-                    False, True,
-                    f"🔒 TRAILING STEP 1 SL HIT (+15% ROE Fees-Saved Lock, price {mark:.4f}, SL {self.sl_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)"
-                )
-            if self.be_sl_set and entry > 0 and (
-                (side == "LONG" and self.sl_price >= entry) or (side == "SHORT" and self.sl_price <= entry)
-            ):
-                return (
-                    False, True,
-                    f"🔒 BREAKEVEN LOCK HIT (price {mark:.4f}, BE SL {self.sl_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)"
-                )
-            return (True, False,
-                    f"⚡ STOP LOSS HIT (price {mark:.4f}, SL {self.sl_price:.4f}, Live ROE={cur_roe:+.1f}%)")
-
-        tp_pct_eff = clamp_take_profit(self.config.get("take_profit_pct", getattr(self, "tp_pct", 1.5)))
-        mode_eff = normalize_tp_mode(self.config.get("tp_mode", self.tp_mode))
-        be_enabled = normalize_breakeven_lock(self.config.get("breakeven_lock"), default=True)
-
-        # ---------- 2) FIXED MODE: BREAKEVEN LOCK + FIXED TAKE-PROFIT ----------
-        if mode_eff == "fixed":
-            if be_enabled and not self.be_sl_set and entry > 0:
-                be_trigger_pct = max(0.35, min(tp_pct_eff * 0.55, 1.5))
-                if price_pnl_pct >= be_trigger_pct:
-                    be_sl = entry * 1.0015 if side == "LONG" else entry * 0.9985
-                    should_tighten = (side == "LONG" and be_sl > self.sl_price) or (side == "SHORT" and be_sl < self.sl_price)
-                    if should_tighten:
-                        self.sl_price = be_sl
-                        self.be_sl_set = True
-                        self._update_exchange_sl(side, be_sl, abs(pos.size))
-                        self.engine._emit("log", {
-                            "level": "success",
-                            "msg": f"[{self.symbol}] 🔒 BREAKEVEN LOCK (+{price_pnl_pct:.2f}% / +{cur_roe:.0f}% ROE) -> SL moved to {be_sl:.4f} (fees covered)"
-                        })
-
-            if self.tp_price is not None:
-                if (side == "LONG" and mark >= self.tp_price) or (side == "SHORT" and mark <= self.tp_price):
-                    return (False, True,
-                            f"🎯 TAKE PROFIT HIT (price {mark:.4f} vs TP {self.tp_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
-
-        # ---------- 3) STEPPED ROE TRAILING LADDER (50%->SL+15%, 100%->SL+50% & TP+150%) ----------
-        if mode_eff == "trailing" and entry > 0:
-            self.peak_price = max(float(self.peak_price or mark), mark) if side == "LONG" else min(float(self.peak_price or mark), mark)
-            cur_stage = int(getattr(self, "tp_stage", 0) or 0)
-            sync_exchange = False
-
-            # Step 1: +50% ROE -> SL locks at +15% ROE (or >=0.25% price on 100x+ so fees always stay covered)
-            if cur_stage < 1 and cur_roe >= 50.0:
-                lock1_roe = max(15.0, 0.25 * lev)
-                cand_sl1 = price_for_roe(entry, side, lev, lock1_roe)
-                if (side == "LONG" and cand_sl1 > self.sl_price) or (side == "SHORT" and (cand_sl1 < self.sl_price or self.sl_price <= 0)):
-                    self.sl_price = cand_sl1
-                self.tp_stage = 1
-                self.trail_active = True
-                self.be_sl_set = True
-                self.target_roe_pct = 100.0
-                self.tp_price = price_for_roe(entry, side, lev, 100.0)
-                cur_stage = 1
-                sync_exchange = True
-                self.engine._emit("log", {
-                    "level": "success",
-                    "msg": f"[{self.symbol}] 🔒 TRAILING STEP 1 (+{cur_roe:.1f}% >= +50% ROE) -> SL locked at +{lock1_roe:.1f}% ROE ({self.sl_price:.4f}) (fees saved!)"
-                })
-
-            # Step 2: +100% ROE -> SL locks at +50% ROE & TP sets to +150% ROE
-            if cur_stage < 2 and cur_roe >= 100.0:
-                lock2_roe = max(50.0, 0.40 * lev)
-                cand_sl2 = price_for_roe(entry, side, lev, lock2_roe)
-                if (side == "LONG" and cand_sl2 > self.sl_price) or (side == "SHORT" and (cand_sl2 < self.sl_price or self.sl_price <= 0)):
-                    self.sl_price = cand_sl2
-                self.tp_price = price_for_roe(entry, side, lev, 150.0)
-                self.tp_stage = 2
-                self.trail_active = True
-                self.be_sl_set = True
-                self.target_roe_pct = 150.0
-                cur_stage = 2
-                sync_exchange = True
-                self.engine._emit("log", {
-                    "level": "success",
-                    "msg": f"[{self.symbol}] 🚀 TRAILING STEP 2 (+{cur_roe:.1f}% >= +100% ROE) -> SL moved to +{lock2_roe:.1f}% ROE ({self.sl_price:.4f}) & TP set to +150% ROE ({self.tp_price:.4f})!"
-                })
-
-            if sync_exchange:
-                self._update_exchange_sl(side, self.sl_price, abs(pos.size))
-
-            # Take Profit hit at Stage 2 (+150% ROE target)
-            if cur_stage >= 2 and self.tp_price is not None:
-                if (side == "LONG" and mark >= self.tp_price) or (side == "SHORT" and mark <= self.tp_price):
-                    return (False, True,
-                            f"🎯 TRAILING TP HIT (+150% ROE Target, price {mark:.4f} vs TP {self.tp_price:.4f}, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
-
-        # ---------- 4) EMA-REVERSAL / FLIP CHECK (Auto-Reversal Active) ----------
-        if not self.ema_reversal_tp_fired and result is not None and self.entry_signal is not None:
-            cur_sig = result.signal
-            if side == "LONG" and self.entry_signal == Signal.BUY and cur_sig == Signal.SELL:
-                self.ema_reversal_tp_fired = True  # one-shot
-                return (False, True,
-                        f"⚡ EMA55-REVERSAL (LONG->EMA55 now TOP, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
-            if side == "SHORT" and self.entry_signal == Signal.SELL and cur_sig == Signal.BUY:
-                self.ema_reversal_tp_fired = True  # one-shot
-                return (False, True,
-                        f"⚡ EMA55-REVERSAL (SHORT->EMA55 now BOTTOM, PnL={price_pnl_pct:+.2f}%, Live ROE={cur_roe:+.1f}%)")
-
-        return (False, False, "")
-
     def _compute_trade_size(self, price: float, leverage: int) -> float:
         """
         Compute base-asset quantity based on amount_mode and leverage:
-        - 'fixed'  : use cfg['amount'] as USDT margin, scaled by leverage for total notional exposure
-        - 'percent': use (balance * amount_pct / 100) as USDT margin, scaled by leverage for total notional exposure
-
-        Validates against exchange step_size, min_qty, MIN_NOTIONAL, max_qty,
-        and available wallet margin so small accounts ($10-$20, 10%, $1 Fixed)
-        never hit silent rounding/notional rejections.
+        - 'fixed'  : use cfg['amount'] as USDT margin, scaled by leverage for notional
+        - 'percent': use (balance * amount_pct / 100) as USDT margin, scaled by leverage
         """
-        import math
-
         self._last_size_reason = None
         cfg = self.config
         amount_mode = cfg.get("amount_mode", "fixed")
-        lev = max(1, int(leverage or cfg.get("leverage", 10)))
+        lev = max(1, int(leverage or cfg.get("leverage", 20)))
 
         balance: Optional[float] = None
         if hasattr(self.engine.trader, "get_balance"):
@@ -1557,7 +673,7 @@ class SymbolWorker(threading.Thread):
                 self._last_size_reason = f"[{self.symbol}] Order investment amount must be > $0."
                 return 0.0
 
-        # Check Binance leverage bracket limit (prevents error -2027: Exceeded maximum allowable position)
+        # Check exchange leverage bracket limit (prevents Binance -2027)
         max_notional = 0.0
         try:
             if hasattr(self.engine.trader, "get_max_notional"):
@@ -1567,11 +683,10 @@ class SymbolWorker(threading.Thread):
 
         if max_notional > 0 and notional > (max_notional * 0.95):
             clamped_notional = max_notional * 0.95
-            logger.info("[%s] ⚠️ Trade notional $%.2f exceeds Binance %dx bracket limit ($%.2f) -> clamped to safe $%.2f",
+            logger.info("[%s] ⚠️ Trade notional $%.2f exceeds %dx bracket limit ($%.2f) -> clamped to $%.2f",
                         self.symbol, notional, lev, max_notional, clamped_notional)
             notional = clamped_notional
 
-        # Fetch real step_size, min_qty, max_qty, min_notional from exchange
         qty_step = 0.001
         min_qty = 0.001
         max_qty = 1e9
@@ -1596,7 +711,6 @@ class SymbolWorker(threading.Thread):
 
         qty = self.engine.trader.compute_quantity(notional, price, lev, qty_step=qty_step)
         if max_qty > 0 and qty > max_qty:
-            logger.info("[%s] Clamping trade size from %s to exchange max_qty %s", self.symbol, qty, max_qty)
             qty = self.engine.trader._round_to_step(max_qty, qty_step)
 
         min_qty_for_notional = _ceil_step((min_notional * 1.02) / price, qty_step) if (min_notional > 0 and price > 0) else 0.0
@@ -1617,8 +731,6 @@ class SymbolWorker(threading.Thread):
             is_floor_deficit = (raw_min_usd > 0 and notional >= raw_min_usd * 0.80)
             is_small_safe_bump = (req_margin <= max(margin * 1.5, margin + 0.75) and req_notional <= 25.0)
             if (max_qty <= 0 or eff_min_qty <= max_qty) and bal_ok and (is_floor_deficit or is_small_safe_bump):
-                logger.info("[%s] Rounding trade size up to exchange min qty=%s ($%.2f notional, $%.2f margin @ %dx)",
-                            self.symbol, eff_min_qty, req_notional, req_margin, lev)
                 qty = eff_min_qty
             else:
                 needed_lev = math.ceil(req_notional / margin) if margin > 0 else 0
@@ -1642,7 +754,7 @@ class SymbolWorker(threading.Thread):
                     )
                 return 0.0
 
-        # Final available-balance guard so Fixed / adjusted orders don't fail with -2019
+        # Final available-balance guard
         if balance is not None and balance > 0 and price > 0 and qty > 0:
             est_margin = (qty * price) / lev
             if est_margin > balance * 0.94:
@@ -1660,7 +772,6 @@ class SymbolWorker(threading.Thread):
         return qty
 
     def _candles_to_list(self, df, n=200):
-        """Convert df candles to list of dicts for UI chart."""
         if df is None or len(df) == 0:
             return []
         tail = df.tail(n)
@@ -1676,7 +787,6 @@ class SymbolWorker(threading.Thread):
         return out
 
     def _emas_to_list(self, df, n=200):
-        """Convert EMA columns to dict of lists for UI chart."""
         enriched = self.strategy.indicators.compute(df)
         tail = enriched.tail(n)
         out = {}
@@ -1685,7 +795,7 @@ class SymbolWorker(threading.Thread):
             out[key] = [
                 {"time": int(ts.timestamp()), "value": float(v)}
                 for ts, v in zip(tail.index, tail[col])
-                if not (v != v)  # filter NaN
+                if not (v != v)
             ]
         return out
 
@@ -1694,7 +804,6 @@ class SymbolWorker(threading.Thread):
         if not err:
             return "Unknown error"
         err_str = str(err)
-        import re
         m = re.search(r"(-?\d+),\s*['\"]([^'\"]+)['\"]", err_str)
         if m:
             return f"Binance {m.group(1)}: {m.group(2)}"
@@ -1719,18 +828,7 @@ class SymbolWorker(threading.Thread):
 
 
 class MonitorThread(threading.Thread):
-    """Always-on background thread that fetches live data (balance, mark_price,
-    chart, indicators) for the active symbol — even when the bot is STOPPED.
-
-    This means as soon as user saves settings (with API keys), they see:
-    - Real WEEX/Binance balance (e.g. 20,000 USDT on WEEX demo)
-    - Live mark price for the selected coin
-    - Live chart with EMA indicators
-    - Open positions (if any)
-
-    The thread polls every 5s for prices/indicators, 10s for balance,
-    60s for chart refresh.
-    """
+    """Always-on background thread that streams live balance, chart, indicators, and positions."""
 
     def __init__(self, engine, config: dict):
         super().__init__(daemon=True, name="monitor")
@@ -1741,7 +839,7 @@ class MonitorThread(threading.Thread):
 
     def run(self):
         exchange = (self.config.get("exchange") or "binance").upper()
-        env_label = "DEMO" if exchange == "WEEX" and self.config.get("testnet") else \
+        env_label = "DEMO" if exchange in ("WEEX", "PRIMEXBT") and self.config.get("testnet") else \
                     ("TESTNET" if self.config.get("testnet") else "MAINNET")
         self.engine._emit("log", {
             "level": "info",
@@ -1761,7 +859,6 @@ class MonitorThread(threading.Thread):
                         "msg": f"❌ MONITOR error: {str(e)[:120]}. Check API keys/Passphrase."
                     })
                     first_run = False
-            # Poll every 10s (protects exchange API rate limits)
             for _ in range(10):
                 if self.stop_event.is_set():
                     break
@@ -1773,24 +870,19 @@ class MonitorThread(threading.Thread):
         })
 
     def _tick(self, first_run=False):
-        """One polling iteration. Fetches data for the active symbol only."""
         cfg = self.config
         symbol = self.engine.active_symbol or cfg.get("symbol", "BTCUSDT")
-        timeframe = cfg.get("timeframe", "5m")
+        timeframe = cfg.get("timeframe", "15m")
 
         if self.engine.monitor_trader is None:
             return
 
-        # 1. Fetch balance (every tick — it's fast and shows real-time state)
+        # 1. Fetch balance
         try:
             balance = self.engine.monitor_trader.get_balance()
-            # HONEST demo flag: PrimeXBT has no demo server - with loaded keys
-            # the displayed balance is the REAL account, never call it DEMO.
             ex_name = (cfg.get("exchange") or "binance").lower()
             if ex_name == "primexbt":
-                _tr = self.engine.monitor_trader
-                is_demo = not (getattr(_tr, "api_key", "")
-                               and getattr(_tr, "private_key", None) is not None)
+                is_demo = bool(cfg.get("testnet", True))
             else:
                 is_demo = bool(cfg.get("testnet", True))
             self.engine.set_connection_state("balance_access", "ok")
@@ -1808,7 +900,7 @@ class MonitorThread(threading.Thread):
                     "msg": f"⚠️ Balance fetch failed: {str(e)[:100]}"
                 })
 
-        # 2. Fetch klines + indicators + mark price for active symbol
+        # 2. Fetch klines + indicators + mark price
         try:
             df = self.engine.monitor_trader.get_klines(symbol, interval=timeframe, limit=200)
             self.engine.set_connection_state("market_data", "ok")
@@ -1824,7 +916,6 @@ class MonitorThread(threading.Thread):
         if df is None or len(df) == 0:
             return
 
-        # Mark price (prefer mark_price API, fallback to last close)
         try:
             mark_price = self.engine.monitor_trader.get_mark_price(symbol)
             if mark_price is None or mark_price <= 0:
@@ -1832,20 +923,17 @@ class MonitorThread(threading.Thread):
         except Exception:
             mark_price = float(df.iloc[-1]["close"])
 
-        # Indicators (EMA 8, 13, 21, 55)
         try:
             indicators = self.engine.strategy.latest_indicators(df)
         except Exception:
             indicators = {"ema_8": 0, "ema_13": 0, "ema_21": 0, "ema_55": 0}
 
-        # Emit indicators
         self.engine._emit("indicators", {
             "symbol": symbol,
             **indicators,
             "mark_price": mark_price,
         })
 
-        # Emit chart data (throttle to every 30s — klines don't change fast)
         now = time.time()
         if now - self._last_chart_emit > 30 or first_run:
             candles = self._candles_to_list(df)
@@ -1858,17 +946,12 @@ class MonitorThread(threading.Thread):
                 })
                 self._last_chart_emit = now
 
-        # Emit position info for active symbol
+        # 3. Position snapshot (pure position info — no SL/TP)
         try:
             pos = self.engine.monitor_trader.get_position(symbol)
             worker = self.engine.workers.get(symbol)
-            tp_stage = worker.tp_stage if (worker and pos.side != "NONE") else 0
-            tp_price = worker.tp_price if (worker and pos.side != "NONE" and worker.tp_price) else 0.0
-            sl_price = worker.sl_price if (worker and pos.side != "NONE" and worker.sl_price) else 0.0
-            tp_mode = worker.tp_mode if worker else (self.engine.config.get("tp_mode") or "fixed")
-            target_roe = getattr(worker, "target_roe_pct", 100.0) if worker else 100.0
             effective_lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else (
-                getattr(worker, "_get_effective_leverage", lambda s: int(self.engine.config.get("leverage", 125)))(symbol)
+                getattr(worker, "_get_effective_leverage", lambda s: int(self.engine.config.get("leverage", 20)))(symbol)
             )
             self.engine._emit("position", {
                 "symbol": symbol,
@@ -1878,11 +961,6 @@ class MonitorThread(threading.Thread):
                 "mark_price": pos.mark_price if pos.mark_price > 0 else mark_price,
                 "unrealized_pnl": pos.unrealized_pnl,
                 "leverage": effective_lev,
-                "tp_stage": tp_stage,
-                "tp_price": tp_price,
-                "sl_price": sl_price,
-                "target_roe": target_roe,
-                "tp_mode": tp_mode,
             })
         except Exception:
             pass
@@ -1891,16 +969,16 @@ class MonitorThread(threading.Thread):
         if df is None or len(df) == 0:
             return []
         tail = df.tail(n)
-        out = []
-        for ts, row in tail.iterrows():
-            out.append({
+        return [
+            {
                 "time": int(ts.timestamp()),
                 "open": float(row["open"]),
                 "high": float(row["high"]),
                 "low": float(row["low"]),
                 "close": float(row["close"]),
-            })
-        return out
+            }
+            for ts, row in tail.iterrows()
+        ]
 
     def _emas_to_list(self, df, n=200):
         try:
@@ -1914,13 +992,13 @@ class MonitorThread(threading.Thread):
             out[key] = [
                 {"time": int(ts.timestamp()), "value": float(v)}
                 for ts, v in zip(tail.index, tail[col])
-                if not (v != v)  # filter NaN
+                if not (v != v)
             ]
         return out
 
 
 class BotEngine:
-    """Background trading engine supporting multi-symbol trading."""
+    """Background trading engine supporting multi-symbol pure EMA + reversal trading."""
 
     def __init__(self, socketio, config: dict):
         self.socketio = socketio
@@ -1932,54 +1010,29 @@ class BotEngine:
         self.workers: dict[str, SymbolWorker] = {}
         self.lock = threading.Lock()
         self._trade_entry_lock = threading.Lock()
-        # ===== ANTI-OVERTRADING GUARDS =====
-        # _entry_intents: symbols currently placing an entry order (claimed
-        # atomically under _trade_entry_lock). Counted by can_open_new_trade so
-        # several workers crossing on the same candle can NOT all slip past the
-        # max_concurrent_trades limit while earlier orders are still in flight.
         self._entry_intents: dict[str, dict] = {}
-        # _reentry_block: symbol -> unix ts until which a NEW trade on that coin
-        # is blocked. Set on EVERY exit (SL/TP, manual close, external close).
-        # Kills "close karo to usi time same coin pe dobara khol deta hai".
-        self._reentry_block: dict[str, float] = {}
         self.is_running = False
-        self.active_symbol = None  # Which coin the UI is currently viewing
-        # ===== MONITOR MODE =====
-        # Always-on background thread that fetches balance, mark_price, chart
-        # for the active symbol. Works even when bot is STOPPED, so user can
-        # see live data immediately after saving settings.
+        self.active_symbol = None
         self.monitor_thread: Optional[MonitorThread] = None
-        self.monitor_trader = None  # separate trader instance for monitor
-        # ===== EXPLICIT CONNECTION STATES (requirement: never fake "Connected") =====
-        # Each state is "unknown" | "checking" | "ok" | "failed".
-        # market_data      -> public klines/mark price reachable
-        # api_auth         -> signed call accepted by the exchange
-        # balance_access   -> wallet readable
-        # trading_permission -> canTrade flag (Binance) / None when unknown
+        self.monitor_trader = None
         self.connection: dict = {
             "market_data": "unknown",
             "api_auth": "unknown",
             "balance_access": "unknown",
             "trading_permission": "unknown",
             "env": "UNKNOWN",
-            "auth_check": None,       # last validate_credentials() result
-            "checked_at": None,       # ISO time of last check
+            "auth_check": None,
+            "checked_at": None,
         }
         self.auth_check: Optional[dict] = None
 
     def set_connection_state(self, key: str, value: str):
-        """Update one connection state and push it to the dashboard."""
         if key in ("market_data", "api_auth", "balance_access", "trading_permission"):
             self.connection[key] = value
             self.connection["checked_at"] = datetime.now(timezone.utc).isoformat()
             self._emit("connection", dict(self.connection))
 
     def validate_credentials(self, trader=None) -> dict:
-        """Run the adapter's read-only validate_credentials() and record states.
-
-        Works for any exchange adapter that implements the uniform interface
-        (Binance, PrimeXBT, WEEX all do). Never places orders.
-        """
         t = trader or self.trader or self.monitor_trader
         if t is None:
             return {"ok": False, "message": "No trader instance - cannot validate credentials"}
@@ -2009,128 +1062,60 @@ class BotEngine:
         return res
 
     def get_active_positions(self) -> list[str]:
-        """Return list of symbols that currently have an active open position."""
         active = []
         for sym, worker in self.workers.items():
             is_active = (
-                getattr(worker, "position_side", None) in ("LONG", "SHORT") or
-                getattr(worker, "expected_pos_side", None) in ("LONG", "SHORT") or
-                (getattr(worker, "entry_price", None) is not None and getattr(worker, "entry_price", 0) > 0)
+                getattr(worker, "position_side", None) in ("LONG", "SHORT")
+                or getattr(worker, "expected_pos_side", None) in ("LONG", "SHORT")
+                or (getattr(worker, "entry_price", None) is not None and getattr(worker, "entry_price", 0) > 0)
             )
             if is_active:
                 active.append(sym)
         return list(dict.fromkeys(active))
 
     def has_any_active_position(self) -> tuple[bool, Optional[str]]:
-        """Check if ANY monitored symbol worker currently has an active open trade."""
         active = self.get_active_positions()
         return (len(active) > 0, active[0] if active else None)
 
-    def _reentry_cooldown_sec(self) -> float:
-        """Same-coin re-entry cooldown in seconds (config 'reentry_cooldown_sec', default 180)."""
-        try:
-            val = float(self.config.get("reentry_cooldown_sec", 180))
-        except (ValueError, TypeError):
-            val = 180.0
-        return max(0.0, min(7200.0, val))
-
-    def set_reentry_cooldown(self, symbol: str, reason: str = ""):
-        """Block a new trade on `symbol` for the cooldown period (called on every exit)."""
-        cd = self._reentry_cooldown_sec()
-        if cd <= 0:
-            return
-        self._reentry_block[str(symbol).upper()] = time.time() + cd
-        self._emit("log", {
-            "level": "info",
-            "msg": (f"[{symbol}] ⏳ Re-entry cooldown {int(cd)}s started" +
-                    (f" ({reason})" if reason else "") +
-                    " — is coin pe turant dobara trade nahi khulega."),
-        })
-
-    def reentry_blocked_remaining(self, symbol: str) -> float:
-        """Seconds left in the same-coin re-entry cooldown (0 = not blocked)."""
-        remaining = float(self._reentry_block.get(str(symbol).upper(), 0.0)) - time.time()
-        return max(0.0, remaining)
-
     def register_entry_intent(self, symbol: str, side: str):
-        """Atomically claim a trade slot for `symbol` while the order is being placed."""
         self._entry_intents[str(symbol).upper()] = {"side": side, "ts": time.time()}
 
     def release_entry_intent(self, symbol: str):
-        """Release the slot claim (order placed, failed, or skipped)."""
         self._entry_intents.pop(str(symbol).upper(), None)
 
     def can_open_new_trade(self, symbol: str, is_reversal: bool = False) -> tuple[bool, str]:
-        """Check if a new trade can be opened for symbol, respecting max_concurrent_trades (1, 2, or 3).
-        When `is_reversal` is True, this symbol is intentionally replacing its own slot, so it bypasses
-        cooldown and active_symbols self-blocking to guarantee the opposite flip executes.
-        """
+        """Check concurrent slot limit (1, 2, or 3 coins). No cooldown, no waiting."""
         active_symbols = self.get_active_positions()
-        # If this symbol itself already has a position open, do not re-enter (unless it's a reversal replacing it)
         if not is_reversal and symbol in active_symbols:
             return False, f"[{symbol}] already has an active position"
 
         now = time.time()
-
-        # ===== SAME-COIN RE-ENTRY COOLDOWN =====
-        # Every exit (SL/TP/manual/external close) starts a cooldown; no new
-        # trade on the same coin until it expires.
-        # Reversals intentionally bypass cooldown to execute the opposite trend flip immediately.
-        if not is_reversal:
-            cd_left = self.reentry_blocked_remaining(symbol)
-            if cd_left > 0:
-                return False, f"[{symbol}] re-entry cooldown active ({int(cd_left)}s left) — no instant re-entry after close"
-
-        # User configurable max concurrent trades: 1, 2, or 3 (default: 3)
         try:
             max_trades = int(self.config.get("max_concurrent_trades", 3))
         except (ValueError, TypeError):
             max_trades = 3
         max_trades = max(1, min(3, max_trades))
 
-        # Count in-flight entry intents so simultaneous crosses on the same
-        # candle can not exceed the limit (race condition fix).
         intent_syms = {
             s for s, v in self._entry_intents.items()
             if now - float(v.get("ts", 0.0)) < 60.0 and s not in active_symbols
         }
-
-        # For a reversal, this symbol is swapping its own slot, not adding an extra coin
         effective_active = [s for s in active_symbols if s != symbol] if is_reversal else active_symbols
         if len(effective_active) + len(intent_syms) >= max_trades:
             return False, (f"limit of {max_trades} simultaneous coin trades reached "
                            f"({', '.join(sorted(set(effective_active) | intent_syms))})")
         return True, ""
 
-    # ---------- Lifecycle ----------
-
-    # ===== MONITOR MODE METHODS =====
-    # Monitor = always-on background thread that fetches live data (balance,
-    # mark_price, chart) for the active symbol. Works even when bot is STOPPED.
-    # Triggered automatically after user saves settings (see /api/config POST).
+    # ---------- Monitor Lifecycle ----------
 
     def start_monitor(self, config: dict) -> dict:
-        """Start (or restart) the monitor with the given config.
-
-        Called automatically by app.py after /api/config POST (Save button).
-        Also called when user switches exchange or demo/live toggle.
-
-        If API keys are missing, returns success=False (no monitor started).
-        If monitor is already running, stops it first then starts new one.
-        """
-        # Stop existing monitor if any
         self.stop_monitor()
-
-        # Check API credentials
         api_key = config.get("api_key", "").strip()
         api_secret = config.get("api_secret", "").strip()
         if not api_key or not api_secret:
             return {"success": False, "error": "API keys not set — monitor not started"}
-        if config.get("exchange") == "weex":
-            if not config.get("api_passphrase", "").strip():
-                return {"success": False, "error": "WEEX Passphrase not set — monitor not started"}
-
-        # Create monitor trader (separate from trading trader)
+        if config.get("exchange") == "weex" and not config.get("api_passphrase", "").strip():
+            return {"success": False, "error": "WEEX Passphrase not set — monitor not started"}
         try:
             self.monitor_trader = get_trader(config)
         except Exception as e:
@@ -2138,13 +1123,11 @@ class BotEngine:
             self.monitor_trader = None
             return {"success": False, "error": f"Exchange connection failed: {e}"}
 
-        # Start monitor thread
         self.monitor_thread = MonitorThread(self, config)
         self.monitor_thread.start()
         return {"success": True, "message": "Monitor started"}
 
     def stop_monitor(self):
-        """Stop the monitor thread if running."""
         if self.monitor_thread is not None:
             self.monitor_thread.stop_event.set()
             try:
@@ -2155,36 +1138,17 @@ class BotEngine:
         self.monitor_trader = None
 
     def apply_leverage(self, leverage: int, symbol: Optional[str] = None) -> dict:
-        """Apply leverage to symbol(s) on exchange and update config, running workers, and UI."""
+        """Apply leverage to symbol(s) on exchange (Binance / WEEX / PrimeXBT)."""
         symbols = [symbol.strip().upper()] if symbol else self._symbols_list()
         if not symbols:
             symbols = [str(self.config.get("symbol", "BTCUSDT")).strip().upper()]
 
         self.config["leverage"] = leverage
-        # Update running workers
         with self.lock:
             for w in self.workers.values():
                 w.config["leverage"] = leverage
 
         results = {}
-
-        # ---- High leverage risk warning (once per apply call) ----
-        # At very high leverage the -80% ROE stop-loss sits extremely close
-        # to the entry: at 200x it is only a 0.40% price move away, so normal
-        # 5m noise on gold/forex can stop the trade out instantly.
-        try:
-            _lev_int = int(leverage)
-        except (TypeError, ValueError):
-            _lev_int = 0
-        if _lev_int >= 100:
-            _sl_move = 0.8 / max(_lev_int, 1) * 100  # -80% ROE as price move %
-            self._emit("log", {
-                "level": "warn",
-                "msg": (f"\u26a0\ufe0f HIGH LEVERAGE WARNING: {_lev_int}x par -80% ROE ka SL sirf "
-                        f"{_sl_move:.2f}% price move par lag jayega — gold/forex ki normal 5m noise "
-                        f"hi usay hit kar deti hai. Gold/Forex ke liye 10-20x, crypto ke liye 10-50x recommended.")
-            })
-
         active_trader = self.trader or self.monitor_trader
         if not active_trader:
             try:
@@ -2202,45 +1166,32 @@ class BotEngine:
                     if r.get("adjusted"):
                         self._emit("log", {
                             "level": "warn",
-                            "msg": f"[{sym}] ⚠️ Binance Official Limit: {sym} par maximum allowed leverage {actual}x hai ({leverage}x Binance allow nahi karta). Set to {actual}x."
+                            "msg": f"[{sym}] ⚠️ Exchange max leverage {actual}x applied (requested {leverage}x)."
                         })
                     elif r.get("success"):
                         _note = r.get("note")
                         self._emit("log", {
                             "level": "success",
-                            "msg": (f"[{sym}] \u26a1 Leverage set to {actual}x on {self.config.get('exchange', 'binance').upper()}"
+                            "msg": (f"[{sym}] ⚡ Leverage set to {actual}x on {self.config.get('exchange', 'binance').upper()}"
                                     + (f" ({_note})" if _note else ""))
                         })
                     else:
                         _err = str(r.get("error", "unknown"))
                         if "-2014" in _err or "API-key format invalid" in _err:
-                            _msg = ("API-key FORMAT invalid (-2014): key ka TEXT hi galat shape mein hai. "
-                                    "API Key aur SECRET alag-alag fields mein bilkul saaf paste karo "
-                                    "(koi label/quote/extra spaces nahi). PrimeXBT key Binance field mein nahi chalegi.")
+                            _msg = ("API-key FORMAT invalid (-2014): API Key aur SECRET alag-alag fields mein saaf paste karo.")
                         elif "-2015" in _err or "Invalid API-key" in _err:
-                            _msg = ("API Key REJECTED (-2015): Env=TESTNET hai to testnet.binancefuture.com ki key chahiye "
-                                    "(REAL key TESTNET pe kabhi nahi chalti); LIVE ho to Enable Futures ON + IP whitelist check karo.")
+                            _msg = ("API Key REJECTED (-2015): Testnet vs Mainnet keys aur Futures permission check karo.")
                         else:
                             _msg = _err[:200]
-                        self._emit("log", {
-                            "level": "warn",
-                            "msg": f"[{sym}] ⚠️ Leverage notice: {_msg}"
-                        })
+                        self._emit("log", {"level": "warn", "msg": f"[{sym}] ⚠️ Leverage notice: {_msg}"})
                 except Exception as e:
                     logger.error("Failed to set leverage for %s: %s", sym, e)
                     results[sym] = {"success": False, "error": str(e)}
 
-        # Emit updated position event for the active symbol so UI updates immediately
         cur_sym = self.active_symbol or (symbols[0] if symbols else "BTCUSDT")
         try:
             if active_trader:
                 pos = active_trader.get_position(cur_sym)
-                worker = self.workers.get(cur_sym)
-                tp_stage = worker.tp_stage if (worker and pos.side != "NONE") else 0
-                tp_price = worker.tp_price if (worker and pos.side != "NONE" and worker.tp_price) else 0.0
-                sl_price = worker.sl_price if (worker and pos.side != "NONE" and worker.sl_price) else 0.0
-                tp_mode = worker.tp_mode if worker else (self.config.get("tp_mode") or "fixed")
-                target_roe = getattr(worker, "target_roe_pct", 100.0) if worker else 100.0
                 self._emit("position", {
                     "symbol": cur_sym,
                     "side": pos.side,
@@ -2249,11 +1200,6 @@ class BotEngine:
                     "mark_price": pos.mark_price,
                     "unrealized_pnl": pos.unrealized_pnl,
                     "leverage": pos.leverage,
-                    "tp_stage": tp_stage,
-                    "tp_price": tp_price,
-                    "sl_price": sl_price,
-                    "target_roe": target_roe,
-                    "tp_mode": tp_mode,
                 })
             else:
                 self._emit("position", {
@@ -2272,20 +1218,19 @@ class BotEngine:
         effective_actual_lev = results.get(target_sym, {}).get("leverage", leverage) if target_sym else leverage
         is_adjusted = results.get(target_sym, {}).get("adjusted", False) if target_sym else False
         return {
-            "success": True, 
-            "leverage": effective_actual_lev, 
-            "requested": leverage, 
-            "adjusted": is_adjusted, 
-            "results": results
+            "success": True,
+            "leverage": effective_actual_lev,
+            "requested": leverage,
+            "adjusted": is_adjusted,
+            "results": results,
         }
 
     def start(self, config: dict):
-        """Start the bot with the given config."""
-        # ZOMBIE STATE CHECK
+        """Start the pure EMA + Reversal bot across all configured coins."""
         if self.is_running:
             alive_workers = [w for w in self.workers.values() if w.is_alive()]
             if not alive_workers:
-                logger.warning("Zombie state detected: is_running=True but no alive workers. Auto-resetting.")
+                logger.warning("Zombie state detected: auto-resetting.")
                 self.is_running = False
                 self.workers.clear()
                 self._emit("log", {
@@ -2297,7 +1242,7 @@ class BotEngine:
 
         self.config = config
         self.notifier.update_config(config)
-        self.stop_monitor()  # Stop background monitor while trading workers are running to avoid hitting rate limits
+        self.stop_monitor()
         try:
             self.trader = get_trader(config)
         except Exception as e:
@@ -2305,28 +1250,21 @@ class BotEngine:
             self.set_connection_state("api_auth", "failed")
             return {"success": False, "error": f"Exchange connection failed: {e}"}
 
-        # ===== PROTECT REAL FUNDS: live execution requires explicit unlock =====
-        # Demo/testnet always allowed. LIVE (testnet=False) requires the user
-        # to have ticked the live confirmation checkbox (config['live_confirmed']).
-        # This gate exists so a demo->live toggle can never silently trade real money.
+        # Protect real funds: live execution requires explicit confirmation checkbox
         if not bool(config.get("testnet", True)) and not bool(config.get("live_confirmed")):
             self.set_connection_state("api_auth", "unknown")
             self._emit("log", {
                 "level": "error",
-                "msg": ("⛔ LIVE TRADING LOCKED: Env=LIVE hai lekin live confirmation box "
-                        "tick nahi hai. Pehle demo/testnet par bot test karo, phir Settings "
-                        "mein 'I understand this will trade REAL funds' tick karke save karo.")
+                "msg": ("⛔ LIVE TRADING LOCKED: Env=MAINNET hai lekin live confirmation box "
+                        "tick nahi hai. Settings mein 'I understand this will trade REAL funds' tick karke save karo.")
             })
             return {
                 "success": False,
                 "auth_blocked": True,
-                "error": "Live trading is locked (live_confirmed not set). Run the bot on DEMO/TESTNET first, then confirm LIVE in settings.",
+                "error": "Live trading is locked (live_confirmed not set). Confirm LIVE in settings first.",
             }
 
-        # ===== PRE-FLIGHT AUTH GATE =====
-        # Workers used to spawn and die immediately when credentials were bad
-        # (-2014/-2015 appearing only AFTER start). Now: one read-only signed
-        # call BEFORE any worker exists. Bad creds -> clean refusal, zero workers.
+        # Pre-flight auth check (read-only)
         auth = self.validate_credentials(self.trader)
         if not auth.get("ok"):
             self._emit("log", {
@@ -2356,66 +1294,31 @@ class BotEngine:
                 "auth_check": auth,
             }
 
-        # Loud early warning: PrimeXBT without a usable Ed25519 private key
-        # cannot sign orders - every trade would fail with "Sign the request:
-        # X-API-KEY, X-API-TIMESTAMP and X-API-SIGNATURE are all required".
-        # Tell the user NOW on the dashboard instead of at first signal.
         if (config.get("exchange") or "").lower() == "primexbt":
-            if getattr(self.trader, "private_key", "n/a") is None:
+            if not getattr(self.trader, "has_valid_auth", False):
                 self._emit("log", {
                     "level": "warn",
-                    "msg": ("⚠️ PrimeXBT: Secret Key NOT loaded - orders will FAIL. "
-                            "Open Settings and paste the Ed25519 PRIVATE KEY from "
-                            "PrimeXBT API settings into the Secret Key field, then "
-                            "restart the bot.")
+                    "msg": "⚠️ PrimeXBT: Secret Key NOT loaded — orders will not execute on live account."
                 })
             else:
-                # PrimeXBT has NO demo/testnet server - with keys loaded every
-                # request hits the REAL account. Confirm it loudly so stale
-                # "paper mode"/"DEMO" labels can never confuse the user again.
+                env_lbl = "DEMO" if config.get("testnet", True) else "LIVE"
                 bal = None
                 if hasattr(self.trader, "get_balance_or_none"):
                     try:
                         bal = self.trader.get_balance_or_none()
                     except Exception:
                         bal = None
-                if bal is not None:
-                    self._emit("log", {
-                        "level": "success",
-                        "msg": (f"✅ PrimeXBT: LIVE mode - keys loaded, real "
-                                f"balance ${bal:,.2f} (PrimeXBT has no demo "
-                                f"server - every order is REAL)")
-                    })
-                else:
-                    self._emit("log", {
-                        "level": "success",
-                        "msg": ("✅ PrimeXBT: LIVE mode - keys loaded (PrimeXBT "
-                                "has no demo server - every order is REAL)")
-                    })
+                bal_txt = f" | Balance ${bal:,.2f}" if bal is not None else ""
+                self._emit("log", {
+                    "level": "success",
+                    "msg": f"✅ PrimeXBT ({env_lbl}) connected{bal_txt}"
+                })
 
-        # Get symbols and leverage
         symbols = self._symbols_list()
-        lev = config.get("leverage", 10)
+        lev = config.get("leverage", 20)
         if not symbols:
             return {"success": False, "error": "No symbols added. Please add coins."}
 
-        try:
-            _lev_cfg = int(lev or 10)
-            _sl_cfg = float(config.get("stop_loss_pct", 0.2) or 0.2)
-            if _lev_cfg >= 100 and (_sl_cfg * _lev_cfg) >= 95.0:
-                _safe_sl = max(0.05, round(80.0 / _lev_cfg, 2))
-                self._emit("log", {
-                    "level": "warn",
-                    "msg": (f"⚠️ HIGH LEVERAGE RISK ({_lev_cfg}x): Stop Loss {_sl_cfg:.2f}% = -{_sl_cfg * _lev_cfg:.0f}% ROE — "
-                            f"exchange liquidation SL se pehle hit ho sakti hai! {_lev_cfg}x pe SL <= {_safe_sl:.2f}% ya lower leverage rakhein.")
-                })
-        except Exception:
-            pass
-
-        # ===== LEVERAGE RACE CONDITION FIX =====
-        # Create a leverage-ready event that workers will wait on BEFORE trading.
-        # Leverage is still set in a background thread (non-blocking for /api/start)
-        # but workers block until it completes (with a 30s timeout).
         leverage_ready = threading.Event()
 
         def _set_leverage_bg():
@@ -2434,15 +1337,8 @@ class BotEngine:
                                 "level": "info",
                                 "msg": f"[{sym}] Leverage set: {actual_lev}x"
                             })
-                        # Emit position immediately with actual leverage
                         try:
                             pos = self.trader.get_position(sym)
-                            worker = self.workers.get(sym)
-                            tp_stage = worker.tp_stage if (worker and pos.side != "NONE") else 0
-                            tp_price = worker.tp_price if (worker and pos.side != "NONE" and worker.tp_price) else 0.0
-                            sl_price = worker.sl_price if (worker and pos.side != "NONE" and worker.sl_price) else 0.0
-                            tp_mode = worker.tp_mode if worker else (self.config.get("tp_mode") or "fixed")
-                            target_roe = getattr(worker, "target_roe_pct", 100.0) if worker else 100.0
                             self._emit("position", {
                                 "symbol": sym,
                                 "side": pos.side,
@@ -2451,11 +1347,6 @@ class BotEngine:
                                 "mark_price": pos.mark_price,
                                 "unrealized_pnl": pos.unrealized_pnl,
                                 "leverage": pos.leverage,
-                                "tp_stage": tp_stage,
-                                "tp_price": tp_price,
-                                "sl_price": sl_price,
-                                "target_roe": target_roe,
-                                "tp_mode": tp_mode,
                             })
                         except Exception:
                             pass
@@ -2463,92 +1354,55 @@ class BotEngine:
                         err = str(r.get("error", ""))
                         is_binance = self.config.get("exchange", "binance").lower() == "binance"
                         if is_binance and ("-2014" in err or "API-key format invalid" in err):
-                            self._emit("log", {
-                                "level": "error",
-                                "msg": f"[{sym}] ❌ API KEY FORMAT INVALID (-2014): key ka text hi galat shape mein hai! API Key aur SECRET alag-alag fields mein saaf paste karo (koi label/quote nahi). PrimeXBT key (pxk_/MC4CAQ) Binance mein NAHI chalegi."
-                            })
-                            # Stop the bot completely and kill all threads
+                            self._emit("log", {"level": "error", "msg": f"[{sym}] ❌ API KEY FORMAT INVALID (-2014)."})
                             self.is_running = False
                             for w in self.workers.values():
                                 w.stop_event.set()
                             return
                         elif is_binance and ("-2015" in err or "Invalid API-key" in err or "401" in err):
-                            _testnet = bool(self.config.get("testnet", True))
-                            _hint = ("TESTNET par REAL Binance key HAMESHA fail hoti hai - "
-                                     "testnet.binancefuture.com se TESTNET key lo (GitHub se login karke), "
-                                     "ya real trading ke liye Env ko LIVE karo.") if _testnet else \
-                                    ("Binance LIVE ne key reject ki: 1) 'Enable Futures' ON karo. "
-                                     "2) IP restriction ho to VPS IP whitelist karo. 3) Futures key ho, Spot nahi.")
-                            self._emit("log", {
-                                "level": "error",
-                                "msg": f"[{sym}] ❌ API AUTH FAILED (-2015): {_hint}"
-                            })
-                            # Stop the bot completely and kill all threads
+                            self._emit("log", {"level": "error", "msg": f"[{sym}] ❌ API AUTH FAILED (-2015)."})
                             self.is_running = False
                             for w in self.workers.values():
                                 w.stop_event.set()
                             return
-                        elif not is_binance and ("-1044" in err or "401" in err or "signature" in err.lower()):
-                            self._emit("log", {
-                                "level": "warn",
-                                "msg": f"[{sym}] ⚠️ WEEX leverage notice: {err[:80]}. Continuing with effective leverage."
-                            })
                         elif "-1121" in err or "Invalid symbol" in err:
                             logger.info(f"[{sym}] Leverage setup skipped: symbol not supported.")
-                        elif "-4141" in err or "Symbol is closed" in err or "band" in err:
-                            self._emit("log", {
-                                "level": "warn",
-                                "msg": f"[{sym}] ⚠️ Symbol is delisted/closed - skipping."
-                            })
                         else:
-                            # Don't block bot over leverage errors — trades will use default
                             self._emit("log", {
                                 "level": "warn",
-                                "msg": f"[{sym}] ⚠️ Could not set leverage: {err[:80]}. Using exchange default."
+                                "msg": f"[{sym}] ⚠️ Leverage notice: {err[:100]}. Continuing."
                             })
             finally:
                 leverage_ready.set()
 
-        _bg_thread = threading.Thread(target=_set_leverage_bg, daemon=True)
-        _bg_thread.start()
+        threading.Thread(target=_set_leverage_bg, daemon=True).start()
 
         self.is_running = True
-
-        # Set active_symbol BEFORE spawning workers (prevents race condition)
         if symbols:
             self.active_symbol = symbols[0]
 
-        # Spawn one worker per symbol (STAGGERED to avoid API rate limits)
-        # GUARANTEE: no duplicate workers - clear any stale dict entries first.
         with self.lock:
             self.workers.clear()
             for i, sym in enumerate(symbols):
                 w = SymbolWorker(self, sym, config, leverage_ready=leverage_ready)
                 self.workers[sym] = w
-                # Stagger start: each worker starts 0.5s apart
-                stagger_delay = min(i * 0.5, 10)  # max 10s spread
+                stagger_delay = min(i * 0.5, 10)
                 if stagger_delay > 0:
                     threading.Timer(stagger_delay, w.start).start()
                 else:
                     w.start()
 
         self._emit("status", {"running": True, "message": "Bot started"})
-        sl_pct_val, _, _ = clamp_stop_loss(config.get("stop_loss_pct", 0.5), int(lev or 20))
-        tp_pct_val = clamp_take_profit(config.get("take_profit_pct", 1.5))
-        tp_mode_val = normalize_tp_mode(config.get("tp_mode", "fixed")).upper()
-        sl_info = f"SL={sl_pct_val:.2f}%"
-        tp_info = f"TP={tp_pct_val:.2f}% ({tp_mode_val}) + AUTO-REVERSAL"
         exchange = (config.get("exchange") or "binance").upper()
-        env_label = "DEMO" if exchange == "WEEX" and config.get("testnet") else \
+        env_label = "DEMO" if exchange in ("WEEX", "PRIMEXBT") and config.get("testnet") else \
                     ("TESTNET" if config.get("testnet") else "MAINNET")
         self._emit("log", {
             "level": "info",
             "msg": (f"Bot STARTED | Exchange={exchange} | Symbols={','.join(symbols)} | "
                     f"TF={config['timeframe']} | Lev={config['leverage']}x | "
-                    f"Mode={config.get('mode','both')} | Amount={self._amount_desc()} | "
-                    f"{sl_info} | {tp_info} | Env={env_label}")
+                    f"Mode={config.get('mode', 'both')} | Amount={self._amount_desc()} | "
+                    f"Strategy=Pure EMA 8/13/21/55 + Reversal (No SL/TP) | Env={env_label}")
         })
-        # Send notification
         try:
             self.notifier.notify_bot_start(config)
         except Exception as e:
@@ -2556,7 +1410,7 @@ class BotEngine:
         return {"success": True, "message": "Bot started"}
 
     def sync_config(self, new_config: dict):
-        """Dynamically update running workers when user saves settings without needing stop/start."""
+        """Dynamically update running workers when user saves settings."""
         self.config = new_config
         self.notifier.update_config(new_config)
         if not self.is_running:
@@ -2565,59 +1419,40 @@ class BotEngine:
         new_symbols = set(self._symbols_list())
         with self.lock:
             current_symbols = set(self.workers.keys())
-
-            # Stop and remove deleted symbols
-            to_remove = current_symbols - new_symbols
-            for sym in to_remove:
+            for sym in (current_symbols - new_symbols):
                 w = self.workers.pop(sym, None)
                 if w:
                     w.stop_event.set()
-                    self._emit("log", {"level": "info", "msg": f"[{sym}] ⏹️ Removed from active trading watchlist. Worker stopped."})
+                    self._emit("log", {"level": "info", "msg": f"[{sym}] ⏹️ Removed from watchlist. Worker stopped."})
 
-            # Start new symbols
-            to_add = new_symbols - current_symbols
-            for sym in to_add:
+            for sym in (new_symbols - current_symbols):
                 w = SymbolWorker(self, sym, new_config)
                 self.workers[sym] = w
                 w.start()
-                self._emit("log", {"level": "info", "msg": f"[{sym}] ▶️ Added to active trading watchlist. Worker started."})
+                self._emit("log", {"level": "info", "msg": f"[{sym}] ▶️ Added to watchlist. Worker started."})
 
-            # Update config & live strategy tuning (fresh_window 2–8, min_ema_spread, stop_loss_pct) on surviving workers
-            any_tuning_changed = False
-            applied_fw = None
             for sym in (current_symbols & new_symbols):
                 w = self.workers.get(sym)
                 if w:
-                    changed, new_fw, _ = w.update_strategy_tuning(new_config)
-                    if changed:
-                        any_tuning_changed = True
-                        applied_fw = new_fw
-            if any_tuning_changed and applied_fw is not None:
-                spread_lbl = f"{float(new_config.get('min_ema_spread', 0))}%" if float(new_config.get('min_ema_spread', 0) or 0) > 0 else "Auto (0.08%/0.12%)"
-                _lev_s = int(new_config.get("leverage", 20) or 20)
-                sl_lbl, _, _ = clamp_stop_loss(new_config.get("stop_loss_pct", 0.5), _lev_s)
-                tp_lbl = clamp_take_profit(new_config.get("take_profit_pct", 1.5))
-                mode_lbl = normalize_tp_mode(new_config.get("tp_mode", "fixed")).upper()
-                self._emit("log", {
-                    "level": "success",
-                    "msg": f"⚙️ Settings live-updated on active workers: Candles = {applied_fw} (2–8), Stop Loss = {sl_lbl:.2f}%, Take Profit = {tp_lbl:.2f}% ({mode_lbl}), Min EMA Spread = {spread_lbl}"
-                })
+                    w.update_config(new_config)
+
+            self._emit("log", {
+                "level": "success",
+                "msg": f"⚙️ Settings live-updated: TF={new_config.get('timeframe')} | Lev={new_config.get('leverage')}x | Pure EMA + Reversal"
+            })
 
         if new_symbols and self.active_symbol not in new_symbols:
             self.set_active_symbol(list(new_symbols)[0])
 
     def stop(self):
-        """Stop all workers."""
         if not self.is_running:
             return {"success": False, "error": "Bot not running"}
-
         with self.lock:
             for sym, w in self.workers.items():
                 w.stop_event.set()
             for sym, w in self.workers.items():
                 w.join(timeout=10)
             self.workers.clear()
-
         self.is_running = False
         try:
             self.start_monitor(self.config)
@@ -2625,7 +1460,6 @@ class BotEngine:
             pass
         self._emit("status", {"running": False, "message": "Bot stopped"})
         self._emit("log", {"level": "info", "msg": "Bot STOPPED by user"})
-        # Send notification
         try:
             self.notifier.notify_bot_stop()
         except Exception as e:
@@ -2633,7 +1467,6 @@ class BotEngine:
         return {"success": True, "message": "Bot stopped"}
 
     def force_stop(self):
-        """Force stop - always resets state, even if workers are dead (zombie recovery)."""
         logger.warning("Force stop requested - resetting all state.")
         with self.lock:
             for sym, w in self.workers.items():
@@ -2652,25 +1485,17 @@ class BotEngine:
         self._emit("status", {"running": False, "message": "Force stopped"})
         self._emit("log", {
             "level": "warn",
-            "msg": "⚠️ FORCE STOP done. Trading state reset. Monitor still running (live data active)."
+            "msg": "⚠️ FORCE STOP done. Trading state reset."
         })
         return {"success": True, "message": "Force stop done - trading state reset"}
 
     def set_active_symbol(self, symbol: str):
-        """Set which coin the UI is currently viewing. Only this coin's
-        chart data will be sent via WebSocket (prevents flooding).
-
-        Also tells the monitor thread to switch to this symbol — so the chart
-        updates immediately even when the bot is STOPPED.
-        """
         self.active_symbol = symbol
         logger.info(f"Active symbol set to: {symbol}")
-        # If bot is running and this symbol has a worker, trigger an immediate
-        # chart_data emit so the chart populates instantly (not after 3-5s wait)
         if self.is_running and symbol in self.workers:
             try:
                 worker = self.workers[symbol]
-                if hasattr(worker, '_last_df') and worker._last_df is not None:
+                if hasattr(worker, "_last_df") and worker._last_df is not None:
                     df = worker._last_df
                     candles = worker._candles_to_list(df)
                     emas = worker._emas_to_list(df)
@@ -2679,17 +1504,8 @@ class BotEngine:
                         mark_price = self.trader.get_mark_price(symbol)
                     except Exception:
                         mark_price = float(df.iloc[-1]["close"]) if df is not None and len(df) else 0.0
-                    self._emit("chart_data", {
-                        "symbol": symbol,
-                        "candles": candles,
-                        "emas": emas,
-                    })
-                    self._emit("indicators", {
-                        "symbol": symbol,
-                        **indicators,
-                        "mark_price": mark_price,
-                    })
-                    logger.info(f"Sent chart data for {symbol} ({len(candles)} candles)")
+                    self._emit("chart_data", {"symbol": symbol, "candles": candles, "emas": emas})
+                    self._emit("indicators", {"symbol": symbol, **indicators, "mark_price": mark_price})
             except Exception as e:
                 logger.warning(f"Could not send immediate chart data for {symbol}: {e}")
         return {"success": True}
@@ -2719,18 +1535,6 @@ class BotEngine:
         return typo_map.get(sym, sym)
 
     def _symbols_list(self) -> list:
-        """Get list of symbols to trade (supports multi-symbol).
-
-        CRITICAL FIX: Previously this read `config['symbol']` which is always
-        just the FIRST symbol from symbols_list. This meant only ONE worker
-        was spawned even when user added 10 coins. Multi-coin was broken!
-
-        Now: reads `config['symbols_list']` (the full list) first,
-        falls back to `config['symbol']` (legacy single-string) only if
-        symbols_list is missing or empty.
-        Also automatically normalizes common typos so Binance does not error with -1121.
-        """
-        # Preferred: symbols_list (the full multi-coin list)
         sl = self.config.get("symbols_list")
         if isinstance(sl, list):
             parts = [self._clean_sym(x) for x in sl if x and str(x).strip()]
@@ -2740,7 +1544,6 @@ class BotEngine:
             parts = [self._clean_sym(x) for x in sl.split(",") if x.strip()]
             if parts:
                 return parts
-        # Legacy fallback: single symbol string
         s = self.config.get("symbol", "BTCUSDT")
         if isinstance(s, list):
             return [self._clean_sym(x) for x in s if x and x.strip()]
@@ -2756,21 +1559,18 @@ class BotEngine:
         return f"${self.config.get('amount', 100)}"
 
     def _emit(self, event: str, data: dict):
-        """Emit a socketio event AND log to terminal (dual output for debugging)."""
         try:
-            # Also log to terminal so we can see what's happening
             if event == "log":
                 level = (data.get("level") or "info").upper()
                 msg = data.get("msg", "")
                 if level == "ERROR":
                     logger.error(msg)
-                elif level == "WARN" or level == "WARNING":
+                elif level in ("WARN", "WARNING"):
                     logger.warning(msg)
                 elif level == "SUCCESS":
                     logger.info(f"[SUCCESS] {msg}")
                 else:
                     logger.info(msg)
-            # Emit to browser via Socket.IO
             if self.socketio:
                 self.socketio.emit(event, data, namespace="/")
         except Exception as e:
@@ -2778,8 +1578,6 @@ class BotEngine:
 
     @staticmethod
     def _poll_seconds(timeframe: str) -> int:
-        """How often to re-check the strategy and SL/TP.
-        Faster polling = fresh crosses and SL/TP trigger immediately without candle-close lag."""
         mapping = {
             "1m": 3, "3m": 3, "5m": 4, "15m": 6,
             "30m": 10, "1h": 15, "2h": 20, "4h": 30,
@@ -2789,14 +1587,10 @@ class BotEngine:
 
     def status(self) -> dict:
         symbols = self._symbols_list() if self.is_running else []
-        # ZOMBIE CHECK: if is_running but no alive workers, report as NOT running
         alive_count = sum(1 for w in self.workers.values() if w.is_alive())
         if self.is_running and alive_count == 0 and self.workers:
-            # Workers all dead but flag still True - report as not running
-            # and auto-reset so user can start again
             self.is_running = False
             self.workers.clear()
-        # Compute today's completed trades from trade history so count persists even when bot is stopped
         today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         trades_today_count = 0
         history = getattr(self, "history", None)
@@ -2822,10 +1616,6 @@ class BotEngine:
             "amount_mode": self.config.get("amount_mode", "fixed"),
             "amount": self.config.get("amount"),
             "amount_pct": self.config.get("amount_pct", 10),
-            "stop_loss_pct": self.config.get("stop_loss_pct", 0.5),
-            "take_profit_pct": clamp_take_profit(self.config.get("take_profit_pct", 1.5)),
-            "tp_mode": normalize_tp_mode(self.config.get("tp_mode", "fixed")),
-            "breakeven_lock": normalize_breakeven_lock(self.config.get("breakeven_lock"), default=True),
             "mode": self.config.get("mode", "both"),
             "testnet": self.config.get("testnet", True),
             "live_confirmed": bool(self.config.get("live_confirmed", False)),
