@@ -1125,7 +1125,7 @@ class PrimeXBTTrader:
 
         # Paper/testnet mode without API keys: no remote call would ever
         # succeed (unsigned requests get 401) — store locally and say so.
-        if not self.has_valid_auth:
+        if not self.api_key or not self.private_key:
             self._symbol_leverage[clean_sym] = target_lev
             logger.info(
                 "PrimeXBT leverage %dx stored locally for %s (paper mode — no API keys)",
@@ -1280,8 +1280,10 @@ class PrimeXBTTrader:
         side: str,
         qty: float,
         order_type: str = "MARKET",
+        sl_price: Optional[float] = None,
+        tp_price: Optional[float] = None,
     ) -> dict:
-        """Place pure market order on PrimeXBT (no SL/TP) with strict DEMO/LIVE isolation."""
+        """Place market order on PrimeXBT with strict DEMO/LIVE environment isolation."""
         clean_sym = symbol.strip().upper()
         prime_side = "BUY" if side.upper() in ("BUY", "LONG") else "SELL"
         qty_val = round(float(qty), 4)
@@ -1320,6 +1322,12 @@ class PrimeXBTTrader:
             "qty": qty_val,
         }
 
+        # If protective stop/profit provided
+        if sl_price:
+            payload["stopLoss"] = round(float(sl_price), 4)
+        if tp_price:
+            payload["takeProfit"] = round(float(tp_price), 4)
+
         env_tag = "DEMO" if self.testnet else "LIVE"
         logger.info("Placing PrimeXBT %s %s %s qty=%.4f on %s", env_tag, order_type, prime_side, qty_val, clean_sym)
         res = self._request("POST", "/v3/trading/orders/market/place", body=payload)
@@ -1353,14 +1361,18 @@ class PrimeXBTTrader:
     # =========================================================================
 
     def open_long(self, symbol: str, quantity: float,
+                  sl_price: Optional[float] = None, tp_price: Optional[float] = None,
                   order_type: str = "market", price: Optional[float] = None) -> dict:
-        """Open a LONG position (pure market entry, no SL/TP)."""
-        return self.place_order(symbol, "BUY", quantity, order_type="MARKET")
+        """Open a LONG position (market) with optional exchange-side SL/TP."""
+        return self.place_order(symbol, "BUY", quantity, order_type="MARKET",
+                                sl_price=sl_price, tp_price=tp_price)
 
     def open_short(self, symbol: str, quantity: float,
+                   sl_price: Optional[float] = None, tp_price: Optional[float] = None,
                    order_type: str = "market", price: Optional[float] = None) -> dict:
-        """Open a SHORT position (pure market entry, no SL/TP)."""
-        return self.place_order(symbol, "SELL", quantity, order_type="MARKET")
+        """Open a SHORT position (market) with optional exchange-side SL/TP."""
+        return self.place_order(symbol, "SELL", quantity, order_type="MARKET",
+                                sl_price=sl_price, tp_price=tp_price)
 
     def compute_quantity(self, notional_usdt: float, price: float,
                          leverage: int, qty_step: float = 0.001) -> float:
@@ -1407,8 +1419,6 @@ class PrimeXBTTrader:
 
         # Fallback to general symbol close
         res = self._request("POST", "/v3/trading/positions/close", body={"symbol": clean_sym})
-        if isinstance(res, dict) and not res.get("error"):
-            return {"success": True, "symbol": clean_sym, "closed_size": pos.size, "raw": res}
         return res
 
     def reverse_position(self, symbol: str) -> dict:

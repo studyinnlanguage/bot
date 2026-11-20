@@ -796,12 +796,35 @@ class WEEXFuturesTrader:
 
     def place_market_order(self, symbol: str, side: str, quantity: float,
                            reduce_only: bool = False,
-                           position_side: str = None) -> dict:
+                           position_side: str = None,
+                           sl_price: float = None,
+                           tp_price: float = None) -> dict:
         """
-        Place a pure MARKET order on WEEX (no SL/TP — pure EMA reversal exit).
+        Place a MARKET order on WEEX with optional SL/TP attached.
 
-        WEEX demo path: /capi/v3/sim/order (BTCSUSDT)
-        WEEX live path: /capi/v3/order (BTCUSDT)
+        Confirmed working body fields (from WEEX API docs):
+          - symbol (required) — "BTCUSDT" for live, "BTCSUSDT" for demo
+          - side (required, "BUY"/"SELL")
+          - positionSide (required, "LONG"/"SHORT")
+          - type (required, "MARKET")
+          - quantity (base-asset qty as string)
+          - newClientOrderId (recommended, unique per order)
+          - reduceOnly (optional, "true" for closing positions)
+          - slTriggerPrice (optional) — Stop Loss trigger price
+          - tpTriggerPrice (optional) — Take Profit trigger price
+          - SlWorkingType (optional) — "MARK_PRICE" or "CONTRACT_PRICE"
+          - TpWorkingType (optional) — "MARK_PRICE" or "CONTRACT_PRICE"
+
+        WEEX demo path: /capi/v3/sim/order
+        WEEX live path: /capi/v3/order
+
+        IMPORTANT: In demo mode, the symbol in the order body must be
+        BTCSUSDT (not BTCUSDT). The _order_symbol() helper handles this.
+
+        SL/TP PRICES:
+          - For LONG: SL < entry < TP (SL below, TP above)
+          - For SHORT: TP < entry < SL (TP below, SL above)
+          - Prices should be rounded to tick size
         """
         side = side.upper()
         if side not in ("BUY", "SELL"):
@@ -809,20 +832,30 @@ class WEEXFuturesTrader:
         if quantity <= 0:
             return {"success": False, "error": "Quantity must be > 0"}
 
+        # Convert symbol to WEEX-expected format (BTCSUSDT for demo, BTCUSDT for live)
         order_sym = self._order_symbol(symbol)
+        # For contract info (public market data), use plain format
         market_sym = self._market_symbol(symbol)
 
+        # Round quantity to contract step size
         try:
             info = self.get_contract_info(market_sym)
             step = info["step_size"]
             min_qty = info["min_qty"]
+            tick = info.get("tick_size", 0.01)
             quantity = self._round_to_step(quantity, step)
             if quantity < min_qty:
                 return {"success": False,
                         "error": f"Quantity {quantity} below min {min_qty} for {symbol}"}
+            # Round SL/TP prices to tick size
+            if sl_price and sl_price > 0:
+                sl_price = self._round_to_step(sl_price, tick)
+            if tp_price and tp_price > 0:
+                tp_price = self._round_to_step(tp_price, tick)
         except Exception as e:
             logger.warning("Could not fetch WEEX contract info for %s, trying order anyway: %s", symbol, e)
 
+        # Determine positionSide based on side and intent
         if position_side is None:
             position_side = "LONG" if side == "BUY" else "SHORT"
             if reduce_only:
@@ -842,7 +875,16 @@ class WEEXFuturesTrader:
             }
             if reduce_only:
                 body["reduceOnly"] = "true"
+            # Attach SL/TP trigger prices to the order itself
+            # This places REAL exchange-side SL/TP orders (not just software watchdog)
+            if sl_price and sl_price > 0 and not reduce_only:
+                body["slTriggerPrice"] = str(sl_price)
+                body["SlWorkingType"] = "MARK_PRICE"
+            if tp_price and tp_price > 0 and not reduce_only:
+                body["tpTriggerPrice"] = str(tp_price)
+                body["TpWorkingType"] = "CONTRACT_PRICE"
             resp = self._retry_api_call(self._request, "POST", path, body=body, signed=True)
+            # Parse orderId from various response shapes
             oid = "?"
             if isinstance(resp, dict):
                 inner = resp.get("data", resp)
@@ -850,9 +892,13 @@ class WEEXFuturesTrader:
                     oid = inner.get("orderId", inner.get("order_id", inner.get("id", "?")))
                 else:
                     oid = resp.get("orderId", "?")
-            logger.info("WEEX order placed: %s %s qty=%s posSide=%s -> orderId=%s",
-                        side, order_sym, quantity, position_side, oid)
-            return {"success": True, "order": resp, "quantity": quantity}
+            sltp_info = ""
+            if sl_price or tp_price:
+                sltp_info = f" | SL={sl_price} TP={tp_price}"
+            logger.info("WEEX order placed: %s %s qty=%s posSide=%s%s -> orderId=%s",
+                        side, order_sym, quantity, position_side, sltp_info, oid)
+            return {"success": True, "order": resp, "quantity": quantity,
+                    "sl_price": sl_price, "tp_price": tp_price}
         except Exception as e:
             logger.error("WEEX order failed: %s", e)
             return {"success": False, "error": str(e), "quantity": quantity}
@@ -894,16 +940,41 @@ class WEEXFuturesTrader:
         )
 
     def open_long(self, symbol: str, quantity: float,
-                  order_type: str = "market", price: float = None) -> dict:
-        """Open a LONG position (pure market entry, no SL/TP)."""
+                  sl_price: float = None, tp_price: float = None,
+                  order_type: str = "maker", price: float = None) -> dict:
+        """Open a LONG position with optional SL/TP attached."""
         return self.place_market_order(symbol, "BUY", quantity,
-                                       reduce_only=False, position_side="LONG")
+                                       reduce_only=False, position_side="LONG",
+                                       sl_price=sl_price, tp_price=tp_price)
 
     def open_short(self, symbol: str, quantity: float,
-                   order_type: str = "market", price: float = None) -> dict:
-        """Open a SHORT position (pure market entry, no SL/TP)."""
+                   sl_price: float = None, tp_price: float = None,
+                   order_type: str = "maker", price: float = None) -> dict:
+        """Open a SHORT position with optional SL/TP attached."""
         return self.place_market_order(symbol, "SELL", quantity,
-                                       reduce_only=False, position_side="SHORT")
+                                       reduce_only=False, position_side="SHORT",
+                                       sl_price=sl_price, tp_price=tp_price)
+
+    def place_stop_loss(self, symbol: str, side: str, stop_price: float, quantity: float) -> dict:
+        """Exchange-side SL sync hook for WEEX.
+
+        SAFETY FIX: the old implementation called place_market_order(...,
+        reduce_only=True, sl_price=stop_price). For reduce_only orders WEEX
+        adapter silently DROPS the SL trigger price, so this placed a plain
+        reduceOnly MARKET order — i.e. it INSTANTLY CLOSED the whole position
+        at market whenever the engine tried to sync/move the exchange-side SL
+        (for example on auto-restore after a restart, or trailing-TP purge).
+
+        WEEX standalone trigger orders are not wired yet, so this is now a
+        deliberate no-op: the software watchdog in engine.py polls the mark
+        price every tick and closes via close_position() when SL/TP is hit —
+        it is the source of truth for exits on every exchange.
+        """
+        logger.info(
+            "[%s] WEEX exchange-side SL sync skipped (software watchdog active): SL=%s side=%s qty=%s",
+            symbol, stop_price, side, quantity,
+        )
+        return {"success": True, "notice": "software watchdog manages SL", "sl_price": stop_price}
 
     def cancel_open_orders(self, symbol: str) -> dict:
         """Cancel open orders for a symbol on WEEX."""

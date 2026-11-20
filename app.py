@@ -73,7 +73,11 @@ import importlib.util as _ilu
 _rc_spec = _ilu.spec_from_file_location("_bot_risk_config", str(BOT_ENGINE_DIR / "bot" / "risk_config.py"))
 _rc_mod = _ilu.module_from_spec(_rc_spec)
 _rc_spec.loader.exec_module(_rc_mod)
+clamp_stop_loss = _rc_mod.clamp_stop_loss
+clamp_take_profit = _rc_mod.clamp_take_profit
+normalize_breakeven_lock = _rc_mod.normalize_breakeven_lock
 normalize_timeframe = _rc_mod.normalize_timeframe
+normalize_tp_mode = _rc_mod.normalize_tp_mode
 
 
 def _resolve_data_dir() -> Path:
@@ -1181,8 +1185,12 @@ def _default_bot_config(symbols_list: Optional[list] = None) -> dict:
         "amount_mode": "fixed",
         "amount": 100,
         "amount_pct": 10,
+        "stop_loss_pct": 0.5,
+        "take_profit_pct": 1.5,
+        "tp_mode": "fixed",
+        "breakeven_lock": True,
         "mode": "both",
-        "max_concurrent_trades": 3,
+        "max_concurrent_trades": 2,
         "api_key_enc": "",
         "api_secret_enc": "",
         "api_passphrase_enc": "",
@@ -1828,12 +1836,33 @@ def write_user_bot_config(user_id: str) -> str:
         if "testnet" in config:
             bot_config["testnet"] = bool(config["testnet"])
         bot_config["live_confirmed"] = _resolve_live_confirmed(bool(bot_config.get("testnet", True)), config)
+        if "fresh_window" in config and config["fresh_window"] is not None:
+            bot_config["fresh_window"] = max(2, min(8, int(config["fresh_window"]) or 2))
+        if "min_ema_spread" in config and config["min_ema_spread"] is not None:
+            bot_config["min_ema_spread"] = float(config["min_ema_spread"] or 0)
+        if "reentry_cooldown_sec" in config and config["reentry_cooldown_sec"] is not None:
+            bot_config["reentry_cooldown_sec"] = int(config["reentry_cooldown_sec"])
         if "max_concurrent_trades" in config and config["max_concurrent_trades"] is not None:
             bot_config["max_concurrent_trades"] = max(1, min(3, int(config["max_concurrent_trades"])))
-        for _obsolete in ("stop_loss_pct", "take_profit_pct", "trailing_roe_pct",
-                          "tp_mode", "breakeven_lock", "reentry_cooldown_sec",
-                          "min_ema_spread", "fresh_window"):
-            bot_config.pop(_obsolete, None)
+        _eff_lev = int(bot_config.get("leverage") or config.get("leverage") or 20)
+        if config.get("tp_mode") == "both" and config.get("take_profit_pct") == 6 and config.get("stop_loss_pct") == 2:
+            bot_config["stop_loss_pct"] = 0.5
+            bot_config["take_profit_pct"] = 1.5
+            bot_config["tp_mode"] = "fixed"
+        else:
+            if "stop_loss_pct" in config and config["stop_loss_pct"] is not None:
+                bot_config["stop_loss_pct"], _, _ = clamp_stop_loss(config["stop_loss_pct"], _eff_lev)
+            else:
+                bot_config["stop_loss_pct"], _, _ = clamp_stop_loss(bot_config.get("stop_loss_pct", 0.5), _eff_lev)
+            if "take_profit_pct" in config and config["take_profit_pct"] is not None:
+                bot_config["take_profit_pct"] = clamp_take_profit(config["take_profit_pct"])
+            else:
+                bot_config["take_profit_pct"] = clamp_take_profit(bot_config.get("take_profit_pct", 1.5))
+            bot_config["tp_mode"] = normalize_tp_mode(config.get("tp_mode") or bot_config.get("tp_mode") or "fixed")
+        if "breakeven_lock" in config:
+            bot_config["breakeven_lock"] = normalize_breakeven_lock(config.get("breakeven_lock"), default=True)
+        else:
+            bot_config["breakeven_lock"] = normalize_breakeven_lock(bot_config.get("breakeven_lock"), default=True)
         _db_symbols = [str(s).upper().strip() for s in (config.get("symbols_list") or []) if str(s).strip()]
         _exchange_changed = bool(_db_exchange and _file_exchange and _db_exchange != _file_exchange)
         if _db_symbols and (not bot_config.get("symbols_list") or _exchange_changed):
@@ -1958,8 +1987,15 @@ def write_user_bot_config(user_id: str) -> str:
             "amount_mode": config.get("amount_mode", "fixed"),
             "amount": config.get("amount", 100),
             "amount_pct": config.get("amount_pct", 10),
+            "stop_loss_pct": clamp_stop_loss(config.get("stop_loss_pct", 0.5), int(config.get("leverage", 20) or 20))[0],
+            "take_profit_pct": clamp_take_profit(config.get("take_profit_pct", 1.5)),
+            "tp_mode": normalize_tp_mode(config.get("tp_mode", "fixed")),
+            "breakeven_lock": normalize_breakeven_lock(config.get("breakeven_lock"), default=True),
             "mode": config.get("mode", "both"),
             "max_concurrent_trades": config.get("max_concurrent_trades", 3),
+            "reentry_cooldown_sec": config.get("reentry_cooldown_sec", 180),
+            "min_ema_spread": config.get("min_ema_spread", 0),
+            "fresh_window": max(2, min(8, int(config.get("fresh_window", 2) or 2))),
             "auto_start": False,
             "telegram_enabled": config.get("telegram_enabled", False),
             "telegram_bot_token": decrypt(config.get("telegram_bot_token_enc", "")),
@@ -2156,7 +2192,7 @@ def _sync_engine_config_to_db(user: dict, data: dict):
         config["symbols_list"] = [str(s).upper().strip() for s in data["symbols_list"] if str(s).strip()]
 
     for k in ("timeframe", "amount_mode", "amount", "amount_pct",
-              "mode",
+              "stop_loss_pct", "take_profit_pct", "tp_mode", "breakeven_lock", "mode",
               "telegram_enabled", "telegram_chat_id",
               "email_enabled", "email_sender", "email_receiver",
               "whatsapp_enabled", "whatsapp_phone"):
@@ -2177,6 +2213,20 @@ def _sync_engine_config_to_db(user: dict, data: dict):
             config["amount"] = max(1, float(data["amount"]) or 100)
         if "amount_pct" in data and data["amount_pct"] is not None:
             config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
+        _lev_sync = int(config.get("leverage") or 20)
+        if "stop_loss_pct" in data and data["stop_loss_pct"] is not None:
+            config["stop_loss_pct"], _, _ = clamp_stop_loss(data["stop_loss_pct"], _lev_sync)
+        elif "leverage" in data and "stop_loss_pct" in config:
+            config["stop_loss_pct"], _, _ = clamp_stop_loss(config.get("stop_loss_pct"), _lev_sync)
+        if "take_profit_pct" in data and data["take_profit_pct"] is not None:
+            config["take_profit_pct"] = clamp_take_profit(data["take_profit_pct"])
+        elif "take_profit_pct" not in config:
+            config["take_profit_pct"] = clamp_take_profit(1.5)
+        config["tp_mode"] = normalize_tp_mode(data.get("tp_mode") if "tp_mode" in data else config.get("tp_mode", "fixed"))
+        config["breakeven_lock"] = normalize_breakeven_lock(
+            data.get("breakeven_lock") if "breakeven_lock" in data else config.get("breakeven_lock"),
+            default=True,
+        )
     except (TypeError, ValueError):
         pass
     try:
@@ -2184,10 +2234,21 @@ def _sync_engine_config_to_db(user: dict, data: dict):
             config["max_concurrent_trades"] = max(1, min(3, int(data["max_concurrent_trades"])))
     except (TypeError, ValueError):
         pass
-    for _obsolete in ("stop_loss_pct", "take_profit_pct", "trailing_roe_pct",
-                      "tp_mode", "breakeven_lock", "reentry_cooldown_sec",
-                      "min_ema_spread", "fresh_window"):
-        config.pop(_obsolete, None)
+    try:
+        if "reentry_cooldown_sec" in data and data["reentry_cooldown_sec"] is not None:
+            config["reentry_cooldown_sec"] = max(0, min(7200, int(float(data["reentry_cooldown_sec"]))))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if "min_ema_spread" in data and data["min_ema_spread"] is not None:
+            config["min_ema_spread"] = max(0.0, min(5.0, float(data["min_ema_spread"]) or 0.0))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if "fresh_window" in data and data["fresh_window"] is not None:
+            config["fresh_window"] = max(2, min(8, int(data["fresh_window"]) or 2))
+    except (TypeError, ValueError):
+        pass
     save_db(DB)
 
 # Track open file handles for cleanup
@@ -3256,6 +3317,23 @@ def api_bot_config():
         config["amount"] = max(1, float(data["amount"]) or 100)
     if "amount_pct" in data:
         config["amount_pct"] = max(1, min(100, float(data["amount_pct"]) or 10))
+    _lev_cfg = int(config.get("leverage") or 20)
+    if "stop_loss_pct" in data:
+        config["stop_loss_pct"], _, _ = clamp_stop_loss(data["stop_loss_pct"], _lev_cfg)
+    elif "leverage" in data and "stop_loss_pct" in config:
+        config["stop_loss_pct"], _, _ = clamp_stop_loss(config.get("stop_loss_pct"), _lev_cfg)
+    if "take_profit_pct" in data:
+        config["take_profit_pct"] = clamp_take_profit(data["take_profit_pct"])
+    elif "take_profit_pct" not in config:
+        config["take_profit_pct"] = clamp_take_profit(1.5)
+    if "tp_mode" in data:
+        config["tp_mode"] = normalize_tp_mode(data["tp_mode"])
+    elif "tp_mode" not in config:
+        config["tp_mode"] = "fixed"
+    if "breakeven_lock" in data:
+        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=True)
+    elif "breakeven_lock" not in config:
+        config["breakeven_lock"] = True
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:
@@ -3264,10 +3342,21 @@ def api_bot_config():
             config["max_concurrent_trades"] = max(1, min(3, mct))
         except (ValueError, TypeError):
             config["max_concurrent_trades"] = 3
-    for _obsolete in ("stop_loss_pct", "take_profit_pct", "trailing_roe_pct",
-                      "tp_mode", "breakeven_lock", "reentry_cooldown_sec",
-                      "min_ema_spread", "fresh_window"):
-        config.pop(_obsolete, None)
+    if "reentry_cooldown_sec" in data:
+        try:
+            config["reentry_cooldown_sec"] = max(0, min(7200, int(float(data["reentry_cooldown_sec"]))))
+        except (ValueError, TypeError):
+            config["reentry_cooldown_sec"] = 180
+    if "min_ema_spread" in data:
+        try:
+            config["min_ema_spread"] = max(0.0, min(5.0, float(data["min_ema_spread"]) or 0.0))
+        except (ValueError, TypeError):
+            config["min_ema_spread"] = 0.0
+    if "fresh_window" in data:
+        try:
+            config["fresh_window"] = max(2, min(8, int(data["fresh_window"]) or 2))
+        except (ValueError, TypeError):
+            config["fresh_window"] = 2
 
     save_db(DB)
     return jsonify({

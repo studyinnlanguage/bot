@@ -192,6 +192,14 @@
                                 <span>Unrealized PnL</span>
                                 <strong id="posPnl" class="pnl-zero">$0.00</strong>
                             </div>
+                            <div class="pos-row">
+                                <span id="posTpLabel">Take Profit (+1.5% Target)</span>
+                                <strong id="posTrailingTp" style="color:var(--green-success)">--</strong>
+                            </div>
+                            <div class="pos-row">
+                                <span id="posSlLabel">Stop Loss (-0.5% SL)</span>
+                                <strong id="posCurrentSl" style="color:var(--red-danger)">--</strong>
+                            </div>
                             <div class="pos-row pos-row-leverage">
                                 <span>Leverage</span>
                                 <div style="display:flex; align-items:center; gap:6px;">
@@ -351,7 +359,7 @@
             <div class="config-view-header">
                 <div>
                     <h2>🛡️ Vault — Live Positions &amp; Risk Monitor</h2>
-                    <p class="section-desc">Real-time futures positions managed by Pure EMA (8/13/21/55) + EMA55 Reversal.</p>
+                    <p class="section-desc">Real-time futures positions, strict 1:1 profit targets, stop loss, and unrealized PnL.</p>
                 </div>
                 <div class="config-actions">
                     <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
@@ -379,9 +387,9 @@
                     <div class="pos-metric-sub" id="posTabRoe">ROE: 0.00%</div>
                 </div>
                 <div class="pos-metric-card">
-                    <div class="pos-metric-label">Strategy Mode</div>
-                    <div class="pos-metric-value">EMA 8/13/21/55</div>
-                    <div class="pos-metric-sub">Pure EMA55 Reversal</div>
+                    <div class="pos-metric-label" id="posTabTargetLabel">Target (TP 1.5% / SL 0.5%)</div>
+                    <div class="pos-metric-value" id="posTabStage">TP 1.5% / SL 0.5%</div>
+                    <div class="pos-metric-sub" id="posTabTpTarget">Target: --</div>
                 </div>
             </div>
 
@@ -413,13 +421,25 @@
                             <span>Estimated ROE (%)</span><strong id="posFocusRoe">0.00%</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Configured Leverage</span><strong id="posFocusLeverage">{{ config.leverage | default(20) }}x</strong>
+                            <span id="posFocusTpLabel">Take Profit (+1.5% Target)</span><strong id="posFocusTrailingTp" style="color:var(--green-success)">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span id="posFocusSlLabel">Stop Loss (-0.5% SL)</span><strong id="posFocusCurrentSl" style="color:var(--red-danger)">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Configured Leverage</span><strong id="posFocusLeverage">{{ config.leverage | default(10) }}x</strong>
                         </div>
                         <div class="pos-row">
                             <span>Est. Round-Trip Fees</span><strong id="posFocusFees" style="color:var(--gold)">--</strong>
                         </div>
                         <div class="pos-row">
-                            <span>Exit Mode</span><strong>Pure EMA55 Reversal</strong>
+                            <span>TP Mode</span><strong id="posFocusTpMode">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>Target ROE</span><strong id="posFocusTargetRoe">--</strong>
+                        </div>
+                        <div class="pos-row">
+                            <span>TP Stage</span><strong id="posFocusStage">0</strong>
                         </div>
                     </div>
                     <div class="card-footer" style="padding:14px 20px; border-top:1px solid var(--border-subtle); display:flex; justify-content:flex-end; gap:10px;">
@@ -446,12 +466,14 @@
                                     <th>Entry</th>
                                     <th>Mark</th>
                                     <th>Unrealized PnL</th>
+                                    <th id="tableTpHeader">Take Profit (+1.5%)</th>
+                                    <th id="tableSlHeader">Stop Loss (-0.5%)</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody id="positionsTableBody">
                                 <tr>
-                                    <td colspan="7" style="text-align:center; padding:32px; color:var(--text-secondary);">
+                                    <td colspan="9" style="text-align:center; padding:32px; color:var(--text-secondary);">
                                         Checking open positions...
                                     </td>
                                 </tr>
@@ -499,7 +521,7 @@
             <div class="history-view-header">
                 <div>
                     <h2><span class="card-icon">📜</span> Ledger — Trade History &amp; Performance</h2>
-                    <p class="section-desc">Complete record of every trade executed by the bot (EMA entries, EMA55 reversal flips, and manual closes).</p>
+                    <p class="section-desc">Complete record of every trade executed by the bot (including 1:1 TP exits, 1:1 SL triggers, EMA flip reversals, and manual closes).</p>
                 </div>
                 <div class="history-header-actions">
                     <button type="button" class="btn btn-secondary" onclick="if(window.fetchTradeHistory)window.fetchTradeHistory(true)" id="refreshHistoryBtn">🔄 Refresh</button>
@@ -586,7 +608,7 @@
             <div class="config-view-header">
                 <div>
                     <h2>⚙️ Engine — Strategy &amp; Configuration</h2>
-                    <p class="section-desc">Manage API credentials, exchange connectivity, multi-coin watchlist, leverage, and wallet sizing for Pure EMA (8/13/21/55) + Reversal.</p>
+                    <p class="section-desc">Manage API credentials, exchange connectivity, multi-coin watchlist, leverage and strict 1:1 risk parameters.</p>
                 </div>
                 <div class="config-actions">
                     <button type="button" class="btn btn-secondary" onclick="switchWorkspaceTab('terminal')">← Back to Terminal</button>
@@ -740,6 +762,47 @@
                             <div class="hint">Bot dynamically computes USDT size based on current available balance.</div>
                         </div>
 
+                        <!-- Automated Risk & Profit Settings (Custom SL % & Custom TP % Column) -->
+                        <div class="form-row" style="margin-top:8px;">
+                            <div class="form-group">
+                                <label>Stop Loss % (Price Move)</label>
+                                <input type="number" id="stopLossPct" value="0.5" min="0.05" max="50" step="0.05" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Take Profit % (Price Move, Min 0.30%)</label>
+                                <input type="number" id="takeProfitPct" value="1.5" min="0.3" max="50" step="0.1" required>
+                            </div>
+                        </div>
+                        <div class="form-row" style="margin-top:4px; align-items:end;">
+                            <div class="form-group">
+                                <label>Take Profit Exit Mode</label>
+                                <select id="tpMode" style="width:100%; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); border-radius:8px; font-weight:600;">
+                                    <option value="fixed" selected>🎯 Fixed Target (Custom TP % + Breakeven Lock)</option>
+                                    <option value="trailing">🚀 Stepped ROE Trailing (50%→SL+15% · 100%→SL+50%, TP+150%)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="display:flex; flex-direction:column; justify-content:center;">
+                                <span class="badge" id="slTpPreviewBadge" style="background:rgba(46,207,138,0.12); color:var(--green); border:1px solid rgba(46,207,138,0.3); font-weight:700; padding:10px 12px; border-radius:8px; text-align:center;">
+                                    ⚡ <span id="badgeSlVal">SL: 0.5% (-10% ROE) | TP: 1.5% (+30% ROE) | RR 1:3.0</span>
+                                </span>
+                            </div>
+                        </div>
+                        <div id="liqGuardWarning" style="display:none; margin-top:6px; padding:8px 10px; border-radius:6px; background:rgba(246,70,93,0.12); border:1px solid rgba(246,70,93,0.35); color:#ff7b8a; font-size:12px;"></div>
+                        <div class="form-group" style="margin-top:8px;">
+                            <label style="display:flex; align-items:center; gap:10px; cursor:pointer; text-transform:none; letter-spacing:0.01em;">
+                                <input type="checkbox" id="breakevenLock" checked style="width:17px; height:17px; accent-color:#f0b90b;">
+                                <span style="font-size:12.5px; font-weight:700; color:var(--txt-2);">🔒 Auto Breakeven Profit Lock (profit 55% TP pe pahuche to SL entry+fees pe lock ho jaye)</span>
+                            </label>
+                        </div>
+                        <div style="margin-top:8px;">
+                            <button type="button" id="applyRecommendedPresetBtn" class="btn btn-sm" style="width:100%; background:rgba(240,185,11,0.14); color:#f0b90b; border:1px solid rgba(240,185,11,0.35); font-weight:700; padding:9px 12px; border-radius:8px;" onclick="if(window.applyRecommendedPreset)applyRecommendedPreset();">
+                                ⭐ Apply Safe Stepped Trailing Preset (20x · 15m · SL 0.5% · 50%→+15% SL · 100%→+50%/TP+150%)
+                            </button>
+                            <div class="hint" style="margin-top:6px;">
+                                🎯 <b>Live Calculation:</b> Take Profit (+<span id="autoTpDisplay">1.50% (+30% ROE)</span>) &amp; Stop Loss (-<span id="autoSlDisplay">0.50% (-10% ROE @ 20x)</span>). <i>50x+ leverage pe SL ≥ 85% ROE liquidation zone automatic guard hota hai.</i>
+                            </div>
+                        </div>
+
                         <!-- Concurrent Active Trades / Coins Selection (1, 2, or 3) -->
                         <div class="form-group" style="margin-top:16px;">
                             <label style="display:flex; justify-content:space-between; align-items:center;">
@@ -756,12 +819,44 @@
                             </div>
                         </div>
 
-                        <div class="hint-card" style="margin-top:14px; border-left:4px solid var(--gold);">
-                            <b>🤖 PURE EMA 8/13/21/55 + AUTO-REVERSAL:</b>
-                            EMA55 at BOTTOM = LONG · EMA55 at TOP = SHORT · Exit &amp; Flip sirf EMA55 Reversal par (No SL · No TP · No Trailing · No Spread/Candle Wait).
+                        <!-- Same-Coin Re-Entry Cooldown (anti instant-reopen) -->
+                        <div class="form-group" style="margin-top:16px;">
+                            <label style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Same-Coin Re-Entry Cooldown</span>
+                                <span class="badge" style="background:rgba(240,185,11,0.15); color:var(--gold); border:1px solid rgba(240,185,11,0.3); font-size:11px; padding:3px 8px; border-radius:6px;">Anti Re-Entry</span>
+                            </label>
+                            <select id="reentryCooldownSec" style="width:100%; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); border-radius:8px; font-weight:600;">
+                                <option value="0">0 sec (Cooldown OFF — instant re-entry allowed)</option>
+                                <option value="60">60 seconds</option>
+                                <option value="180" selected>3 minutes (Recommended)</option>
+                                <option value="300">5 minutes</option>
+                                <option value="600">10 minutes</option>
+                                <option value="900">15 minutes</option>
+                            </select>
+                            <div class="hint" style="margin-top:6px;">
+                                ⏳ Trade close hone ke baad bot itni der tak USI coin pe dobara trade NAHI kholega. Fresh cross hi naya trade khol sakta hai.
+                            </div>
                         </div>
 
-                        <div class="form-group" style="margin-top:16px;">
+                        <div class="hint-card" style="margin-top:12px; border-left:4px solid var(--gold);">
+                            <b>🤖 100% AUTOMATED EXECUTION:</b> 
+                            Take Profit (<span id="cardTpDisplay">+1.50% FIXED</span>) + Stop Loss (-<span id="cardSlDisplay">0.50% (-10% ROE)</span>) + Breakeven Profit Lock + EMA55 Reversal.
+                        </div>
+
+                        <!-- Advanced Strategy Tuning (engine fields) -->
+                        <div class="form-row" style="margin-top:18px;">
+                            <div class="form-group">
+                                <label>Min EMA Spread % (0 = Fast Auto)</label>
+                                <input type="number" id="minEmaSpread" value="0" min="0" max="5" step="0.01">
+                                <div class="hint">0 = Fast Auto (0.08% majors, 0.12% memes — chop protection). High value (0.25%+) rakhne se entry late hoti hai!</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Fresh Cross Window (2–8 candles)</label>
+                                <input type="number" id="freshWindow" value="2" min="2" max="8" step="1">
+                                <div class="hint">EMA cross itne candles (2–8) ke andar fresh ho to hi entry (2 = Strict Fresh Cross).</div>
+                            </div>
+                        </div>
+                        <div class="form-group">
                             <label style="display:flex; align-items:center; gap:10px; cursor:pointer; text-transform:none; letter-spacing:0.02em;">
                                 <input type="checkbox" id="autoStart" style="width:17px; height:17px; accent-color:#f0b90b;">
                                 <span style="font-size:12.5px; font-weight:700; color:var(--txt-2);">Auto-start monitor on server boot (keys saved hon to)</span>
@@ -781,7 +876,7 @@
             <div class="config-view-header">
                 <div>
                     <h2>📡 Radar — Real-Time Trade Alerts &amp; Notifications</h2>
-                    <p class="section-desc">Receive instant EMA entry, EMA55 reversal flip, and error notifications across your communication channels.</p>
+                    <p class="section-desc">Receive instant entry, 1:1 TP hit, stop loss trigger, reversal flip, and error notifications across your communication channels.</p>
                 </div>
                 <div class="config-actions">
                     <button id="testNotificationBtn" class="btn btn-primary">⚡ Test All Configured Channels</button>
@@ -1090,7 +1185,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="{{ url_for('static', filename='js/app.js', v='pure_ema_1') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='tpsl213') }}"></script>
     <script>
         // ---- Global Workspace Tab Switching System ----
         function switchWorkspaceTab(tab) {

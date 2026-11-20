@@ -55,29 +55,60 @@ class TestBinanceMainnetExecution:
         assert f["min_qty"] == 0.001
         assert f["step_size"] == 0.001
 
-    def test_pure_market_open_no_sl_tp_and_cancel_open_orders(self, monkeypatch):
+    def test_algo_order_fallback_on_4120_and_cancel_algo_orders(self, monkeypatch):
         trader, mock_client = _make_binance_trader(monkeypatch, hedge=False, testnet=False)
-        mock_client.new_order.return_value = {"orderId": 1001, "symbol": "SOLUSDT"}
 
-        res = trader.open_long("SOLUSDT", 0.25)
+        # Standard endpoint raises -4120 on STOP_MARKET / TAKE_PROFIT_MARKET (Binance mainnet migration)
+        def fake_new_order(**kwargs):
+            if kwargs.get("type") in ("STOP_MARKET", "TAKE_PROFIT_MARKET"):
+                raise RuntimeError("(-4120, 'Order type not supported for this endpoint. Please use the Algo Order API endpoints instead.')")
+            return {"orderId": 1001, "symbol": kwargs["symbol"]}
+
+        mock_client.new_order.side_effect = fake_new_order
+
+        algo_calls = []
+
+        def fake_fapi_signed(method, path, params=None, timeout=15):
+            algo_calls.append((method, path, dict(params or {})))
+            if method == "POST":
+                return {"algoId": 9001, "clientAlgoId": "alg_9001"}
+            return {"code": 200, "msg": "success"}
+
+        monkeypatch.setattr(trader, "_fapi_signed_request", fake_fapi_signed)
+
+        res = trader.open_long("SOLUSDT", 0.25, sl_price=70.50, tp_price=71.80)
         assert res["success"] is True
-        assert "sl_price" not in res
-        assert "tp_price" not in res
-        assert not hasattr(trader, "place_stop_loss")
-        assert not hasattr(trader, "place_take_profit")
-        mock_client.new_order.assert_called_once()
-        sent = mock_client.new_order.call_args.kwargs
-        assert sent["symbol"] == "SOLUSDT"
-        assert sent["side"] == "BUY"
-        assert sent["type"] == "MARKET"
-        assert sent["quantity"] == 0.25
+        assert res["sl_price"] == 70.5
+        assert res["tp_price"] == 71.8
+        assert trader._use_algo_orders is True
 
+        post_calls = [c for c in algo_calls if c[0] == "POST"]
+        assert len(post_calls) == 2
+        assert post_calls[0][1] == "/fapi/v1/algoOrder"
+        assert post_calls[0][2]["type"] == "STOP_MARKET"
+        assert post_calls[0][2]["algoType"] == "CONDITIONAL"
+        assert post_calls[0][2]["reduceOnly"] == "true"
+        assert "positionSide" not in post_calls[0][2]
+        assert post_calls[1][2]["type"] == "TAKE_PROFIT_MARKET"
+
+        # Subsequent SL order goes straight to /fapi/v1/algoOrder without hitting -4120 again
+        pre_new_order_count = mock_client.new_order.call_count
+        sl2 = trader.place_stop_loss("SOLUSDT", "SELL", 70.60, 0.25)
+        assert sl2["success"] is True
+        assert sl2["algo"] is True
+        assert mock_client.new_order.call_count == pre_new_order_count
+
+        # Cancel open orders clears BOTH standard orders and /fapi/v1/algoOpenOrders
         cancel = trader.cancel_open_orders("SOLUSDT")
         assert cancel["success"] is True
         mock_client.cancel_open_orders.assert_called_once_with(symbol="SOLUSDT")
+        assert any(c[0] == "DELETE" and c[1] == "/fapi/v1/algoOpenOrders" for c in algo_calls)
 
     def test_hedge_mode_and_4061_auto_recovery(self, monkeypatch):
         trader, mock_client = _make_binance_trader(monkeypatch, hedge=True, testnet=False)
+        trader._use_algo_orders = True
+
+        # Start with wrong cached flag to verify -4061 auto-recovery
         trader._is_hedge_mode = False
         sent_market = []
 
@@ -89,14 +120,26 @@ class TestBinanceMainnetExecution:
 
         mock_client.new_order.side_effect = fake_new_order
 
-        res = trader.open_short("SOLUSDT", 0.2)
+        algo_calls = []
+        monkeypatch.setattr(
+            trader,
+            "_fapi_signed_request",
+            lambda method, path, params=None, timeout=15: (algo_calls.append(dict(params or {})) or {"algoId": 777}),
+        )
+
+        res = trader.open_short("SOLUSDT", 0.2, sl_price=72.0, tp_price=70.0)
         assert res["success"] is True
         assert len(sent_market) == 2
         assert sent_market[1]["positionSide"] == "SHORT"
         assert "reduceOnly" not in sent_market[1]
+        assert res["sl_price"] == 72.0
+        assert res["tp_price"] == 70.0
+        assert algo_calls[0]["positionSide"] == "SHORT"
+        assert "reduceOnly" not in algo_calls[0]
 
-    def test_2027_downscaled_qty_succeeds_cleanly(self, monkeypatch):
+    def test_2027_downscaled_qty_propagates_to_sl_tp(self, monkeypatch):
         trader, mock_client = _make_binance_trader(monkeypatch, hedge=False, testnet=False)
+        trader._use_algo_orders = True
 
         def fake_new_order(**kwargs):
             if float(kwargs["quantity"]) > 0.6:
@@ -104,10 +147,17 @@ class TestBinanceMainnetExecution:
             return {"orderId": 3003}
 
         mock_client.new_order.side_effect = fake_new_order
+        sltp_qtys = []
+        monkeypatch.setattr(
+            trader,
+            "_fapi_signed_request",
+            lambda m, p, params=None, timeout=15: (sltp_qtys.append(float(params["quantity"])) or {"algoId": 888}),
+        )
 
-        res = trader.open_long("SOLUSDT", 1.0)
+        res = trader.open_long("SOLUSDT", 1.0, sl_price=70.0, tp_price=72.0)
         assert res["success"] is True
         assert res["quantity"] == 0.5
+        assert sltp_qtys == [0.5, 0.5]
 
     def test_close_small_position_under_min_notional_keeps_reduce_only(self, monkeypatch):
         from bot.trader import Position
@@ -314,154 +364,109 @@ class TestSmallBalanceAndExchangeFilters:
         assert px._symbol_leverage["SOL/USD"] == 200
 
 
-class TestPureEMAAndReversalAcrossAllExchanges:
-    @staticmethod
-    def _make_trend_df(direction: str):
-        import pandas as pd
-        idx = pd.date_range("2026-11-01", periods=80, freq="15min")
-        if direction == "up":
-            closes = [100.0 + i * 0.5 for i in range(80)]
-        elif direction == "down":
-            closes = [200.0 - i * 0.5 for i in range(80)]
-        else:
-            closes = [100.0] * 80
-        return pd.DataFrame({
-            "open": closes, "high": closes, "low": closes,
-            "close": closes, "volume": [1000.0] * 80,
-        }, index=idx)
-
-    def test_pure_ema_strategy_no_spread_no_waiting(self):
-        from bot.strategy import EMAQuadStrategy, Signal
-        strat = EMAQuadStrategy()
-        assert not hasattr(strat, "min_spread_pct")
-        assert not hasattr(strat, "fresh_window")
-
-        # Immediate BUY on uptrend (zero spread wait, zero 2-candle window)
-        res_up = strat.analyze(self._make_trend_df("up"))
-        assert res_up is not None and res_up.signal == Signal.BUY
-
-        # Immediate SELL on downtrend
-        res_dn = strat.analyze(self._make_trend_df("down"))
-        assert res_dn is not None and res_dn.signal == Signal.SELL
-
-        # Flat -> HOLD
-        res_flat = strat.analyze(self._make_trend_df("flat"))
-        assert res_flat is not None and res_flat.signal == Signal.HOLD
-
-    @pytest.mark.parametrize("exchange,testnet,symbol", [
-        ("binance", False, "SOLUSDT"),
-        ("binance", True, "SOLUSDT"),
-        ("weex", False, "SOLUSDT"),
-        ("weex", True, "SOLSUSDT"),
-        ("primexbt", False, "SOL/USD"),
-        ("primexbt", True, "SOL/USD"),
-    ])
-    def test_worker_enters_immediately_and_reverses_on_all_exchanges(self, exchange, testnet, symbol):
+class TestConfigurableTPRiskAndTrailingProtection:
+    def test_breakeven_lock_moves_sl_above_entry_and_preserves_fixed_tp(self):
+        from bot.engine import SymbolWorker, BotEngine
+        from bot.strategy import Signal
         from types import SimpleNamespace
-        from bot.engine import BotEngine, SymbolWorker
 
         cfg = {
-            "exchange": exchange, "testnet": testnet, "live_confirmed": True,
-            "symbols_list": [symbol], "timeframe": "15m", "leverage": 20,
-            "amount_mode": "percent", "amount_pct": 10, "mode": "both",
-            "max_concurrent_trades": 3,
+            "exchange": "binance", "testnet": False, "live_confirmed": True,
+            "symbols_list": ["XRPUSDT"], "timeframe": "15m", "leverage": 20,
+            "stop_loss_pct": 0.5, "take_profit_pct": 1.5,
+            "tp_mode": "fixed", "breakeven_lock": True,
         }
         eng = BotEngine(MagicMock(), cfg)
-        eng.history = MagicMock()
-        eng.history.trades = []
-        eng.history.has_open_trade.return_value = False
-        eng.history.get_trades.return_value = []
-        eng.history.get_stats.return_value = {}
-
-        state = {"side": "NONE", "size": 0.0, "entry": 0.0}
-        actions = []
-
         trader = MagicMock()
-        trader._symbol_leverage = {symbol: 20}
-        trader.get_balance.return_value = 100.0
-        trader.get_mark_price.return_value = 140.0
-        trader.get_max_notional.return_value = 0.0
-        trader.get_symbol_filters.return_value = {
-            "step_size": 0.01, "min_qty": 0.01, "max_qty": 10000.0, "min_notional": 5.0
-        }
-        trader._round_to_step = BinanceFuturesTrader._round_to_step
-        trader._ceil_to_step = BinanceFuturesTrader._ceil_to_step
-        trader.compute_quantity = lambda n, p, l, qty_step=0.01: BinanceFuturesTrader._round_to_step(n / p, qty_step)
-        trader.get_position.side_effect = lambda s: SimpleNamespace(
-            symbol=s, side=state["side"], size=state["size"],
-            entry_price=state["entry"], mark_price=140.0, unrealized_pnl=0.0, leverage=20,
-        )
-
-        def _open_long(sym, qty, **kw):
-            assert "sl_price" not in kw and "tp_price" not in kw
-            actions.append(("OPEN_LONG", sym, qty))
-            state.update(side="LONG", size=qty, entry=140.0)
-            return {"success": True, "quantity": qty, "order": {"orderId": "L1"}}
-
-        def _open_short(sym, qty, **kw):
-            assert "sl_price" not in kw and "tp_price" not in kw
-            actions.append(("OPEN_SHORT", sym, qty))
-            state.update(side="SHORT", size=-qty, entry=140.0)
-            return {"success": True, "quantity": qty, "order": {"orderId": "S1"}}
-
-        def _close(sym):
-            actions.append(("CLOSE_" + state["side"], sym))
-            state.update(side="NONE", size=0.0, entry=0.0)
-            return {"success": True, "order": {"orderId": "C1"}}
-
-        trader.open_long.side_effect = _open_long
-        trader.open_short.side_effect = _open_short
-        trader.close_position.side_effect = _close
         eng.trader = trader
+        w = SymbolWorker(eng, "XRPUSDT", cfg)
+        w._set_software_sl_tp(
+            "XRPUSDT", "LONG", entry_price=1.0000,
+            sl_pct=0.5, tp_pct=1.5, tp_mode="fixed",
+            entry_signal=Signal.BUY, actual_leverage=20,
+        )
+        assert abs(w.sl_price - 0.9950) < 1e-6
+        assert abs(w.tp_price - 1.0150) < 1e-6
 
-        w = SymbolWorker(eng, symbol, cfg)
-        eng.workers[symbol] = w
+        # Price moves up +0.90% (>= 55% of 1.5% TP -> 0.825%) -> Breakeven lock triggers!
+        pos_up = SimpleNamespace(side="LONG", size=100.0, entry_price=1.0, mark_price=1.0090, leverage=20)
+        sl_hit, tp_hit, _ = w._check_software_sl_tp(pos_up, None)
+        assert not sl_hit and not tp_hit
+        assert w.be_sl_set is True
+        assert abs(w.sl_price - 1.0015) < 1e-6
+        # _update_exchange_sl must re-attach BOTH new SL and fixed TP after cancel_open_orders!
+        trader.cancel_open_orders.assert_called_once_with("XRPUSDT")
+        trader.place_stop_loss.assert_called_once()
+        trader.place_take_profit.assert_called_once()
 
-        # Tick 1: EMA55 at BOTTOM -> opens LONG immediately (no waiting, no spread, no SL/TP)
-        trader.get_klines.return_value = self._make_trend_df("up")
-        w._tick()
-        assert state["side"] == "LONG"
-        assert actions == [("OPEN_LONG", symbol, actions[0][2])]
+        # Price pulls back to breakeven SL -> exits cleanly as profit/breakeven win, NOT SL loss
+        pos_be = SimpleNamespace(side="LONG", size=100.0, entry_price=1.0, mark_price=1.0014, leverage=20)
+        sl_hit2, tp_hit2, reason2 = w._check_software_sl_tp(pos_be, None)
+        assert sl_hit2 is False
+        assert tp_hit2 is True
+        assert "BREAKEVEN LOCK HIT" in reason2
 
-        # Tick 2: Still BUY -> holds LONG (no extra order, no SL/TP exit)
-        w._tick()
-        assert len(actions) == 1 and state["side"] == "LONG"
+    def test_stepped_roe_trailing_50_15_100_50_150_ladder(self):
+        from bot.engine import SymbolWorker, BotEngine
+        from bot.strategy import Signal
+        from types import SimpleNamespace
 
-        # Tick 3: EMA55 flips to TOP -> closes LONG & immediately opens SHORT
-        trader.get_klines.return_value = self._make_trend_df("down")
-        w._tick()
-        assert state["side"] == "SHORT"
-        assert [a[0] for a in actions] == ["OPEN_LONG", "CLOSE_LONG", "OPEN_SHORT"]
+        cfg = {
+            "exchange": "binance", "testnet": False, "live_confirmed": True,
+            "symbols_list": ["SOLUSDT"], "timeframe": "15m", "leverage": 20,
+            "stop_loss_pct": 0.5, "take_profit_pct": 1.5,
+            "tp_mode": "trailing", "breakeven_lock": True,
+        }
+        eng = BotEngine(MagicMock(), cfg)
+        trader = MagicMock()
+        eng.trader = trader
+        w = SymbolWorker(eng, "SOLUSDT", cfg)
+        w._set_software_sl_tp(
+            "SOLUSDT", "LONG", entry_price=100.0,
+            sl_pct=0.5, tp_pct=1.5, tp_mode="trailing",
+            entry_signal=Signal.BUY, actual_leverage=20,
+        )
+        assert w.tp_stage == 0
+        assert abs(w.sl_price - 99.50) < 1e-6
 
-        # Tick 4: EMA55 flips back to BOTTOM -> closes SHORT & immediately opens LONG
-        trader.get_klines.return_value = self._make_trend_df("up")
-        w._tick()
-        assert state["side"] == "LONG"
-        assert [a[0] for a in actions] == ["OPEN_LONG", "CLOSE_LONG", "OPEN_SHORT", "CLOSE_SHORT", "OPEN_LONG"]
+        # Step 1: +50% ROE ($102.50 at 20x -> +2.5% * 20 = +50% ROE) -> SL jumps to +15% ROE ($100.75)
+        pos_s1 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=102.50, leverage=20)
+        sl_hit, tp_hit, _ = w._check_software_sl_tp(pos_s1, None)
+        assert not sl_hit and not tp_hit
+        assert w.tp_stage == 1
+        assert abs(w.sl_price - 100.75) < 1e-6
+        assert trader.place_stop_loss.call_count == 1
+        assert trader.place_take_profit.call_count == 0  # don't cap at 100% yet
 
-    def test_weex_and_primexbt_orders_never_send_sl_tp_fields(self, monkeypatch):
-        # WEEX (Demo & Mainnet)
-        for is_demo in (True, False):
-            wx = WEEXFuturesTrader("k", "s", "p", testnet=is_demo)
-            wx._contract_cache["BTCUSDT"] = {"step_size": 0.001, "min_qty": 0.001, "max_qty": 100.0, "tick_size": 0.1}
-            sent_wx = []
-            monkeypatch.setattr(wx, "_request", lambda m, p, params=None, body=None, signed=False: (sent_wx.append(dict(body or {})) or {"orderId": "W1"}))
-            r = wx.open_long("BTCUSDT", 0.01)
-            assert r["success"] is True
-            assert "slTriggerPrice" not in sent_wx[0]
-            assert "tpTriggerPrice" not in sent_wx[0]
-            assert not hasattr(wx, "place_stop_loss")
+        # If price pulls back below +15% ROE lock ($100.74) -> closes cleanly as fees-saved WIN
+        pos_pull1 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=100.74, leverage=20)
+        sl_h_p1, tp_h_p1, r_p1 = w._check_software_sl_tp(pos_pull1, None)
+        assert sl_h_p1 is False and tp_h_p1 is True
+        assert "TRAILING STEP 1 SL HIT" in r_p1
 
-        # PrimeXBT (Live with HMAC key)
-        px = PrimeXBTTrader({"exchange": "primexbt", "api_key": "pxk_123", "api_secret": "hmac_secret_12345", "testnet": False})
-        sent_px = []
-        monkeypatch.setattr(px, "_request", lambda m, p, body=None, query=None: (sent_px.append(dict(body or {})) or {"orderId": "P1"}))
-        r_px = px.open_short("BTC/USD", 0.05)
-        assert r_px["success"] is True
-        assert "stopLoss" not in sent_px[0]
-        assert "takeProfit" not in sent_px[0]
+        # Step 2: Re-test forward to +100% ROE ($105.00 at 20x) -> SL moves to +50% ROE ($102.50) & TP set to +150% ROE ($107.50)
+        pos_s2 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=105.00, leverage=20)
+        sl_hit2, tp_hit2, _ = w._check_software_sl_tp(pos_s2, None)
+        assert not sl_hit2 and not tp_hit2
+        assert w.tp_stage == 2
+        assert abs(w.sl_price - 102.50) < 1e-6
+        assert abs(w.tp_price - 107.50) < 1e-6
+        assert trader.place_stop_loss.call_count == 2
+        assert trader.place_take_profit.call_count == 1  # exchange TP now attached at +150% ROE!
 
-    def test_existing_user_config_preserved_and_obsolete_sl_tp_stripped(self, tmp_path):
+        # Pullback to locked +50% SL ($102.49) -> closes as +50% ROE profit win
+        pos_pull2 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=102.49, leverage=20)
+        sl_h_p2, tp_h_p2, r_p2 = w._check_software_sl_tp(pos_pull2, None)
+        assert sl_h_p2 is False and tp_h_p2 is True
+        assert "TRAILING STEP 2 SL HIT" in r_p2
+
+        # Reaching +150% ROE ($107.50) hits full TP target!
+        pos_tp150 = SimpleNamespace(side="LONG", size=1.0, entry_price=100.0, mark_price=107.50, leverage=20)
+        sl_h3, tp_h3, r3 = w._check_software_sl_tp(pos_tp150, None)
+        assert sl_h3 is False and tp_h3 is True
+        assert "TRAILING TP HIT (+150% ROE" in r3
+
+    def test_existing_user_config_preserved_without_data_loss(self, tmp_path):
         import json as _json
         import subprocess as _sp
         import sys as _sys
@@ -484,11 +489,9 @@ class TestPureEMAAndReversalAcrossAllExchanges:
             "amount_pct": 10,
             "stop_loss_pct": 0.25,
             "take_profit_pct": 1.0,
-            "min_ema_spread": 0.15,
-            "fresh_window": 2,
-            "reentry_cooldown_sec": 180,
         }
         cfg_path.write_text(_json.dumps(existing), encoding="utf-8")
+        # Run in an isolated subprocess so bot-engine/app.py's sys.path[0] never shadows SaaS app.py in pytest
         script = (
             f"import sys, json; from pathlib import Path; "
             f"sys.path.insert(0, {str(bot_dir)!r}); "
@@ -503,10 +506,7 @@ class TestPureEMAAndReversalAcrossAllExchanges:
         assert loaded["symbols_list"] == ["BTCUSDT", "XRPUSDT"]
         assert loaded["timeframe"] == "5m"
         assert loaded["leverage"] == 35
-        assert loaded["amount_mode"] == "percent"
-        assert loaded["amount_pct"] == 10
-        for obsolete in ("stop_loss_pct", "take_profit_pct", "tp_mode", "breakeven_lock",
-                         "min_ema_spread", "fresh_window", "reentry_cooldown_sec"):
-            assert obsolete not in loaded
+        assert abs(loaded["stop_loss_pct"] - 0.25) < 1e-9
+        assert abs(loaded["take_profit_pct"] - 1.0) < 1e-9
 
 

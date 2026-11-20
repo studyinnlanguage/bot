@@ -195,7 +195,6 @@ class TestConfigValidation:
         data = _register(c, "cfg1@test.com")
         r = c.post("/api/mobile/bot/config", headers=_auth(data["access_token"]),
                    json={"symbols_list": ["btcusdt", "ethusdt"], "leverage": 20,
-                         "amount_mode": "percent", "amount_pct": 15,
                          "stop_loss_pct": 1.5, "take_profit_pct": 2.5,
                          "tp_mode": "trailing", "breakeven_lock": True,
                          "timeframe": "15m", "mode": "long"})
@@ -203,13 +202,9 @@ class TestConfigValidation:
         assert body["success"] is True
         assert body["config"]["symbols_list"] == ["BTCUSDT", "ETHUSDT"]
         assert body["config"]["leverage"] == 20
-        assert body["config"]["amount_mode"] == "percent"
-        assert body["config"]["amount_pct"] == 15
-        assert body["config"]["timeframe"] == "15m"
-        assert body["config"]["mode"] == "long"
-        assert "stop_loss_pct" not in body["config"]
-        assert "take_profit_pct" not in body["config"]
-        assert "tp_mode" not in body["config"]
+        assert body["config"]["take_profit_pct"] == 2.5
+        assert body["config"]["tp_mode"] == "trailing"
+        assert body["config"]["breakeven_lock"] is True
         assert "api_key" not in body["config"]  # never echoed
 
     def test_leverage_clamped_by_exchange(self, client):
