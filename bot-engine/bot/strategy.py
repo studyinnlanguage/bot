@@ -79,42 +79,38 @@ class EMAQuadStrategy:
     def _calc_signal(self, row) -> Signal:
         e8 = float(row["ema_8"]) if not pd.isna(row["ema_8"]) else None
         e13 = float(row["ema_13"]) if not pd.isna(row["ema_13"]) else None
-        e21 = float(row["ema_21"]) if not pd.isna(row["ema_21"]) else None
         e55 = float(row["ema_55"]) if not pd.isna(row["ema_55"]) else None
-        if e8 is None or e13 is None or e21 is None or e55 is None:
+        if e8 is None or e13 is None or e55 is None:
             return Signal.HOLD
 
         sep_pct = (abs(e8 - e55) / e55) * 100.0 if e55 else 0.0
-        if sep_pct < self.min_spread_pct:
+        if self.min_spread_pct > 0 and sep_pct < self.min_spread_pct:
             return Signal.HOLD
 
-        # Line 55 MUST cross below ALL lines for BUY
-        if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13 and e13 >= e21:
+        # Fast Trigger: EMA 8 & EMA 13 cross EMA 55 (no waiting 4-5 candles for slow EMA 21)
+        if e55 < e13 and e13 <= e8:
             return Signal.BUY
-        # Line 55 MUST cross above ALL lines for SELL
-        elif e55 > e8 and e55 > e13 and e55 > e21 and e8 <= e13 and e13 <= e21:
+        elif e55 > e13 and e13 >= e8:
             return Signal.SELL
         return Signal.HOLD
 
     def _is_ema55_at_bottom(self, row) -> bool:
-        """Check if EMA55 is strictly below ALL other lines (8, 13, 21)."""
+        """Fast cross trigger: EMA55 strictly below fast EMAs (8 & 13) — zero EMA21 lag."""
         e8 = row.get("ema_8")
         e13 = row.get("ema_13")
-        e21 = row.get("ema_21")
         e55 = row.get("ema_55")
-        if pd.isna(e8) or pd.isna(e13) or pd.isna(e21) or pd.isna(e55):
+        if pd.isna(e8) or pd.isna(e13) or pd.isna(e55):
             return False
-        return float(e55) < float(e8) and float(e55) < float(e13) and float(e55) < float(e21)
+        return float(e55) < float(e8) and float(e55) < float(e13)
 
     def _is_ema55_at_top(self, row) -> bool:
-        """Check if EMA55 is strictly above ALL other lines (8, 13, 21)."""
+        """Fast cross trigger: EMA55 strictly above fast EMAs (8 & 13) — zero EMA21 lag."""
         e8 = row.get("ema_8")
         e13 = row.get("ema_13")
-        e21 = row.get("ema_21")
         e55 = row.get("ema_55")
-        if pd.isna(e8) or pd.isna(e13) or pd.isna(e21) or pd.isna(e55):
+        if pd.isna(e8) or pd.isna(e13) or pd.isna(e55):
             return False
-        return float(e55) > float(e8) and float(e55) > float(e13) and float(e55) > float(e21)
+        return float(e55) > float(e8) and float(e55) > float(e13)
 
     def seed_startup_state(self, signal: Signal):
         """Seed startup state so bot NEVER enters on startup or pre-startup crosses."""
@@ -152,12 +148,12 @@ class EMAQuadStrategy:
 
         sep_pct = (abs(float(e8) - float(e55)) / float(e55)) * 100.0 if float(e55) else 0.0
 
-        # 1. EMA55 Crossing ALL lines detection (Line 55 MUST cross ALL lines 8, 13, 21)
+        # 1. Fast EMA 8 & EMA 13 crossing EMA 55 detection (eliminates 4-5 candle slow EMA 21 lag)
         ema55_at_bottom = self._is_ema55_at_bottom(closed_candle)
         ema55_at_top = self._is_ema55_at_top(closed_candle)
 
-        is_buy_candidate = ema55_at_bottom and (float(e8) >= float(e13) and float(e13) >= float(e21))
-        is_sell_candidate = ema55_at_top and (float(e8) <= float(e13) and float(e13) <= float(e21))
+        is_buy_candidate = ema55_at_bottom and (float(e8) >= float(e13))
+        is_sell_candidate = ema55_at_top and (float(e8) <= float(e13))
 
         # 2. Smart Anti-Chop Box Breakout + EMA55 Direction Filter (Zero Spread Delay on Breakouts)
         closed_close = float(closed_candle["close"])
@@ -323,10 +319,10 @@ class EMAQuadStrategy:
         sep_pct = round(abs(e8 - e55) / e55 * 100.0, 3) if (e8 and e55) else 0.0
 
         sig = "HOLD"
-        if e8 and e13 and e21 and e55 and sep_pct >= self.min_spread_pct:
-            if e55 < e8 and e55 < e13 and e55 < e21 and e8 >= e13 and e13 >= e21:
+        if e8 and e13 and e55 and (self.min_spread_pct <= 0 or sep_pct >= self.min_spread_pct):
+            if e55 < e13 and e13 <= e8:
                 sig = "BUY"
-            elif e55 > e8 and e55 > e13 and e55 > e21 and e8 <= e13 and e13 <= e21:
+            elif e55 > e13 and e13 >= e8:
                 sig = "SELL"
 
         return {

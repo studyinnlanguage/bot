@@ -39,22 +39,18 @@ export function NeonButton({
       disabled={disabled || loading}
       style={[
         {
-          backgroundColor: disabled || loading ? '#3a3215' : C.neon,
-          borderRadius: 14,
-          paddingVertical: 14,
+          backgroundColor: disabled || loading ? '#2a2a2e' : '#f5f5f5',
+          borderRadius: 10,
+          paddingVertical: 13,
           alignItems: 'center',
           justifyContent: 'center',
-          shadowColor: C.neon,
-          shadowOpacity: disabled || loading ? 0 : 0.35,
-          shadowRadius: 10,
-          elevation: disabled || loading ? 0 : 4,
         },
         style,
       ]}>
       {loading ? (
         <ActivityIndicator color={C.bg} />
       ) : (
-        <Text style={{ color: '#0b0e11', fontWeight: '900', fontSize: 14, letterSpacing: 1.2 }}>
+        <Text style={{ color: '#111111', fontWeight: '800', fontSize: 13.5, letterSpacing: 0.8 }}>
           {title}
         </Text>
       )}
@@ -133,10 +129,10 @@ export function Field({
         autoCapitalize={autoCapitalize}
         autoCorrect={false}
         style={{
-          backgroundColor: 'rgba(0,0,0,0.45)',
-          borderColor: 'rgba(240, 185, 11,0.22)',
+          backgroundColor: C.inputBg,
+          borderColor: C.inputBorder,
           borderWidth: 1,
-          borderRadius: 12,
+          borderRadius: 9,
           color: C.txt,
           paddingHorizontal: 12,
           paddingVertical: 11,
@@ -204,11 +200,11 @@ export function Chip({
       activeOpacity={0.8}
       style={{
         paddingHorizontal: small ? 10 : 14,
-        paddingVertical: small ? 6 : 8,
-        borderRadius: 999,
+        paddingVertical: small ? 7 : 9,
+        borderRadius: 9,
         borderWidth: 1,
-        borderColor: active ? C.neon2 : 'rgba(240, 185, 11,0.20)',
-        backgroundColor: active ? 'rgba(240, 185, 11,0.18)' : 'rgba(0,0,0,0.3)',
+        borderColor: active ? 'rgba(240, 185, 11, 0.55)' : C.inputBorder,
+        backgroundColor: active ? 'rgba(240, 185, 11, 0.12)' : C.inputBg,
         marginRight: 8,
         marginBottom: 8,
       } as any}>

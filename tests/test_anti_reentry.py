@@ -110,7 +110,7 @@ def test_strategy_allows_genuinely_new_cross_after_reset():
                                periods=len(tail), freq="5min")
     df2 = pd.concat([df, tail])
     seen_fresh = False
-    for cut in range(len(df) + 40, len(df2) + 1, 5):
+    for cut in range(len(df) + 40, len(df2) + 1):
         r = s.analyze(df2.iloc[:cut])
         if r is not None and r.just_crossed:
             seen_fresh = True

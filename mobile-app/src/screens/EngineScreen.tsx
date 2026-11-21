@@ -33,7 +33,6 @@ export function EngineScreen() {
   const [mode, setMode] = useState('both');
   const [maxTrades, setMaxTrades] = useState('3');
   const [reentryCd, setReentryCd] = useState('180');
-  const [minSpread, setMinSpread] = useState('0');
   const [freshWindow, setFreshWindow] = useState('2');
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -62,7 +61,6 @@ export function EngineScreen() {
           setMode(cfg.mode || 'both');
           setMaxTrades(String(cfg.max_concurrent_trades ?? 3));
           setReentryCd(String(cfg.reentry_cooldown_sec ?? 180));
-          setMinSpread(String(cfg.min_ema_spread ?? 0));
           setFreshWindow(String(cfg.fresh_window ?? 2));
         } catch (e: any) {
           setErr(e?.message || 'Failed to load config');
@@ -95,9 +93,10 @@ export function EngineScreen() {
       leverage: Number(leverage), amount_mode: amountMode,
       amount: Number(amount), amount_pct: Number(amountPct),
       stop_loss_pct: Number(stopLossPct), mode,
+      tp_mode: 'trailing', breakeven_lock: false,
       max_concurrent_trades: Number(maxTrades),
       reentry_cooldown_sec: Number(reentryCd),
-      min_ema_spread: Number(minSpread), fresh_window: Number(freshWindow),
+      min_ema_spread: 0, fresh_window: Number(freshWindow),
     };
     const k = cleanInputCred(apiKey);
     const s = cleanInputCred(apiSecret);
@@ -279,8 +278,13 @@ export function EngineScreen() {
         ) : (
           <Field label="% OF BALANCE PER TRADE (1–100)" value={amountPct} onChangeText={setAmountPct} keyboardType="numbers-and-punctuation" />
         )}
-        <Field label="STOP LOSS % (0.05–50) — TP IS FIXED AT 1.0%" value={stopLossPct} onChangeText={setStopLossPct} keyboardType="numbers-and-punctuation"
-          hint="Default SL is 0.2% with Take-Profit fixed at 1.0%." />
+        <Field label="STOP LOSS % (PRICE MOVE, 0.05–50)" value={stopLossPct} onChangeText={setStopLossPct} keyboardType="numbers-and-punctuation"
+          hint="50x+ leverage pe SL >= 85% ROE liquidation zone automatic guard hota hai." />
+        <View style={{ backgroundColor: 'rgba(46,207,138,0.12)', borderColor: 'rgba(46,207,138,0.32)', borderWidth: 1, borderRadius: 9, padding: 10, marginBottom: 12 }}>
+          <Text style={{ color: C.profit, fontSize: 11.5, fontWeight: '700', textAlign: 'center' }}>
+            ⚡ Stepped ROE Trailing: 50%→+15% SL · 100%→+50% SL / +150% TP
+          </Text>
+        </View>
         <Lbl style={{ marginBottom: 8 }}>DIRECTION MODE</Lbl>
         <View style={{ flexDirection: 'row' }}>
           {MODES.map(m => (
@@ -294,7 +298,11 @@ export function EngineScreen() {
 
       <Card style={{ marginTop: 14 }}>
         <SectionTitle>STRATEGY TUNING (EMA QUAD)</SectionTitle>
-        <Field label="MIN EMA SPREAD % (0 = AUTO: 0.15 MAJORS / 0.20 MEMES)" value={minSpread} onChangeText={setMinSpread} keyboardType="numbers-and-punctuation" />
+        <View style={{ backgroundColor: 'rgba(46,207,138,0.12)', borderColor: 'rgba(46,207,138,0.32)', borderWidth: 1, borderRadius: 9, padding: 10, marginBottom: 12 }}>
+          <Text style={{ color: C.profit, fontSize: 11.5, fontWeight: '700', textAlign: 'center' }}>
+            🛡️ Auto Chop-Box Breakout ACTIVE (No Spread Delay)
+          </Text>
+        </View>
         <Field label="FRESH CROSS WINDOW (CANDLES, 2–8)" value={freshWindow} onChangeText={setFreshWindow} keyboardType="numbers-and-punctuation"
           hint="Signals are only traded when the EMA55 cross happened within this many candles (2–8, default 2)." />
       </Card>
