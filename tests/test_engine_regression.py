@@ -161,7 +161,7 @@ class TestEngineApi:
 
         code, body = _post_cfg({"fresh_window": 4, "min_ema_spread": 0.25})
         assert code == 200 and body["config"]["fresh_window"] == 4
-        assert abs(body["config"]["min_ema_spread"] - 0.25) < 1e-9
+        assert abs(body["config"]["min_ema_spread"] - 0.0) < 1e-9
 
         code, body = _post_cfg({"fresh_window": 25})
         assert code == 200 and body["config"]["fresh_window"] == 8
@@ -224,7 +224,7 @@ class TestEngineApi:
         assert body["config"]["tp_mode"] == "trailing"
         assert body["config"]["breakeven_lock"] is True
         assert body["config"]["timeframe"] == "15m"
-        assert abs(body["config"]["min_ema_spread"] - 0.15) < 1e-9
+        assert abs(body["config"]["min_ema_spread"] - 0.0) < 1e-9
         assert body["config"]["fresh_window"] == 4
 
         # Verify config.json persisted custom values & survives a fresh load_config() import
@@ -250,10 +250,10 @@ class TestEngineApi:
         assert reloaded["mode"] == "trailing"
         assert reloaded["be"] is True
         assert reloaded["tf"] == "15m"
-        assert abs(reloaded["sp"] - 0.15) < 1e-9
+        assert abs(reloaded["sp"] - 0.0) < 1e-9
         assert reloaded["fw"] == 4
 
-        # Verify Dashboard UI exposes SL input, locked Stepped ROE Trailing preview badge & preset button (manual TP column removed)
+        # Verify Dashboard UI exposes SL input, locked Stepped ROE Trailing preview badge & preset button (manual TP & spread columns removed)
         with urllib.request.urlopen(urllib.request.Request(base + "/", headers=hdr), timeout=10) as r:
             html = r.read().decode("utf-8")
         for token in (
@@ -264,6 +264,7 @@ class TestEngineApi:
         ):
             assert token in html
         assert 'type="number" id="takeProfitPct"' not in html
+        assert 'id="minEmaSpread"' not in html
 
     def test_unknown_api_route_returns_json_not_html(self, engine):
         """Unknown /api/* paths must return JSON 404, never Flask <!doctype html>."""

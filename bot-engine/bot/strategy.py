@@ -51,7 +51,7 @@ class EMAQuadStrategy:
     """Quad-EMA crossover strategy with sequential alignment & anti-chop spread guard."""
 
     def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55,
-                 min_spread_pct=0.02, fresh_window=2):
+                 min_spread_pct=0.0, fresh_window=2):
         self.indicators = IndicatorSet(ema_short, ema_mid1, ema_mid2, ema_long)
         self.ema_short = ema_short
         self.ema_mid1 = ema_mid1
@@ -191,9 +191,9 @@ class EMAQuadStrategy:
                 elif (braid_crosses >= 2 and closed_close > box_low) or (ema55_slope_pct > 0.015):
                     in_chop_box = True
 
-        # If box breakout is confirmed, bypass slow spread waiting (only require minimal 0.005% cross clearance so Crypto, Gold/Commodities, Stocks/Indices & Forex all enter on 1st candle)
-        eff_min_spread = 0.005 if (box_breakout_confirmed and self.min_spread_pct <= 0.15) else self.min_spread_pct
-        is_flat_chop = in_chop_box or (sep_pct < eff_min_spread)
+        # Zero spread waiting in live engine (min_spread_pct=0.0). Chop-Box Breakout handles anti-chop directly.
+        eff_min_spread = 0.0 if (box_breakout_confirmed and self.min_spread_pct <= 0.15) else self.min_spread_pct
+        is_flat_chop = in_chop_box or (eff_min_spread > 0 and sep_pct < eff_min_spread)
 
         if is_flat_chop and (is_buy_candidate or is_sell_candidate):
             signal = Signal.HOLD

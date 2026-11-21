@@ -374,7 +374,7 @@ def test_manual_engine_fresh_window_2_to_8_live_sync():
     w = _make_live_worker(eng, "BTCUSDT", trader, {"fresh_window": 2, "min_ema_spread": 0})
     assert w.strategy.fresh_window == 2
 
-    # User updates Fresh Cross Window to 6 and Min EMA Spread to 0.30 in Engine UI
+    # User updates Fresh Cross Window to 6 in Engine UI (min_ema_spread permanently 0.0)
     eng.sync_config({
         **eng.config,
         "symbols_list": ["BTCUSDT"],
@@ -382,7 +382,7 @@ def test_manual_engine_fresh_window_2_to_8_live_sync():
         "min_ema_spread": 0.30,
     })
     assert w.strategy.fresh_window == 6
-    assert abs(w.strategy.min_spread_pct - 0.30) < 1e-9
+    assert abs(w.strategy.min_spread_pct - 0.0) < 1e-9
 
     # Out-of-range values clamp cleanly to 2..8
     eng.sync_config({**eng.config, "symbols_list": ["BTCUSDT"], "fresh_window": 99})
@@ -417,14 +417,14 @@ def test_same_direction_breakout_after_tangle_is_not_missed():
 
 
 def test_fast_auto_spread_and_polling_defaults():
-    """Auto spread (min_ema_spread=0) must use fast 0.03% (majors) / 0.05% (memes)
+    """Spread waiting is permanently 0.0 (Auto Chop-Box Breakout handles anti-chop)
     and 5m polling must be <= 4s so fresh crosses are never entered 5 candles late."""
     eng = _make_engine()
     trader = MagicMock()
-    w_btc = _make_live_worker(eng, "BTCUSDT", trader, {"min_ema_spread": 0})
-    w_pepe = _make_live_worker(eng, "1000PEPEUSDT", trader, {"min_ema_spread": 0})
-    assert abs(w_btc.strategy.min_spread_pct - 0.03) < 1e-9
-    assert abs(w_pepe.strategy.min_spread_pct - 0.05) < 1e-9
+    w_btc = _make_live_worker(eng, "BTCUSDT", trader, {"min_ema_spread": 0.15})
+    w_pepe = _make_live_worker(eng, "1000PEPEUSDT", trader, {"min_ema_spread": 0.25})
+    assert abs(w_btc.strategy.min_spread_pct - 0.0) < 1e-9
+    assert abs(w_pepe.strategy.min_spread_pct - 0.0) < 1e-9
     assert BotEngine._poll_seconds("5m") <= 4
     assert BotEngine._poll_seconds("1m") <= 3
 

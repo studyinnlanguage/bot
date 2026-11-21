@@ -978,8 +978,7 @@ function initSocket() {
                 let sig = data.signal || signalsBySymbol[sym];
                 if (!sig || sig === 'HOLD') {
                     const e8 = data.ema_8, e13 = data.ema_13, e21 = data.ema_21, e55 = data.ema_55;
-                    const sep = data.ema_sep_pct || ((e8 && e55) ? Math.abs(e8 - e55) / e55 * 100 : 0);
-                    if (e8 && e13 && e21 && e55 && sep >= 0.15) {
+                    if (e8 && e13 && e21 && e55) {
                         if (e8 >= e13 && e13 >= e21 && e21 > e55) sig = 'BUY';
                         else if (e8 <= e13 && e13 <= e21 && e21 < e55) sig = 'SELL';
                         else sig = 'HOLD';
@@ -1811,7 +1810,6 @@ async function loadSettings() {
         // when available) + ✓ markers on every saved exchange button.
         updateSavedCredsUI(exchange, window._savedExchanges, cfg);
         // Advanced engine tuning fields
-        if ($('minEmaSpread')) $('minEmaSpread').value = (cfg.min_ema_spread != null) ? cfg.min_ema_spread : 0;
         if ($('freshWindow')) $('freshWindow').value = (cfg.fresh_window != null) ? Math.min(8, Math.max(2, parseInt(cfg.fresh_window) || 2)) : 2;
         if ($('autoStart')) $('autoStart').checked = !!cfg.auto_start;
         // Remember whether keys are REALLY saved server-side (inputs are
@@ -2075,7 +2073,6 @@ async function saveSettings() {
     const exchange = document.querySelector('.exchange-btn.active')?.dataset.exchange || 'binance';
     const slParsed = parseFloat($('stopLossPct')?.value);
     const tpParsed = parseFloat($('takeProfitPct')?.value);
-    const spreadParsed = parseFloat($('minEmaSpread')?.value);
     const fwParsed = parseInt($('freshWindow')?.value, 10);
     const cfg = {
         exchange: exchange,
@@ -2099,8 +2096,8 @@ async function saveSettings() {
         mode: $('mode').value,
         testnet: $('testnet').value === 'true',
         live_confirmed: $('testnet').value === 'false' ? ($('liveConfirmed') ? $('liveConfirmed').checked : true) : false,
-        // Advanced engine tuning (live-synced to active workers)
-        min_ema_spread: (!isNaN(spreadParsed) && spreadParsed >= 0) ? spreadParsed : 0,
+        // Advanced engine tuning (spread wait permanently removed — Auto Chop-Box Breakout active)
+        min_ema_spread: 0,
         fresh_window: Math.min(8, Math.max(2, (!isNaN(fwParsed) ? fwParsed : 2))),
         auto_start: $('autoStart')?.checked || false,
         // Notifications

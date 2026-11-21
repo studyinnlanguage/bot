@@ -110,14 +110,8 @@ class SymbolWorker(threading.Thread):
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
-        # Zero-lag default spread (0.02%) when min_ema_spread == 0 because Chop-Box Breakout
-        # + EMA55 Direction in EMAQuadStrategy blocks braided chop boxes without 0.15% lag.
-        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
-        try:
-            cfg_spread = float(self.config.get("min_ema_spread", 0) or 0)
-        except (TypeError, ValueError):
-            cfg_spread = 0.0
-        min_spread = cfg_spread if cfg_spread > 0 else default_spread
+        # Spread waiting permanently disabled (0.0) — Auto Chop-Box Breakout + EMA55 Direction handles anti-chop with zero lag.
+        min_spread = 0.0
         # Fresh-cross lookback (closed candles, 2–8 configurable in Engine UI, default 2).
         try:
             fresh_window = max(2, min(8, int(self.config.get("fresh_window", 2) or 2)))
@@ -143,12 +137,7 @@ class SymbolWorker(threading.Thread):
     def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
         """Live-update strategy, SL/TP, TP mode, breakeven lock & timeframe on running worker."""
         self.config = cfg
-        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
-        try:
-            cfg_spread = float(cfg.get("min_ema_spread", 0) or 0)
-        except (TypeError, ValueError):
-            cfg_spread = 0.0
-        new_spread = cfg_spread if cfg_spread > 0 else default_spread
+        new_spread = 0.0
         try:
             new_fw = max(2, min(8, int(cfg.get("fresh_window", 2) or 2)))
         except (TypeError, ValueError):

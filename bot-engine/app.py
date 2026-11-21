@@ -209,10 +209,7 @@ def load_config() -> dict:
             merged["breakeven_lock"] = normalize_breakeven_lock(merged.get("breakeven_lock"), default=False)
             merged["timeframe"] = normalize_timeframe(merged.get("timeframe", "15m"), default="15m")
             merged["trailing_roe_pct"] = 100.0
-            try:
-                merged["min_ema_spread"] = max(0.0, min(5.0, float(merged.get("min_ema_spread", 0) or 0)))
-            except (ValueError, TypeError):
-                merged["min_ema_spread"] = 0.0
+            merged["min_ema_spread"] = 0.0
             try:
                 merged["fresh_window"] = max(2, min(8, int(merged.get("fresh_window", 2) or 2)))
             except (ValueError, TypeError):
@@ -511,11 +508,8 @@ def update_config():
         ENGINE.config["max_concurrent_trades"] = CONFIG["max_concurrent_trades"]
         ENGINE.config["reentry_cooldown_sec"] = CONFIG["reentry_cooldown_sec"]
 
-    # Strategy tuning keys: 0 = auto per-symbol default (majors 0.15%, memes 0.20%)
-    try:
-        CONFIG["min_ema_spread"] = max(0.0, min(5.0, float(CONFIG.get("min_ema_spread", 0) or 0)))
-    except (ValueError, TypeError):
-        CONFIG["min_ema_spread"] = 0
+    # Spread waiting permanently disabled (0.0) — Auto Chop-Box Breakout handles anti-chop with zero lag
+    CONFIG["min_ema_spread"] = 0.0
     try:
         CONFIG["fresh_window"] = max(2, min(8, int(CONFIG.get("fresh_window", 2) or 2)))
     except (ValueError, TypeError):
