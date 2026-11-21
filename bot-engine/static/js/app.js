@@ -1795,8 +1795,8 @@ async function loadSettings() {
         const slVal = cfg.stop_loss_pct ?? 0.5;
         if ($('stopLossPct')) $('stopLossPct').value = slVal;
         if ($('takeProfitPct')) $('takeProfitPct').value = cfg.take_profit_pct ?? 1.5;
-        if ($('tpMode')) $('tpMode').value = (cfg.tp_mode === 'trailing') ? 'trailing' : 'fixed';
-        if ($('breakevenLock')) $('breakevenLock').checked = (cfg.breakeven_lock !== false);
+        if ($('tpMode')) $('tpMode').value = 'trailing';
+        if ($('breakevenLock')) $('breakevenLock').checked = false;
         if (typeof window.updateTPModeUI === 'function') window.updateTPModeUI();
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = String(cfg.max_concurrent_trades || 3);
         if ($('reentryCooldownSec')) $('reentryCooldownSec').value = String(cfg.reentry_cooldown_sec ?? 180);
@@ -2092,8 +2092,8 @@ async function saveSettings() {
         stop_loss_pct: (!isNaN(slParsed) && slParsed >= 0.05) ? slParsed : 0.5,
         take_profit_pct: isNaN(tpParsed) ? 1.5 : Math.min(50, Math.max(0.3, tpParsed)),
         trailing_roe_pct: 100,
-        tp_mode: ($('tpMode')?.value === 'trailing') ? 'trailing' : 'fixed',
-        breakeven_lock: $('breakevenLock') ? !!$('breakevenLock').checked : true,
+        tp_mode: 'trailing',
+        breakeven_lock: false,
         max_concurrent_trades: parseInt($('maxConcurrentTrades')?.value || 3),
         reentry_cooldown_sec: parseInt($('reentryCooldownSec')?.value || 180),
         mode: $('mode').value,
@@ -2659,32 +2659,23 @@ function attachListeners() {
     function updateTPModeUI() {
         const rawSl = parseFloat(slInput?.value);
         const sl = (!isNaN(rawSl) && rawSl >= 0.05) ? rawSl : 0.5;
-        const rawTp = parseFloat(tpInputEl?.value);
-        const tp = isNaN(rawTp) ? 1.5 : Math.min(50, Math.max(0.3, rawTp));
         const slFmt = Number(sl.toFixed(2)).toString();
-        const tpFmt = Number(tp.toFixed(2)).toString();
         const lev = Math.max(1, parseInt(levInputEl?.value) || 20);
         const roeLoss = (sl * lev).toFixed(0);
-        const roeGain = (tp * lev).toFixed(0);
-        const rrRatio = (sl > 0) ? (tp / sl).toFixed(1) : '3.0';
-        const modeVal = (tpModeEl?.value === 'trailing') ? 'trailing' : 'fixed';
-        const modeTag = modeVal === 'trailing' ? 'TRAIL' : 'FIXED';
 
-        if ($('autoTpDisplay')) $('autoTpDisplay').textContent = modeVal === 'trailing' ? 'Trailing: 50%→SL+15%, 100%→SL+50% & TP+150% ROE' : `${tp.toFixed(2)}% (+${roeGain}% ROE, FIXED)`;
+        if ($('autoTpDisplay')) $('autoTpDisplay').textContent = 'Trailing: 50%→SL+15%, 100%→SL+50% & TP+150% ROE';
         if ($('autoSlDisplay')) $('autoSlDisplay').textContent = `${sl.toFixed(2)}% (-${roeLoss}% ROE @ ${lev}x)`;
-        if ($('badgeSlVal')) $('badgeSlVal').textContent = modeVal === 'trailing'
-            ? `SL: ${slFmt}% (-${roeLoss}%) | Trail: 50%→+15% SL · 100%→+50% SL / +150% TP`
-            : `SL: ${slFmt}% (-${roeLoss}%) | TP: ${tpFmt}% (+${roeGain}%) | RR 1:${rrRatio}`;
-        if ($('cardTpDisplay')) $('cardTpDisplay').textContent = modeVal === 'trailing' ? '50%→+15% SL · 100%→+50% SL / TP+150% ROE' : `+${tp.toFixed(2)}% FIXED`;
+        if ($('badgeSlVal')) $('badgeSlVal').textContent = `SL: ${slFmt}% (-${roeLoss}%) | Trail: 50%→+15% SL · 100%→+50% SL / +150% TP`;
+        if ($('cardTpDisplay')) $('cardTpDisplay').textContent = '50%→+15% SL · 100%→+50% SL / TP+150% ROE';
         if ($('cardSlDisplay')) $('cardSlDisplay').textContent = `${sl.toFixed(2)}% (-${roeLoss}% ROE)`;
-        if ($('posTpLabel')) $('posTpLabel').textContent = modeVal === 'trailing' ? 'Take Profit (+150% ROE Ladder)' : `Take Profit (+${tpFmt}% Target)`;
+        if ($('posTpLabel')) $('posTpLabel').textContent = 'Take Profit (+150% ROE Ladder)';
         if ($('posSlLabel')) $('posSlLabel').textContent = `Stop Loss (-${slFmt}% SL / -${roeLoss}% ROE)`;
-        if ($('posFocusTpLabel')) $('posFocusTpLabel').textContent = modeVal === 'trailing' ? 'Take Profit (+150% ROE Ladder)' : `Take Profit (+${tpFmt}% Target)`;
+        if ($('posFocusTpLabel')) $('posFocusTpLabel').textContent = 'Take Profit (+150% ROE Ladder)';
         if ($('posFocusSlLabel')) $('posFocusSlLabel').textContent = `Stop Loss (-${slFmt}% SL / -${roeLoss}% ROE)`;
-        if ($('tableTpHeader')) $('tableTpHeader').textContent = modeVal === 'trailing' ? 'Take Profit (ROE Trail)' : `Take Profit (+${tpFmt}%)`;
+        if ($('tableTpHeader')) $('tableTpHeader').textContent = 'Take Profit (ROE Trail)';
         if ($('tableSlHeader')) $('tableSlHeader').textContent = `Stop Loss (-${slFmt}%)`;
-        if ($('posTabTargetLabel')) $('posTabTargetLabel').textContent = modeVal === 'trailing' ? 'Stepped Trailing ROE' : `Target (TP ${tpFmt}% / SL ${slFmt}%)`;
-        if ($('posTabStage')) $('posTabStage').textContent = modeVal === 'trailing' ? '50%→15% / 100%→50%·150%' : `TP ${tpFmt}% / SL ${slFmt}%`;
+        if ($('posTabTargetLabel')) $('posTabTargetLabel').textContent = 'Stepped Trailing ROE';
+        if ($('posTabStage')) $('posTabStage').textContent = '50%→15% / 100%→50%·150%';
 
         const warnEl = $('liqGuardWarning');
         if (warnEl) {
@@ -2702,14 +2693,12 @@ function attachListeners() {
         if ($('timeframe')) $('timeframe').value = '15m';
         if ($('leverage')) $('leverage').value = 20;
         if ($('stopLossPct')) $('stopLossPct').value = 0.5;
-        if ($('takeProfitPct')) $('takeProfitPct').value = 1.5;
         if ($('tpMode')) $('tpMode').value = 'trailing';
-        if ($('breakevenLock')) $('breakevenLock').checked = true;
-        if ($('minEmaSpread')) $('minEmaSpread').value = 0.15;
+        if ($('minEmaSpread')) $('minEmaSpread').value = 0;
         if ($('maxConcurrentTrades')) $('maxConcurrentTrades').value = '2';
         updateTPModeUI();
         if (typeof loadDrawingsForActiveSymbol === 'function') loadDrawingsForActiveSymbol();
-        if (typeof log === 'function') log('info', '⭐ Safe Stepped Trailing Preset applied (20x · 15m · SL 0.5% · 50%→+15% SL · 100%→+50% SL & +150% TP) — SAVE CONFIG dabayein!');
+        if (typeof log === 'function') log('info', '⭐ Safe Stepped Trailing Preset applied (20x · 15m · SL 0.5% · Spread 0 Auto Chop-Box · 50%→+15% SL · 100%→+50% SL & +150% TP) — SAVE CONFIG dabayein!');
     }
 
     [slInput, tpInputEl, levInputEl].forEach(el => {

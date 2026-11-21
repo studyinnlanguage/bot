@@ -729,8 +729,8 @@ def _build_engine_config_payload(user: dict) -> dict:
     api_keys_plain[ex_now] = act_slot
     payload["api_keys"] = api_keys_plain
     payload["take_profit_pct"] = clamp_take_profit(config.get("take_profit_pct", 1.5))
-    payload["tp_mode"] = normalize_tp_mode(config.get("tp_mode", "fixed"))
-    payload["breakeven_lock"] = normalize_breakeven_lock(config.get("breakeven_lock"), default=True)
+    payload["tp_mode"] = normalize_tp_mode(config.get("tp_mode", "trailing"))
+    payload["breakeven_lock"] = normalize_breakeven_lock(config.get("breakeven_lock"), default=False)
     payload["live_confirmed"] = (
         False
         if bool(payload.get("testnet", True))
@@ -932,11 +932,11 @@ def m_bot_config():
     if "tp_mode" in data:
         config["tp_mode"] = normalize_tp_mode(data["tp_mode"])
     elif "tp_mode" not in config:
-        config["tp_mode"] = "fixed"
+        config["tp_mode"] = "trailing"
     if "breakeven_lock" in data:
-        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=True)
+        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=False)
     elif "breakeven_lock" not in config:
-        config["breakeven_lock"] = True
+        config["breakeven_lock"] = False
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:

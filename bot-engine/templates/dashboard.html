@@ -762,44 +762,27 @@
                             <div class="hint">Bot dynamically computes USDT size based on current available balance.</div>
                         </div>
 
-                        <!-- Automated Risk & Profit Settings (Custom SL % & Custom TP % Column) -->
-                        <div class="form-row" style="margin-top:8px;">
+                        <!-- Automated Risk & Profit Settings (SL % + Locked Stepped ROE Trailing) -->
+                        <div class="form-row" style="margin-top:8px; align-items:end;">
                             <div class="form-group">
                                 <label>Stop Loss % (Price Move)</label>
                                 <input type="number" id="stopLossPct" value="0.5" min="0.05" max="50" step="0.05" required>
                             </div>
-                            <div class="form-group">
-                                <label>Take Profit % (Price Move, Min 0.30%)</label>
-                                <input type="number" id="takeProfitPct" value="1.5" min="0.3" max="50" step="0.1" required>
-                            </div>
-                        </div>
-                        <div class="form-row" style="margin-top:4px; align-items:end;">
-                            <div class="form-group">
-                                <label>Take Profit Exit Mode</label>
-                                <select id="tpMode" style="width:100%; padding:10px 12px; background:var(--bg-input); border:1px solid var(--border-subtle); color:var(--text-primary); border-radius:8px; font-weight:600;">
-                                    <option value="fixed" selected>🎯 Fixed Target (Custom TP % + Breakeven Lock)</option>
-                                    <option value="trailing">🚀 Stepped ROE Trailing (50%→SL+15% · 100%→SL+50%, TP+150%)</option>
-                                </select>
-                            </div>
                             <div class="form-group" style="display:flex; flex-direction:column; justify-content:center;">
+                                <label>Take Profit Mode (Stepped ROE Trailing)</label>
+                                <input type="hidden" id="tpMode" value="trailing">
                                 <span class="badge" id="slTpPreviewBadge" style="background:rgba(46,207,138,0.12); color:var(--green); border:1px solid rgba(46,207,138,0.3); font-weight:700; padding:10px 12px; border-radius:8px; text-align:center;">
-                                    ⚡ <span id="badgeSlVal">SL: 0.5% (-10% ROE) | TP: 1.5% (+30% ROE) | RR 1:3.0</span>
+                                    ⚡ <span id="badgeSlVal">SL: 0.5% (-10%) | Trail: 50%→+15% SL · 100%→+50% SL / +150% TP</span>
                                 </span>
                             </div>
                         </div>
                         <div id="liqGuardWarning" style="display:none; margin-top:6px; padding:8px 10px; border-radius:6px; background:rgba(246,70,93,0.12); border:1px solid rgba(246,70,93,0.35); color:#ff7b8a; font-size:12px;"></div>
-                        <div class="form-group" style="margin-top:8px;">
-                            <label style="display:flex; align-items:center; gap:10px; cursor:pointer; text-transform:none; letter-spacing:0.01em;">
-                                <input type="checkbox" id="breakevenLock" checked style="width:17px; height:17px; accent-color:#f0b90b;">
-                                <span style="font-size:12.5px; font-weight:700; color:var(--txt-2);">🔒 Auto Breakeven Profit Lock (profit 55% TP pe pahuche to SL entry+fees pe lock ho jaye)</span>
-                            </label>
-                        </div>
                         <div style="margin-top:8px;">
                             <button type="button" id="applyRecommendedPresetBtn" class="btn btn-sm" style="width:100%; background:rgba(240,185,11,0.14); color:#f0b90b; border:1px solid rgba(240,185,11,0.35); font-weight:700; padding:9px 12px; border-radius:8px;" onclick="if(window.applyRecommendedPreset)applyRecommendedPreset();">
                                 ⭐ Apply Safe Stepped Trailing Preset (20x · 15m · SL 0.5% · 50%→+15% SL · 100%→+50%/TP+150%)
                             </button>
                             <div class="hint" style="margin-top:6px;">
-                                🎯 <b>Live Calculation:</b> Take Profit (+<span id="autoTpDisplay">1.50% (+30% ROE)</span>) &amp; Stop Loss (-<span id="autoSlDisplay">0.50% (-10% ROE @ 20x)</span>). <i>50x+ leverage pe SL ≥ 85% ROE liquidation zone automatic guard hota hai.</i>
+                                🎯 <b>Live Calculation:</b> Take Profit (<span id="autoTpDisplay">Trailing: 50%→SL+15%, 100%→SL+50% &amp; TP+150% ROE</span>) &amp; Stop Loss (-<span id="autoSlDisplay">0.50% (-10% ROE @ 20x)</span>). <i>50x+ leverage pe SL ≥ 85% ROE liquidation zone automatic guard hota hai.</i>
                             </div>
                         </div>
 
@@ -840,15 +823,15 @@
 
                         <div class="hint-card" style="margin-top:12px; border-left:4px solid var(--gold);">
                             <b>🤖 100% AUTOMATED EXECUTION:</b> 
-                            Take Profit (<span id="cardTpDisplay">+1.50% FIXED</span>) + Stop Loss (-<span id="cardSlDisplay">0.50% (-10% ROE)</span>) + Breakeven Profit Lock + EMA55 Reversal.
+                            Take Profit (<span id="cardTpDisplay">50%→+15% SL · 100%→+50% SL / TP+150% ROE</span>) + Stop Loss (-<span id="cardSlDisplay">0.50% (-10% ROE)</span>) + Auto Chop-Box Breakout + EMA55 Reversal.
                         </div>
 
                         <!-- Advanced Strategy Tuning (engine fields) -->
                         <div class="form-row" style="margin-top:18px;">
                             <div class="form-group">
-                                <label>Min EMA Spread % (0 = Fast Auto)</label>
+                                <label>Min EMA Spread % (0 = Auto Chop-Box Zero Lag)</label>
                                 <input type="number" id="minEmaSpread" value="0" min="0" max="5" step="0.01">
-                                <div class="hint">0 = Fast Auto (0.08% majors, 0.12% memes — chop protection). High value (0.25%+) rakhne se entry late hoti hai!</div>
+                                <div class="hint">0 = Auto Chop-Box Breakout (Chop box me 0 entry, breakdown pe 1st candle zero-lag entry!). 0.15+ mat rakhein warna entry late hogi.</div>
                             </div>
                             <div class="form-group">
                                 <label>Fresh Cross Window (2–8 candles)</label>

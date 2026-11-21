@@ -253,16 +253,17 @@ class TestEngineApi:
         assert abs(reloaded["sp"] - 0.15) < 1e-9
         assert reloaded["fw"] == 4
 
-        # Verify Dashboard UI exposes editable TP column, exit mode, breakeven lock & preset button
+        # Verify Dashboard UI exposes SL input, locked Stepped ROE Trailing preview badge & preset button (manual TP column removed)
         with urllib.request.urlopen(urllib.request.Request(base + "/", headers=hdr), timeout=10) as r:
             html = r.read().decode("utf-8")
         for token in (
-            'type="number" id="takeProfitPct"',
-            'id="tpMode"',
-            'id="breakevenLock"',
+            'type="number" id="stopLossPct"',
+            'id="tpMode" value="trailing"',
+            'id="slTpPreviewBadge"',
             'applyRecommendedPreset()',
         ):
             assert token in html
+        assert 'type="number" id="takeProfitPct"' not in html
 
     def test_unknown_api_route_returns_json_not_html(self, engine):
         """Unknown /api/* paths must return JSON 404, never Flask <!doctype html>."""

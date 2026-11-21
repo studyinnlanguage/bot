@@ -1125,7 +1125,7 @@ class PrimeXBTTrader:
 
         # Paper/testnet mode without API keys: no remote call would ever
         # succeed (unsigned requests get 401) — store locally and say so.
-        if not self.api_key or not self.private_key:
+        if not self.has_valid_auth and not (self.api_key and self.private_key):
             self._symbol_leverage[clean_sym] = target_lev
             logger.info(
                 "PrimeXBT leverage %dx stored locally for %s (paper mode — no API keys)",
@@ -1419,6 +1419,8 @@ class PrimeXBTTrader:
 
         # Fallback to general symbol close
         res = self._request("POST", "/v3/trading/positions/close", body={"symbol": clean_sym})
+        if isinstance(res, dict) and (res.get("success") or not res.get("error")):
+            return {"success": True, "symbol": clean_sym, "closed_size": pos.size, "raw": res}
         return res
 
     def reverse_position(self, symbol: str) -> dict:

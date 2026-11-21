@@ -89,13 +89,13 @@ class SymbolWorker(threading.Thread):
         #                     (LONG opened at EMA55 BOTTOM -> TP when EMA55 TOP)
         #   'both'         -> whichever triggers FIRST (fixed price OR EMA flip)
         # `entry_signal` remembers the signal that opened the current position
-        self.tp_mode = normalize_tp_mode(self.config.get("tp_mode", "fixed"))
+        self.tp_mode = normalize_tp_mode(self.config.get("tp_mode", "trailing"))
         self.tp_pct = clamp_take_profit(self.config.get("take_profit_pct", 1.5))
-        self.breakeven_lock = normalize_breakeven_lock(self.config.get("breakeven_lock"), default=True)
+        self.breakeven_lock = normalize_breakeven_lock(self.config.get("breakeven_lock"), default=False)
         self.entry_signal = None          # Signal.BUY / Signal.SELL / None
         self.ema_reversal_tp_fired = False  # one-shot guard per position
         # Trailing TP / Breakeven SL state
-        self.tp_stage = 1                 # 1 = primary target, 2+ = trailing active
+        self.tp_stage = 0                 # 0 = watching +50% ROE, 1 = +15% locked, 2 = +50% locked & +150% TP
         self.r_distance = 0.0
         self.target_roe_pct = 100.0
         self.initial_sl_price = None
@@ -110,12 +110,9 @@ class SymbolWorker(threading.Thread):
         self._last_df = None  # Cache last klines DataFrame for instant chart update
         self._last_mark_price = None  # Cache last mark price
         self._last_cross_time = 0  # Timestamp of last cross (prevent rapid crosses)
-        # Adaptive spread filter (FAST ENTRY): 0.05% for high-beta meme coins, 0.03% for
-        # majors/alts. Old 0.15%/0.20% values delayed entries by 3-6 candles (entering at the
-        # top of pumps like $10.88 instead of $10.83) and caused 80%+ of crosses to expire
-        # past fresh_window=2 before spread opened!
-        # min_ema_spread <= 0 (or absent) = FAST AUTO per-symbol default below.
-        default_spread = 0.12 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.08
+        # Zero-lag default spread (0.02%) when min_ema_spread == 0 because Chop-Box Breakout
+        # + EMA55 Direction in EMAQuadStrategy blocks braided chop boxes without 0.15% lag.
+        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
         try:
             cfg_spread = float(self.config.get("min_ema_spread", 0) or 0)
         except (TypeError, ValueError):
@@ -146,7 +143,7 @@ class SymbolWorker(threading.Thread):
     def update_strategy_tuning(self, cfg: dict) -> tuple[bool, int, float]:
         """Live-update strategy, SL/TP, TP mode, breakeven lock & timeframe on running worker."""
         self.config = cfg
-        default_spread = 0.12 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.08
+        default_spread = 0.05 if (self.symbol.startswith("1000") or any(m in self.symbol for m in ("DOGE", "SHIB", "PEPE", "BONK", "FLOKI", "BOME"))) else 0.03
         try:
             cfg_spread = float(cfg.get("min_ema_spread", 0) or 0)
         except (TypeError, ValueError):
@@ -159,8 +156,8 @@ class SymbolWorker(threading.Thread):
         new_lev = max(1, int(cfg.get("leverage", 20) or 20))
         new_sl, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), new_lev)
         new_tp = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
-        new_mode = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
-        new_be = normalize_breakeven_lock(cfg.get("breakeven_lock"), default=True)
+        new_mode = normalize_tp_mode(cfg.get("tp_mode", "trailing"))
+        new_be = normalize_breakeven_lock(cfg.get("breakeven_lock"), default=False)
         prev_sl = getattr(self, "_last_sl_pct", new_sl)
         prev_tp = getattr(self, "tp_pct", new_tp)
         changed = (
@@ -680,12 +677,21 @@ class SymbolWorker(threading.Thread):
                     calc_roe = (calc_pnl / t_margin * 100.0) if t_margin > 0 else 0.0
                     calc_fees = (t_entry + mp) * trade_qty * 0.0006
 
-                # Accurately classify external exit reason
+                # Accurately classify external exit reason (distinguishing Trailing Step 1/2 locked SL from TP)
                 open_duration = time.time() - getattr(self, "_last_open_timestamp", 0.0)
+                cur_stage = int(getattr(self, "tp_stage", 0) or 0)
                 if abs(calc_pnl) < 0.01 and open_duration < 45.0:
                     ext_reason = "⚠️ Unfilled Order Cancelled / Expired"
                 elif calc_pnl > 0:
-                    ext_reason = f"🎯 Exchange TP Hit (+${calc_pnl:.2f})"
+                    if getattr(self, "tp_mode", "trailing") == "trailing" and cur_stage == 1:
+                        ext_reason = f"🔒 Trailing Step 1 SL Hit (+15% ROE Locked, +${calc_pnl:.2f})"
+                    elif getattr(self, "tp_mode", "trailing") == "trailing" and cur_stage >= 2:
+                        if self.tp_price and abs(mp - self.tp_price) <= abs(mp - (self.sl_price or 0)):
+                            ext_reason = f"🎯 Trailing TP Hit (+150% ROE, +${calc_pnl:.2f})"
+                        else:
+                            ext_reason = f"🎯 Trailing Step 2 SL Hit (+50% ROE Locked, +${calc_pnl:.2f})"
+                    else:
+                        ext_reason = f"🎯 Exchange TP Hit (+${calc_pnl:.2f})"
                 elif calc_pnl < 0:
                     ext_reason = f"🛡️ Exchange SL Hit (-${abs(calc_pnl):.2f})"
                 else:
@@ -788,7 +794,7 @@ class SymbolWorker(threading.Thread):
                 _pos_lev = pos.leverage if (pos.leverage and int(pos.leverage) > 1) else self._get_effective_leverage(symbol)
                 sl_pct_val, _, _ = clamp_stop_loss(cfg.get("stop_loss_pct", 0.5), int(_pos_lev or 20))
                 tp_pct_val = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
-                tp_mode_val = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
+                tp_mode_val = normalize_tp_mode(cfg.get("tp_mode", "trailing"))
                 inferred_entry_signal = Signal.BUY if actual_side == "LONG" else Signal.SELL
                 self._set_software_sl_tp(
                     symbol, actual_side, entry, sl_pct_val, tp_pct_val,
@@ -930,7 +936,7 @@ class SymbolWorker(threading.Thread):
             with self.engine._trade_entry_lock:
                 can_open, rv_reason = self.engine.can_open_new_trade(symbol, is_reversal=True)
                 if not can_open:
-                    if time.time() - getattr(self, "_reversal_armed_ts", 0.0) < 30.0:
+                    if pos.side != "NONE" and pos.size != 0 and (time.time() - getattr(self, "_reversal_armed_ts", 0.0) < 30.0):
                         return  # Wait for position cleanup to finish on next poll
                     self.reversal_pending_side = None
                     self.waiting_for_new_cross = True
@@ -1104,7 +1110,7 @@ class SymbolWorker(threading.Thread):
                 "msg": f"[{symbol}] 🛡️ Liquidation SL guard: SL @ {lev}x clamped to {sl_pct:.2f}% (-{sl_pct * lev:.0f}% ROE)"
             })
         tp_pct = clamp_take_profit(cfg.get("take_profit_pct", 1.5))
-        tp_mode = normalize_tp_mode(cfg.get("tp_mode", "fixed"))
+        tp_mode = normalize_tp_mode(cfg.get("tp_mode", "trailing"))
 
         sl_dist = mark_price * (sl_pct / 100.0)
         tp_dist = mark_price * (tp_pct / 100.0)

@@ -51,7 +51,7 @@ class EMAQuadStrategy:
     """Quad-EMA crossover strategy with sequential alignment & anti-chop spread guard."""
 
     def __init__(self, ema_short=8, ema_mid1=13, ema_mid2=21, ema_long=55,
-                 min_spread_pct=0.03, fresh_window=2):
+                 min_spread_pct=0.02, fresh_window=2):
         self.indicators = IndicatorSet(ema_short, ema_mid1, ema_mid2, ema_long)
         self.ema_short = ema_short
         self.ema_mid1 = ema_mid1
@@ -159,18 +159,54 @@ class EMAQuadStrategy:
         is_buy_candidate = ema55_at_bottom and (float(e8) >= float(e13) and float(e13) >= float(e21))
         is_sell_candidate = ema55_at_top and (float(e8) <= float(e13) and float(e13) <= float(e21))
 
-        # 2. Minimum Spread Chop Filter
-        is_flat_chop = sep_pct < self.min_spread_pct
+        # 2. Smart Anti-Chop Box Breakout + EMA55 Direction Filter (Zero Spread Delay on Breakouts)
+        closed_close = float(closed_candle["close"])
+        box_breakout_confirmed = False
+        in_chop_box = False
+        ema55_slope_pct = 0.0
+        braid_crosses = 0
+
+        if len(enriched) >= 18 and (is_buy_candidate or is_sell_candidate):
+            recent_box = enriched.iloc[-17:-2]  # 15 closed candles prior to closed_candle
+            box_high = float(recent_box["close"].max())
+            box_low = float(recent_box["close"].min())
+            e55_prev3 = float(enriched.iloc[-5]["ema_55"]) if not pd.isna(enriched.iloc[-5]["ema_55"]) else float(e55)
+            ema55_slope_pct = ((float(e55) - e55_prev3) / e55_prev3 * 100.0) if e55_prev3 else 0.0
+
+            # Count how many times EMA8 and EMA21 crossed back and forth in the recent 15-candle box (braided chop detector)
+            e8_arr = recent_box["ema_8"].astype(float).values
+            e21_arr = recent_box["ema_21"].astype(float).values
+            diff_sign = (e8_arr > e21_arr).astype(int)
+            if len(diff_sign) > 1:
+                braid_crosses = int((diff_sign[1:] != diff_sign[:-1]).sum())
+
+            if is_buy_candidate:
+                if closed_close >= box_high and ema55_slope_pct >= 0.0:
+                    box_breakout_confirmed = True
+                elif (braid_crosses >= 2 and closed_close < box_high) or (ema55_slope_pct < -0.015):
+                    in_chop_box = True
+            elif is_sell_candidate:
+                if closed_close <= box_low and ema55_slope_pct <= 0.0:
+                    box_breakout_confirmed = True
+                elif (braid_crosses >= 2 and closed_close > box_low) or (ema55_slope_pct > 0.015):
+                    in_chop_box = True
+
+        # If box breakout is confirmed, bypass slow spread waiting (only require minimal 0.005% cross clearance so Crypto, Gold/Commodities, Stocks/Indices & Forex all enter on 1st candle)
+        eff_min_spread = 0.005 if (box_breakout_confirmed and self.min_spread_pct <= 0.15) else self.min_spread_pct
+        is_flat_chop = in_chop_box or (sep_pct < eff_min_spread)
 
         if is_flat_chop and (is_buy_candidate or is_sell_candidate):
             signal = Signal.HOLD
-            reason = f"Flat market chop (EMA spread {sep_pct:.3f}% < {self.min_spread_pct:.3f}% required) -> HOLD"
+            if in_chop_box:
+                reason = f"Chop-Box filter active (braid={braid_crosses}, slope={ema55_slope_pct:+.3f}%, price inside box) -> HOLD"
+            else:
+                reason = f"Flat market chop (EMA spread {sep_pct:.3f}% < {eff_min_spread:.3f}% required) -> HOLD"
         elif is_buy_candidate:
             signal = Signal.BUY
-            reason = f"EMA55 crossed below ALL lines & 8>=13>=21 (spread={sep_pct:.2f}%) -> BUY (LONG)"
+            reason = f"EMA55 crossed below ALL lines & 8>=13>=21 (spread={sep_pct:.2f}%, slope={ema55_slope_pct:+.3f}%) -> BUY (LONG)"
         elif is_sell_candidate:
             signal = Signal.SELL
-            reason = f"EMA55 crossed above ALL lines & 8<=13<=21 (spread={sep_pct:.2f}%) -> SELL (SHORT)"
+            reason = f"EMA55 crossed above ALL lines & 8<=13<=21 (spread={sep_pct:.2f}%, slope={ema55_slope_pct:+.3f}%) -> SELL (SHORT)"
         else:
             signal = Signal.HOLD
             reason = "EMA55 tangled / inside lines (no full cross) -> HOLD"

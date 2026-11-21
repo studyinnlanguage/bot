@@ -25,8 +25,8 @@ RECOMMENDED_PRESET = {
     "stop_loss_pct": 0.5,
     "take_profit_pct": 1.5,
     "tp_mode": "trailing",
-    "breakeven_lock": True,
-    "min_ema_spread": 0.15,
+    "breakeven_lock": False,
+    "min_ema_spread": 0.0,
     "max_concurrent_trades": 2,
     "reentry_cooldown_sec": 180,
 }
@@ -77,8 +77,8 @@ def clamp_take_profit(raw_tp, default: float = TP_DEFAULT) -> float:
     return round(tp, 4)
 
 
-def normalize_tp_mode(raw_mode, default: str = "fixed") -> str:
-    """Normalize exit TP mode: 'fixed' (exchange TP) or 'trailing' (ride big moves)."""
+def normalize_tp_mode(raw_mode, default: str = "trailing") -> str:
+    """Normalize exit TP mode: 'trailing' (Stepped ROE Trailing) or 'fixed'."""
     val = str(raw_mode or default).strip().lower()
     return val if val in VALID_TP_MODES else default
 

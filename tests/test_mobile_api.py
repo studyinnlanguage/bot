@@ -16,15 +16,18 @@ sys.path.insert(0, str(REPO))
 os.chdir(REPO)
 
 _DB_FILE = REPO / "database.json"
+_DB_BAK_FILE = REPO / "database.json.bak"
 
 
 @pytest.fixture(scope="module")
 def client():
-    # backup real database.json
+    # backup real database.json (and remove stale .bak so load_db starts fresh)
     backup = None
     if _DB_FILE.exists():
         backup = _DB_FILE.read_text()
         _DB_FILE.unlink()
+    if _DB_BAK_FILE.exists():
+        _DB_BAK_FILE.unlink()
     os.environ.setdefault("ADMIN_SECRET", "test-admin-secret-pytest")
     # Other test modules prepend bot-engine/ during collection; keep REPO at index 0.
     sys.path.insert(0, str(REPO))
@@ -44,6 +47,8 @@ def client():
     finally:
         saas._check_rate_limit = orig_saas_rl
         mobile_api._cfg["rate_limit"] = orig_mob_rl
+        if _DB_BAK_FILE.exists():
+            _DB_BAK_FILE.unlink()
         if backup is not None:
             _DB_FILE.write_text(backup)
         elif _DB_FILE.exists():

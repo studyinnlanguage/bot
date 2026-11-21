@@ -161,8 +161,8 @@ DEFAULT_CONFIG = {
     "stop_loss_pct": 0.5,
     "take_profit_pct": 1.5,
     "trailing_roe_pct": 100.0,
-    "tp_mode": "fixed",
-    "breakeven_lock": True,
+    "tp_mode": "trailing",
+    "breakeven_lock": False,
     "mode": "both",
     "auto_start": False,
     "telegram_enabled": False,
@@ -199,14 +199,14 @@ def load_config() -> dict:
             if cfg.get("tp_mode") == "both" and cfg.get("take_profit_pct") == 6 and cfg.get("stop_loss_pct") == 2:
                 merged["stop_loss_pct"] = 0.5
                 merged["take_profit_pct"] = 1.5
-                merged["tp_mode"] = "fixed"
+                merged["tp_mode"] = "trailing"
             else:
                 _lev_m = int(merged.get("leverage", 20) or 20)
                 _sl_m, _, _ = clamp_stop_loss(merged.get("stop_loss_pct", 0.5), _lev_m)
                 merged["stop_loss_pct"] = _sl_m
                 merged["take_profit_pct"] = clamp_take_profit(merged.get("take_profit_pct", 1.5))
-                merged["tp_mode"] = normalize_tp_mode(merged.get("tp_mode", "fixed"))
-            merged["breakeven_lock"] = normalize_breakeven_lock(merged.get("breakeven_lock"), default=True)
+                merged["tp_mode"] = normalize_tp_mode(merged.get("tp_mode", "trailing"))
+            merged["breakeven_lock"] = normalize_breakeven_lock(merged.get("breakeven_lock"), default=False)
             merged["timeframe"] = normalize_timeframe(merged.get("timeframe", "15m"), default="15m")
             merged["trailing_roe_pct"] = 100.0
             try:
@@ -474,8 +474,8 @@ def update_config():
     CONFIG["stop_loss_pct"] = _sl_val
     CONFIG["take_profit_pct"] = clamp_take_profit(CONFIG.get("take_profit_pct", 1.5))
     CONFIG["trailing_roe_pct"] = 100.0
-    CONFIG["tp_mode"] = normalize_tp_mode(CONFIG.get("tp_mode", "fixed"))
-    CONFIG["breakeven_lock"] = normalize_breakeven_lock(CONFIG.get("breakeven_lock"), default=True)
+    CONFIG["tp_mode"] = normalize_tp_mode(CONFIG.get("tp_mode", "trailing"))
+    CONFIG["breakeven_lock"] = normalize_breakeven_lock(CONFIG.get("breakeven_lock"), default=False)
     CONFIG["timeframe"] = normalize_timeframe(CONFIG.get("timeframe", "15m"), default="15m")
     if _sl_clamped:
         try:

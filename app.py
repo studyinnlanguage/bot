@@ -3329,11 +3329,11 @@ def api_bot_config():
     if "tp_mode" in data:
         config["tp_mode"] = normalize_tp_mode(data["tp_mode"])
     elif "tp_mode" not in config:
-        config["tp_mode"] = "fixed"
+        config["tp_mode"] = "trailing"
     if "breakeven_lock" in data:
-        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=True)
+        config["breakeven_lock"] = normalize_breakeven_lock(data["breakeven_lock"], default=False)
     elif "breakeven_lock" not in config:
-        config["breakeven_lock"] = True
+        config["breakeven_lock"] = False
     if "mode" in data:
         config["mode"] = data["mode"] if data["mode"] in ("long", "short", "both") else "both"
     if "max_concurrent_trades" in data:
